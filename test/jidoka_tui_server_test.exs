@@ -16,11 +16,14 @@ defmodule Jidoka.TuiServerTest do
     assert state.mode == :attached
     assert is_binary(state.session_ref)
     assert is_list(state.activity_lines)
+    assert is_list(state.focused_progress_lines)
     assert Map.has_key?(model, :status)
-    assert Map.has_key?(model, :activity)
+    assert Map.has_key?(model, :focused_run)
+    assert Map.has_key?(model, :events)
     assert Map.has_key?(model, :input)
     assert String.contains?(render, "[status]")
-    assert String.contains?(render, "[activity]")
+    assert String.contains?(render, "[focused run]")
+    assert String.contains?(render, "[event stream]")
     assert String.contains?(render, "[operator input]")
 
     on_exit(fn -> close_session(state.session_ref) end)
@@ -80,7 +83,7 @@ defmodule Jidoka.TuiServerTest do
     {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
     on_exit(fn -> safe_stop_tui(pid) end)
 
-    assert {:ok, %{run: run}} =
+    assert {:ok, %{run: run, attempt: attempt}} =
              Agent.submit(session_id, "tui event smoke", execution_adapter: Success)
 
     assert :ok =
@@ -88,11 +91,21 @@ defmodule Jidoka.TuiServerTest do
                state.mode == :attached &&
                  state.active_run_id == run.id &&
                  Enum.any?(state.activity_lines, &String.contains?(&1, "run_submitted")) &&
+                 Enum.any?(
+                   state.focused_progress_lines,
+                   &String.contains?(&1, "attempt_progress")
+                 ) &&
                  not is_nil(state.session_ref)
              end)
 
     state = TuiServer.state(pid)
+    model = TuiServer.render_model(pid)
+
     assert state.active_run_status in [:queued, :running, :awaiting_approval]
+    assert model.focused_run.heading == "focused run"
+    assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "run_id=#{run.id}"))
+    assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "attempt_id=#{attempt.id}"))
+    assert Enum.any?(model.events.lines, &String.contains?(&1, "attempt_progress"))
   end
 
   defp await_session_activity_contains(pid, fun) do

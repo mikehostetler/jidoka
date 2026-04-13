@@ -294,3 +294,33 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - Assumed `Jidoka.Agent.open/1` and `Jidoka.Agent.resume/1` signatures align with existing project usage and remain compatible.
 - Assumed the TUI shell scope for this story does not require persistent event-stream subscriptions (polling-based local updates is acceptable within ST-MVP-008 scope).
 - No blockers preventing merge.
+1) changed files
+
+- [lib/jidoka/tui_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex)
+- [lib/jidoka/tui_renderer.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex)
+- [test/jidoka_tui_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs)
+
+2) tests/commands executed
+
+- `mix format lib/jidoka/tui_server.ex test/jidoka_tui_server_test.exs lib/jidoka/tui_renderer.ex`
+- `mix precommit` (passes)
+
+3) acceptance criteria coverage
+
+- Focused run view added in renderer/state:
+  - `tui_server` now derives and stores `active_run_task`, `active_run_attempt_count`, `active_attempt_number`.
+  - `tui_renderer` adds a dedicated `[focused run]` section showing run/attempt identity and status plus recent progress lines.
+- Live transcript/event pane added:
+  - `tui_renderer` now renders `[event stream]` as its event/transcript region.
+  - `tui_server` maintains this pane from snapshot-backed bus events via `summarize_events/4`.
+- Incremental/batched rendering behavior:
+  - Event and progress lines are incrementally appended from the event log using last-event cursor (`last_event_count`), with bounded history windows (`@event_history_limit = 24`, `@attempt_progress_history_limit = 8`) to prevent unstable/thrashy updates.
+- Reads from snapshots/events only:
+  - Server flow remains `Agent.snapshot/1` and `Bus.get_log/1`; no runtime internals introspected in renderer/state derivation.
+- Controller-level coverage:
+  - Updated `test/jidoka_tui_server_test.exs` assertion now validates that event updates drive view-model fields (`active_run_id/attempt_id`, `activity_lines`, `focused_progress_lines`) and that `[focused run]` + `[event stream]` model keys render expected data.
+
+4) blockers/assumptions
+
+- Assumption: long-running output stability is satisfied through bounded incremental polling-based batching (existing refresh cadence + capped event history) rather than a separate scheduler-based frame throttler.
+- No blockers encountered.

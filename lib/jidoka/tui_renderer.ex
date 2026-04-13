@@ -5,16 +5,22 @@ defmodule Jidoka.TuiRenderer do
 
   alias Jidoka.TuiServer.State
 
-  @activity_fallback [
+  @event_fallback [
     "no runtime events yet",
     "waiting for snapshots or event stream"
+  ]
+
+  @focused_progress_fallback [
+    "no attempt progress yet",
+    "waiting for attempt progress event"
   ]
 
   @prompt "jidoka> "
 
   def render_model(%State{} = state) do
     status_lines = status_lines(state)
-    activity_lines = activity_lines(state)
+    focused_run_lines = focused_run_lines(state)
+    event_lines = event_lines(state)
     input_lines = input_lines(state)
 
     %{
@@ -22,9 +28,13 @@ defmodule Jidoka.TuiRenderer do
         heading: "status",
         lines: status_lines
       },
-      activity: %{
-        heading: "activity",
-        lines: activity_lines
+      focused_run: %{
+        heading: "focused run",
+        lines: focused_run_lines
+      },
+      events: %{
+        heading: "event stream",
+        lines: event_lines
       },
       input: %{
         heading: "operator input",
@@ -38,7 +48,8 @@ defmodule Jidoka.TuiRenderer do
 
     [
       render_region("status", model.status.lines),
-      render_region("activity", model.activity.lines),
+      render_region("focused run", model.focused_run.lines),
+      render_region("event stream", model.events.lines),
       render_region("operator input", model.input.lines)
     ]
     |> Enum.join("\n")
@@ -65,19 +76,38 @@ defmodule Jidoka.TuiRenderer do
     ]
   end
 
-  defp activity_lines(state) do
+  defp event_lines(state) do
     case state.activity_lines do
       [] ->
-        @activity_fallback
+        @event_fallback
 
       lines ->
         lines
     end
   end
 
+  defp focused_run_lines(state) do
+    [
+      "run_id=#{state.active_run_id || "<none>"}",
+      "run_status=#{inspect(state.active_run_status)}",
+      "run_task=#{state.active_run_task || "<none>"}",
+      "run_attempt_count=#{state.active_run_attempt_count}",
+      "attempt_id=#{state.active_attempt_id || "<none>"}",
+      "attempt_number=#{state.active_attempt_number || "<none>"}",
+      "attempt_status=#{inspect(state.active_attempt_status)}",
+      "recent_progress:",
+      "",
+      maybe_progress_lines(state.focused_progress_lines)
+    ]
+    |> List.flatten()
+  end
+
   defp input_lines(state) do
     ["prompt=#{@prompt}", "buffer=#{state.input_buffer || ""}"]
   end
+
+  defp maybe_progress_lines([]), do: @focused_progress_fallback
+  defp maybe_progress_lines(lines), do: Enum.map(lines, &"  #{&1}")
 
   defp format_connection(%{mode: :attached}), do: "attached"
   defp format_connection(%{mode: :recoverable}), do: "recoverable"

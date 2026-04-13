@@ -14,6 +14,7 @@ defmodule Jidoka.TuiServer do
 
   @default_poll_interval 150
   @event_history_limit 24
+  @attempt_progress_history_limit 8
 
   defmodule State do
     @moduledoc false
@@ -27,8 +28,12 @@ defmodule Jidoka.TuiServer do
       :active_run_status,
       :active_attempt_id,
       :active_attempt_status,
+      :active_run_task,
+      :active_run_attempt_count,
+      :active_attempt_number,
       :event_path,
       :activity_lines,
+      :focused_progress_lines,
       :input_buffer,
       :last_event_count,
       :last_error,
@@ -52,8 +57,12 @@ defmodule Jidoka.TuiServer do
             active_run_status: atom() | nil,
             active_attempt_id: String.t() | nil,
             active_attempt_status: atom() | nil,
+            active_run_task: String.t() | nil,
+            active_run_attempt_count: non_neg_integer(),
+            active_attempt_number: non_neg_integer() | nil,
             event_path: String.t() | nil,
             activity_lines: [String.t()],
+            focused_progress_lines: [String.t()],
             input_buffer: String.t(),
             last_event_count: non_neg_integer(),
             last_error: term() | nil,
@@ -104,7 +113,11 @@ defmodule Jidoka.TuiServer do
         active_run_status: nil,
         active_attempt_id: nil,
         active_attempt_status: nil,
+        active_run_task: nil,
+        active_run_attempt_count: 0,
+        active_attempt_number: nil,
         activity_lines: [],
+        focused_progress_lines: [],
         input_buffer: "",
         last_event_count: 0,
         last_error: nil,
@@ -186,7 +199,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: nil,
             active_attempt_id: nil,
             active_attempt_status: nil,
+            active_run_task: nil,
+            active_run_attempt_count: 0,
+            active_attempt_number: nil,
             activity_lines: [],
+            focused_progress_lines: [],
             last_event_count: 0,
             last_error: :not_found
         }
@@ -203,7 +220,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: nil,
             active_attempt_id: nil,
             active_attempt_status: nil,
+            active_run_task: nil,
+            active_run_attempt_count: 0,
+            active_attempt_number: nil,
             activity_lines: [],
+            focused_progress_lines: [],
             last_event_count: 0,
             last_error: reason
         }
@@ -227,9 +248,11 @@ defmodule Jidoka.TuiServer do
   defp hydrate_from_snapshot(state) do
     with {:ok, snapshot} <- Agent.snapshot(state.session_ref),
          {:ok, log} <- Bus.get_log(path: state.event_path) do
-      {activity_lines, last_event_count} = summarize_events(state, log)
-
       derive_state = derive_status(snapshot)
+
+      {activity_lines, focused_progress_lines, last_event_count} =
+        summarize_events(state, log, derive_state.active_run_id, derive_state.active_attempt_id)
+
       session_status = derive_state.session_status
 
       if session_status == :closed do
@@ -242,7 +265,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: derive_state.active_run_status,
             active_attempt_id: derive_state.active_attempt_id,
             active_attempt_status: derive_state.active_attempt_status,
+            active_run_task: derive_state.active_run_task,
+            active_run_attempt_count: derive_state.active_run_attempt_count,
+            active_attempt_number: derive_state.active_attempt_number,
             activity_lines: activity_lines,
+            focused_progress_lines: focused_progress_lines,
             last_event_count: last_event_count,
             last_error: nil
         }
@@ -256,7 +283,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: derive_state.active_run_status,
             active_attempt_id: derive_state.active_attempt_id,
             active_attempt_status: derive_state.active_attempt_status,
+            active_run_task: derive_state.active_run_task,
+            active_run_attempt_count: derive_state.active_run_attempt_count,
+            active_attempt_number: derive_state.active_attempt_number,
             activity_lines: activity_lines,
+            focused_progress_lines: focused_progress_lines,
             last_event_count: last_event_count,
             last_error: nil
         }
@@ -272,7 +303,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: nil,
             active_attempt_id: nil,
             active_attempt_status: nil,
+            active_run_task: nil,
+            active_run_attempt_count: 0,
+            active_attempt_number: nil,
             activity_lines: [],
+            focused_progress_lines: [],
             last_event_count: 0,
             last_error: :not_found
         }
@@ -287,7 +322,11 @@ defmodule Jidoka.TuiServer do
             active_run_status: nil,
             active_attempt_id: nil,
             active_attempt_status: nil,
+            active_run_task: nil,
+            active_run_attempt_count: 0,
+            active_attempt_number: nil,
             activity_lines: [],
+            focused_progress_lines: [],
             last_event_count: 0,
             last_error: :disconnected
         }
@@ -298,13 +337,17 @@ defmodule Jidoka.TuiServer do
     session = snapshot.session
     active_run = active_run(snapshot.runs, session)
     active_attempt = active_attempt(snapshot.attempts, active_run)
+    active_run_attempt_count = active_attempt_count(snapshot.attempts, active_run)
 
     %{
       session_status: session.status,
       active_run_id: active_run && active_run.id,
       active_run_status: active_run && active_run.status,
+      active_run_task: active_run && active_run.task,
+      active_run_attempt_count: active_run_attempt_count,
       active_attempt_id: active_attempt && active_attempt.id,
-      active_attempt_status: active_attempt && active_attempt.status
+      active_attempt_status: active_attempt && active_attempt.status,
+      active_attempt_number: active_attempt && active_attempt.attempt_number
     }
   end
 
@@ -331,27 +374,145 @@ defmodule Jidoka.TuiServer do
     end
   end
 
-  defp summarize_events(state, log) do
-    total = length(log)
-    start = min(state.last_event_count, total)
-    new_events = Enum.drop(log, start)
-    lines = Enum.map(new_events, &format_event_line/1)
+  defp active_attempt_count(_, nil), do: 0
 
-    updated =
-      state.activity_lines
-      |> Enum.concat(lines)
+  defp active_attempt_count(attempts, %Jidoka.Run{id: run_id}) do
+    Enum.count(attempts, &(&1.run_id == run_id))
+  end
+
+  defp summarize_events(state, log, active_run_id, active_attempt_id) do
+    total = length(log)
+
+    same_focus =
+      state.active_run_id == active_run_id and state.active_attempt_id == active_attempt_id
+
+    start = if same_focus, do: min(state.last_event_count, total), else: 0
+    new_events = Enum.drop(log, start)
+    previous_activity_lines = if same_focus, do: state.activity_lines, else: []
+    previous_progress_lines = if same_focus, do: state.focused_progress_lines, else: []
+
+    focused_events =
+      new_events
+      |> Enum.filter(&event_for_active_run?(&1, active_run_id, active_attempt_id))
+      |> Enum.map(&format_event_line/1)
+
+    focused_progress_events =
+      new_events
+      |> Enum.filter(&attempt_progress_for_active_attempt?(&1, active_attempt_id))
+      |> Enum.map(&format_event_line/1)
+
+    updated_activity_lines =
+      previous_activity_lines
+      |> Enum.concat(focused_events)
       |> Enum.take(-@event_history_limit)
 
-    {updated, total}
+    updated_progress_lines =
+      previous_progress_lines
+      |> Enum.concat(focused_progress_events)
+      |> Enum.take(-@attempt_progress_history_limit)
+
+    {updated_activity_lines, updated_progress_lines, total}
   end
 
   defp format_event_line(%{signal: signal}) when is_map(signal) do
     payload = Map.get(signal, :payload, %{})
     type = Map.get(signal, :type, :unknown)
-    "event=#{type} payload=#{inspect(payload)}"
+    run_id = Map.get(payload, :run_id, "<none>")
+    attempt_id = Map.get(payload, :attempt_id, "<none>")
+    details = event_line_details(type, payload)
+
+    [
+      "event=#{type}",
+      "run=#{run_id}",
+      "attempt=#{attempt_id}",
+      details
+    ]
+    |> Enum.filter(&(&1 != nil))
+    |> Enum.filter(&(&1 != ""))
+    |> Enum.join(" ")
   end
 
   defp format_event_line(_), do: "event=unknown"
+
+  defp event_line_details(:attempt_progress, payload) when is_map(payload) do
+    label = Map.get(payload, :label, "unknown")
+    message = Map.get(payload, :message, "")
+    status = Map.get(payload, :status, :none)
+
+    cond do
+      is_binary(message) and byte_size(message) > 0 ->
+        "label=#{label} message=#{message} status=#{status}"
+
+      true ->
+        "label=#{label} status=#{status}"
+    end
+  end
+
+  defp event_line_details(_, payload) when is_map(payload) do
+    status = Map.get(payload, :status)
+    operation = Map.get(payload, :operation)
+    reason = Map.get(payload, :reason)
+    verification_status = Map.get(payload, :verification_status)
+
+    [
+      status,
+      operation,
+      reason,
+      verification_status
+    ]
+    |> Enum.with_index()
+    |> Enum.reduce([], fn {value, index}, parts ->
+      case {index, value} do
+        {0, nil} -> parts
+        {0, _} -> [~s(status=#{inspect(value)}) | parts]
+        {1, nil} -> parts
+        {1, _} -> [~s(operation=#{inspect(value)}) | parts]
+        {2, nil} -> parts
+        {2, _} -> [~s(reason=#{inspect(value)}) | parts]
+        {3, nil} -> parts
+        {3, _} -> [~s(verification=#{inspect(value)}) | parts]
+        _ -> parts
+      end
+    end)
+    |> Enum.reverse()
+    |> Enum.join(" ")
+  end
+
+  defp event_line_details(_, _), do: nil
+
+  defp event_for_active_run?(%{signal: signal}, active_run_id, active_attempt_id) do
+    payload = Map.get(signal, :payload, %{})
+    type = Map.get(signal, :type, :unknown)
+    run_id = Map.get(payload, :run_id)
+    attempt_id = Map.get(payload, :attempt_id)
+
+    cond do
+      is_nil(active_run_id) ->
+        type in [:session_opened, :session_closed]
+
+      is_binary(run_id) and run_id == active_run_id ->
+        true
+
+      is_binary(active_attempt_id) and is_binary(attempt_id) and attempt_id == active_attempt_id ->
+        true
+
+      true ->
+        false
+    end
+  end
+
+  defp event_for_active_run?(_entry, _active_run_id, _active_attempt_id), do: false
+
+  defp attempt_progress_for_active_attempt?(%{signal: signal}, active_attempt_id) do
+    payload = Map.get(signal, :payload, %{})
+    event_type = Map.get(signal, :type, nil)
+    attempt_id = Map.get(payload, :attempt_id)
+
+    is_binary(active_attempt_id) and event_type == :attempt_progress and
+      attempt_id == active_attempt_id
+  end
+
+  defp attempt_progress_for_active_attempt?(_entry, _active_attempt_id), do: false
 
   defp maybe_refresh(%{mode: :attached, session_ref: session_ref, event_path: event_path} = state)
        when is_binary(session_ref) and is_binary(event_path) do
