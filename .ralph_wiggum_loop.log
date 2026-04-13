@@ -131,3 +131,28 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - No `AGENTS.md` was found in the repo to further constrain implementation choices.
 - I implemented only ST-MVP-002 scope and did not touch ST-MVP-003 runtime/server process wiring or execution kernel integration.
 
+1) changed files
+- [lib/jidoka.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka.ex)
+- [lib/jidoka/agent.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/agent.ex)
+- [lib/jidoka/application.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/application.ex)
+- [lib/jidoka/attempt_supervisor.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_supervisor.ex)
+- [lib/jidoka/session_supervisor.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_supervisor.ex)
+- [lib/jidoka/session_process.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_process.ex)
+- [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- [lib/jidoka/bus.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/bus.ex)
+- [test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+
+2) tests/commands executed
+- `mix precommit` (passed)
+
+3) acceptance criteria coverage
+- Application boot tree added: `Jidoka.Application` starts registry, session supervisor, attempt supervisor, bus, and `SessionServer`; coverage in `test/jidoka_session_server_test.exs` checks these processes are alive.
+- `Jidoka.SessionServer` added as central durable writer: owns in-memory persistence adapter state in its own process and provides write APIs for session/run/attempt/lease persistence, plus snapshot generation.
+- Public session lifecycle APIs added: open/resume/lookup/close via `Jidoka.Agent` and `Jidoka`, plus session/run snapshot access through `Jidoka.SessionServer` and facade methods in `Jidoka` (`snapshot_session`, `run_snapshot`).
+- Resume behavior without durable ID change: test exercises open → persist entities → close → resume and asserts same session id plus rebuilt process (`pid` changes) with snapshot still present.
+- Snapshot availability after restore: test validates session snapshot still contains persisted run and run snapshot contains persisted attempt/lease after resume.
+
+4) blockers/assumptions
+- Persistence is in-process (`Jidoka.Persistence.InMemory`) by design for this story phase, consistent with ST-MVP-002 and current dependencies.
+- Full suite/tests beyond `mix precommit` were not run.
+- `Jidoka.Agent` was introduced as a lightweight façade to preserve the existing public-facing pattern and route lifecycle calls through `SessionServer`, without implementing out-of-scope coding/verification flows.

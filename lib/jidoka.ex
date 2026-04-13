@@ -22,4 +22,10 @@ defmodule Jidoka do
 
   @spec close_session(session_handle()) :: :ok | {:error, term()}
   def close_session(session), do: Agent.close(session)
+
+  @spec snapshot_session(session_handle()) :: {:ok, map()} | {:error, term()}
+  def snapshot_session(session), do: Agent.snapshot(session)
+
+  @spec run_snapshot(session_handle(), String.t()) :: {:ok, map()} | {:error, term()}
+  def run_snapshot(session, run_id), do: Agent.run_snapshot(session, run_id)
 end
