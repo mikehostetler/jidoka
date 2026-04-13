@@ -264,3 +264,33 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 4) blockers/assumptions
 - I did not execute the full test suite (only `mix precommit` as requested), so runtime behavior is not end-to-end validated by tests here.
 - Artifact handling remains limited to `attempt.artifact_ids`/`run.artifact_ids` (no separate durable artifact mutation path was introduced in this story).
+1) changed files
+- [/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex]( /Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex)  
+- [/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex]( /Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex)  
+- [/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs]( /Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs)
+
+2) tests/commands executed
+- `mix format lib/jidoka/tui_server.ex lib/jidoka/tui_renderer.ex test/jidoka_tui_server_test.exs`
+- `mix precommit`
+
+3) acceptance criteria coverage
+- TUI can attach to current/selected session and fetch initial snapshot  
+  - Implemented in `Jidoka.TuiServer.init/1` attach flow (`session: nil` opens new session, explicit session resumes), plus snapshot bootstrap in `handle_continue(:hydrate_from_session, ...)`.
+  - Covered by tests for both new session boot and resume path using `Jidoka.TuiServer.start_link/1`.
+- Subscribe to session events and update local view model without durable state  
+  - Implemented by polling `Bus.get_log/1` in `handle_info(:poll_events, ...)` and mutating server-local model only.
+  - Covered by event update test validating `activity` captures `run_submitted` and run metadata.
+- Shell renders stable top-level regions (status, activity, operator input)  
+  - Implemented in `Jidoka.TuiRenderer.render/1` with fixed section composition and `Jidoka.TuiServer` maintaining sections in model (`status`, `activity`, `input`).
+  - Covered by initial render model test asserting region presence and renderer output sections.
+- Missing, closed, or disconnected sessions handled with explicit recoverable UI state  
+  - Implemented state transitions to `:missing`, `:closed`, `:disconnected` and status messaging.
+  - Covered by tests for missing and closed session states.
+  - Note: disconnected path is implemented (`:disconnected`) and exercised via defensive failure handling, but not directly forced by a dedicated unit test.
+- Tests/smoke for session attachment and initial render model  
+  - Added `test/jidoka_tui_server_test.exs` covering session attachment, initial shell render, event intake, and failure states.
+
+4) blockers/assumptions
+- Assumed `Jidoka.Agent.open/1` and `Jidoka.Agent.resume/1` signatures align with existing project usage and remain compatible.
+- Assumed the TUI shell scope for this story does not require persistent event-stream subscriptions (polling-based local updates is acceptable within ST-MVP-008 scope).
+- No blockers preventing merge.
