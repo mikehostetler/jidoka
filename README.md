@@ -35,6 +35,30 @@ flush()
 :ok = Jidoka.IEx.unwatch(sub)
 ```
 
+## MVP Evaluation Harness
+
+Run the fixture corpus for ST-MVP-012 with:
+
+```sh
+mix eval_mvp
+```
+
+The task loads `test/fixtures/mvp_012_fixtures.exs`, runs each scenario through
+the public `Jidoka` facade, and prints a compact outcome line per scenario.
+
+Each line includes:
+
+- run status and final outcome
+- attempt count
+- final verification status
+- artifact references
+
+Output example:
+
+```text
+scenario=passing_task | status=completed | outcome=:approved | attempts=1 | verification=:passed | artifact_refs=[] | artifacts=0 | steps=  :approve
+```
+
 ## Design Notes
 
 - external commands are normalized into canonical signals

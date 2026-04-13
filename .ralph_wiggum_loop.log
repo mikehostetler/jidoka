@@ -367,3 +367,31 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 4) blockers/assumptions
 - Blockers: none.
 - Assumption: there is no separate runtime API for `interrupt` or `steer` in this codebase, so both are intentionally routed as `Agent.cancel/2` aliases through the TUI command surface for ST-MVP-011.
+1) changed files
+
+- [lib/jidoka/hardening/fixture_adapters.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/hardening/fixture_adapters.ex)
+- [lib/jidoka/hardening/evaluation_fixtures.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/hardening/evaluation_fixtures.ex)
+- [lib/jidoka/hardening/evaluation_harness.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/hardening/evaluation_harness.ex)
+- [test/fixtures/mvp_012_fixtures.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/fixtures/mvp_012_fixtures.exs)
+- [lib/mix/tasks/eval_mvp.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/mix/tasks/eval_mvp.ex)
+- [test/jidoka_hardening_evaluation_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_hardening_evaluation_test.exs)
+- [README.md](/Users/mhostetler/Source/OrigJido/jidoka/README.md)
+
+2) tests/commands executed
+
+- `mix precommit` (initially failed on format; then ran formatter and re-ran)
+- `mix format lib/jidoka/hardening/evaluation_harness.ex lib/jidoka/hardening/evaluation_fixtures.ex lib/mix/tasks/eval_mvp.ex lib/jidoka/hardening/fixture_adapters.ex`
+- `mix precommit` (final pass)
+
+3) acceptance criteria coverage
+
+- Fixture corpus exists with required scenarios: `passing_task`, `retryable_verifier_failure`, `resume_oriented` in [test/fixtures/mvp_012_fixtures.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/fixtures/mvp_012_fixtures.exs), and the test asserts presence of all three.
+- End-to-end harness via public APIs: [lib/jidoka/hardening/evaluation_harness.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/hardening/evaluation_harness.ex) uses `Jidoka.start_session/1`, `Jidoka.submit/3`, `Jidoka.approve/2`, `Jidoka.retry/3`, `Jidoka.close_session/1`, `Jidoka.resume_session/1`, and `Jidoka.run_snapshot/2` only.
+- Durable output captured: harness summary includes final outcome, attempt count, verification status/summary, artifact refs and artifact summaries; mix task prints these fields in `print_result/1`.
+- Running harness documented/repeatable: added usage section in [README.md](/Users/mhostetler/Source/OrigJido/jidoka/README.md) with `mix eval_mvp` instructions and expected output shape.
+- Tests/fixture assertions: [test/jidoka_hardening_evaluation_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_hardening_evaluation_test.exs) verifies fixture scenarios, initial/final status/outcome/verifications, attempt counts, and ordered step behavior (retry then approve, resume then approve).
+
+4) blockers/assumptions
+
+- No blockers to implementation.
+- I assumed your request did not require full test execution beyond `mix precommit`; only format checks were explicitly requested to run.
