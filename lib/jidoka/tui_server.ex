@@ -16,6 +16,7 @@ defmodule Jidoka.TuiServer do
   @event_history_limit 24
   @attempt_progress_history_limit 8
   @artifact_focus_types [:diff, :command_log, :verifier_report]
+  @all_control_commands [:interrupt, :steer, :approve, :retry, :reject, :cancel, :reconnect]
 
   defmodule State do
     @moduledoc false
@@ -32,11 +33,13 @@ defmodule Jidoka.TuiServer do
       :active_run_task,
       :active_run_attempt_count,
       :active_attempt_number,
+      :active_run_outcome,
       :active_lease_id,
       :active_lease_workspace_path,
       :event_path,
       :focused_artifacts,
       :active_verification_result,
+      :command_controls,
       :activity_lines,
       :focused_progress_lines,
       :input_buffer,
@@ -65,11 +68,13 @@ defmodule Jidoka.TuiServer do
             active_run_task: String.t() | nil,
             active_run_attempt_count: non_neg_integer(),
             active_attempt_number: non_neg_integer() | nil,
+            active_run_outcome: atom() | nil,
             active_lease_id: String.t() | nil,
             active_lease_workspace_path: String.t() | nil,
             event_path: String.t() | nil,
             focused_artifacts: map(),
             active_verification_result: map() | Jidoka.VerificationResult.t() | nil,
+            command_controls: map(),
             activity_lines: [String.t()],
             focused_progress_lines: [String.t()],
             input_buffer: String.t(),
@@ -77,6 +82,9 @@ defmodule Jidoka.TuiServer do
             last_error: term() | nil,
             poll_interval: pos_integer() | nil
           }
+
+  @type control_request ::
+          :interrupt | :steer | :approve | :retry | :reject | :cancel | :reconnect
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -90,6 +98,21 @@ defmodule Jidoka.TuiServer do
   @spec attach(GenServer.server(), Agent.session_handle() | nil, keyword()) :: shell_state()
   def attach(server, session_handle, open_opts \\ []) do
     GenServer.call(server, {:attach, session_handle, open_opts})
+  end
+
+  @spec reconnect(GenServer.server(), Agent.session_handle()) :: :ok | {:error, term()}
+  def reconnect(server, session_handle)
+      when is_binary(session_handle) or is_pid(session_handle) do
+    command(server, :reconnect, session_handle)
+  end
+
+  @spec command(
+          GenServer.server(),
+          control_request() | String.t(),
+          Agent.session_handle() | String.t() | nil
+        ) :: :ok | {:error, term()}
+  def command(server, command, target \\ nil) do
+    GenServer.call(server, {:command, command, target})
   end
 
   @spec render_model(GenServer.server()) :: map()
@@ -125,9 +148,11 @@ defmodule Jidoka.TuiServer do
         active_run_task: nil,
         active_run_attempt_count: 0,
         active_attempt_number: nil,
+        active_run_outcome: nil,
         active_lease_id: nil,
         active_lease_workspace_path: nil,
         focused_artifacts: default_artifact_focus(),
+        command_controls: default_command_controls(:recoverable),
         active_verification_result: nil,
         activity_lines: [],
         focused_progress_lines: [],
@@ -160,6 +185,26 @@ defmodule Jidoka.TuiServer do
   @impl true
   def handle_call(:render, _from, state) do
     {:reply, TuiRenderer.render(state), state}
+  end
+
+  @impl true
+  def handle_call({:command, command_name, target}, _from, state) do
+    case normalize_control(command_name) do
+      {:error, reason} ->
+        {:reply, {:error, reason}, mark_command_error(state, reason)}
+
+      :reconnect ->
+        case apply_reconnect(state, target) do
+          {:ok, next_state} -> {:reply, :ok, next_state}
+          {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+        end
+
+      control ->
+        case apply_run_command(state, control, target) do
+          {:ok, next_state} -> {:reply, :ok, next_state}
+          {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+        end
+    end
   end
 
   @impl true
@@ -219,6 +264,9 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            command_controls:
+              default_command_controls(:recoverable, state.session_ref, session_status: nil),
+            active_run_outcome: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -244,6 +292,9 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            command_controls:
+              default_command_controls(:recoverable, state.session_ref, reason: reason),
+            active_run_outcome: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -289,6 +340,16 @@ defmodule Jidoka.TuiServer do
             active_run_task: derive_state.active_run_task,
             active_run_attempt_count: derive_state.active_run_attempt_count,
             active_attempt_number: derive_state.active_attempt_number,
+            active_run_outcome: derive_state.active_run_outcome,
+            command_controls:
+              derive_command_controls(
+                :recoverable,
+                state.session_ref,
+                derive_state.active_run_status,
+                derive_state.active_run_outcome,
+                derive_state.active_attempt_status,
+                session_status: :closed
+              ),
             active_lease_id: derive_state.active_lease_id,
             active_lease_workspace_path: derive_state.active_lease_workspace_path,
             focused_artifacts: derive_state.focused_artifacts,
@@ -311,6 +372,15 @@ defmodule Jidoka.TuiServer do
             active_run_task: derive_state.active_run_task,
             active_run_attempt_count: derive_state.active_run_attempt_count,
             active_attempt_number: derive_state.active_attempt_number,
+            active_run_outcome: derive_state.active_run_outcome,
+            command_controls:
+              derive_command_controls(
+                :attached,
+                state.session_ref,
+                derive_state.active_run_status,
+                derive_state.active_run_outcome,
+                derive_state.active_attempt_status
+              ),
             active_lease_id: derive_state.active_lease_id,
             active_lease_workspace_path: derive_state.active_lease_workspace_path,
             focused_artifacts: derive_state.focused_artifacts,
@@ -339,6 +409,9 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            command_controls:
+              default_command_controls(:recoverable, state.session_ref, session_status: nil),
+            active_run_outcome: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -362,6 +435,9 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            command_controls:
+              default_command_controls(:recoverable, state.session_ref, session_status: nil),
+            active_run_outcome: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -382,6 +458,7 @@ defmodule Jidoka.TuiServer do
       active_run_id: active_run && active_run.id,
       active_run_status: active_run && active_run.status,
       active_run_task: active_run && active_run.task,
+      active_run_outcome: active_run && active_run.outcome,
       active_run_attempt_count: active_run_attempt_count,
       active_attempt_id: active_attempt && active_attempt.id,
       active_attempt_status: active_attempt && active_attempt.status,
@@ -423,6 +500,161 @@ defmodule Jidoka.TuiServer do
   defp active_attempt_count(attempts, %Jidoka.Run{id: run_id}) do
     Enum.count(attempts, &(&1.run_id == run_id))
   end
+
+  defp default_command_controls(mode, session_ref \\ nil, opts \\ []) do
+    case mode do
+      :recoverable ->
+        derive_command_controls(:recoverable, session_ref, nil, nil, nil,
+          session_status: Keyword.get(opts, :session_status)
+        )
+
+      :attached ->
+        derive_command_controls(:attached, session_ref, nil, nil, nil)
+
+      _ ->
+        %{
+          interrupt: :illegal,
+          steer: :illegal,
+          approve: :illegal,
+          reject: :illegal,
+          retry: :illegal,
+          cancel: :illegal,
+          reconnect: :illegal
+        }
+    end
+  end
+
+  defp derive_command_controls(:recoverable, session_ref, run_status, run_outcome, attempt_status,
+         session_status: session_status
+       ) do
+    reconnect =
+      if is_binary(session_ref) and session_status != :closed, do: :legal, else: :illegal
+
+    %{
+      interrupt: :illegal,
+      steer: :illegal,
+      approve: :illegal,
+      reject: :illegal,
+      retry: :illegal,
+      cancel: :illegal,
+      reconnect: reconnect
+    }
+  end
+
+  defp derive_command_controls(:attached, _session_ref, run_status, run_outcome, attempt_status) do
+    %{
+      interrupt: command_legal?(:interrupt, run_status, run_outcome, attempt_status),
+      steer: command_legal?(:steer, run_status, run_outcome, attempt_status),
+      approve: command_legal?(:approve, run_status, run_outcome, attempt_status),
+      reject: command_legal?(:reject, run_status, run_outcome, attempt_status),
+      retry: command_legal?(:retry, run_status, run_outcome, attempt_status),
+      cancel: command_legal?(:cancel, run_status, run_outcome, attempt_status),
+      reconnect: :illegal
+    }
+  end
+
+  defp command_legal?(:interrupt, :running, _run_outcome, :running), do: :legal
+  defp command_legal?(:steer, :running, _run_outcome, :running), do: :legal
+  defp command_legal?(:approve, :awaiting_approval, _outcome, :succeeded), do: :legal
+  defp command_legal?(:reject, :awaiting_approval, _outcome, :succeeded), do: :legal
+  defp command_legal?(:retry, :failed, :retryable_failed, :retryable_failed), do: :legal
+
+  defp command_legal?(:cancel, :queued, _run_outcome, :pending), do: :legal
+  defp command_legal?(:cancel, :queued, _run_outcome, :running), do: :legal
+  defp command_legal?(:cancel, :running, _run_outcome, :pending), do: :legal
+  defp command_legal?(:cancel, :running, _run_outcome, :running), do: :legal
+  defp command_legal?(:cancel, :awaiting_approval, _run_outcome, _attempt_status), do: :legal
+  defp command_legal?(_, _run_status, _run_outcome, _attempt_status), do: :illegal
+
+  defp apply_run_command(state, control, target) do
+    with {:ok, run_id} <- resolve_run_id(state, target),
+         :ok <- ensure_attached(state),
+         :ok <- ensure_command_enabled(state.command_controls, control),
+         :ok <- execute_runtime_command(state, control, run_id) do
+      {:ok, clear_command_error(maybe_refresh(state))}
+    else
+      {:error, reason} -> {:error, reason, mark_command_error(state, reason)}
+    end
+  end
+
+  defp apply_reconnect(state, target) do
+    case resolve_reconnect_target(state, target) do
+      {:ok, session_handle} ->
+        next = connect(state, session_handle, state.open_options)
+
+        {:ok, clear_command_error(next)}
+
+      {:error, reason} ->
+        {:error, reason, mark_command_error(state, reason)}
+    end
+  end
+
+  defp resolve_reconnect_target(_state, target) when is_binary(target) or is_pid(target),
+    do: {:ok, target}
+
+  defp resolve_reconnect_target(state, _target) when is_binary(state.session_ref),
+    do: {:ok, state.session_ref}
+
+  defp resolve_reconnect_target(_state, _target), do: {:error, :invalid_session_handle}
+
+  defp resolve_run_id(state, nil) do
+    case state.active_run_id do
+      run_id when is_binary(run_id) -> {:ok, run_id}
+      _ -> {:error, :missing_run_id}
+    end
+  end
+
+  defp resolve_run_id(_state, run_id) when is_binary(run_id), do: {:ok, run_id}
+  defp resolve_run_id(_state, _), do: {:error, :missing_run_id}
+
+  defp ensure_attached(%{mode: :attached, session_ref: session_ref}) when is_binary(session_ref),
+    do: :ok
+
+  defp ensure_attached(_), do: {:error, :session_not_attached}
+
+  defp ensure_command_enabled(command_controls, control) do
+    if Map.get(command_controls, control) == :legal do
+      :ok
+    else
+      {:error, {:command_not_allowed, control}}
+    end
+  end
+
+  defp execute_runtime_command(state, :approve, run_id),
+    do: Agent.approve(state.session_ref, run_id)
+
+  defp execute_runtime_command(state, :reject, run_id),
+    do: Agent.reject(state.session_ref, run_id)
+
+  defp execute_runtime_command(state, :retry, run_id), do: Agent.retry(state.session_ref, run_id)
+
+  defp execute_runtime_command(state, :cancel, run_id),
+    do: Agent.cancel(state.session_ref, run_id)
+
+  defp execute_runtime_command(state, :interrupt, run_id),
+    do: Agent.cancel(state.session_ref, run_id)
+
+  defp execute_runtime_command(state, :steer, run_id), do: Agent.cancel(state.session_ref, run_id)
+
+  defp normalize_control(action) when is_atom(action) do
+    if action in @all_control_commands do
+      action
+    else
+      {:error, :unknown_control}
+    end
+  end
+
+  defp normalize_control("interrupt"), do: :interrupt
+  defp normalize_control("steer"), do: :steer
+  defp normalize_control("approve"), do: :approve
+  defp normalize_control("retry"), do: :retry
+  defp normalize_control("reject"), do: :reject
+  defp normalize_control("cancel"), do: :cancel
+  defp normalize_control("reconnect"), do: :reconnect
+  defp normalize_control(_), do: {:error, :unknown_control}
+
+  defp clear_command_error(state), do: %{state | last_error: nil}
+  defp mark_command_error(state, reason), do: %{state | last_error: reason}
 
   defp default_artifact_focus do
     %{diff: [], command_log: [], verifier_report: []}

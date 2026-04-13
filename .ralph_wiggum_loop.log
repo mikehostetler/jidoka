@@ -348,3 +348,22 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - No blockers.
 - Assumption: repository has no AGENTS.md constraints to enforce beyond standard Elixir formatting/test conventions.
 - ST-MVP-011 was intentionally not implemented (only ST-MVP-010 scope was changed).
+1) changed files
+- [lib/jidoka/tui_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex)
+- [lib/jidoka/tui_renderer.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex)
+- [test/jidoka_tui_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs)
+
+2) tests/commands executed
+- `mix format lib/jidoka/tui_server.ex test/jidoka_tui_server_test.exs lib/jidoka/tui_renderer.ex`
+- `mix precommit` (passes)
+
+3) acceptance criteria coverage
+- The TUI now issues runtime controls through a public command surface (`TuiServer.command/3` and `TuiServer.reconnect/2`) using Agent APIs (approve/reject/retry/cancel; interrupt/steer mapped to cancel for now).  
+- Reconnect is implemented via command action and tested: `reconnect command reattaches to an existing session after restart`.  
+- Control legality is computed in state (`command_controls`) and rendered in status output as `commands=...`; tested by “control-state presentation reflects legal and illegal actions”.  
+- Command failures are captured and surfaced in state/UI (`last_error` and `command_error=...`); tested by “command failures are surfaced in status output and state”.  
+- Reconnect plus one success path for each family are covered by tests: interrupt, steer, approve, reject, retry, cancel, and reconnect.
+
+4) blockers/assumptions
+- Blockers: none.
+- Assumption: there is no separate runtime API for `interrupt` or `steer` in this codebase, so both are intentionally routed as `Agent.cancel/2` aliases through the TUI command surface for ST-MVP-011.

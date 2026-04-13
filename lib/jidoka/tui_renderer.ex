@@ -21,6 +21,8 @@ defmodule Jidoka.TuiRenderer do
     "waiting for attempt progress event"
   ]
 
+  @control_commands [:interrupt, :steer, :approve, :reject, :retry, :cancel, :reconnect]
+
   @prompt "jidoka> "
 
   def render_model(%State{} = state) do
@@ -87,7 +89,9 @@ defmodule Jidoka.TuiRenderer do
       "active_attempt_status=#{inspect(state.active_attempt_status)}",
       "environment_lease=#{state.active_lease_id || "<none>"}",
       "environment_lease_workspace=#{state.active_lease_workspace_path || "<none>"}",
-      "recoverable_reason=#{inspect(state.recoverable_reason)}"
+      "recoverable_reason=#{inspect(state.recoverable_reason)}",
+      "commands=#{command_controls_line(state.command_controls)}",
+      "command_error=#{inspect(state.last_error)}"
     ]
   end
 
@@ -165,4 +169,14 @@ defmodule Jidoka.TuiRenderer do
   defp format_connection(%{mode: :attached}), do: "attached"
   defp format_connection(%{mode: :recoverable}), do: "recoverable"
   defp format_connection(_), do: "unknown"
+
+  defp command_controls_line(nil), do: "controls=<none>"
+
+  defp command_controls_line(controls) do
+    @control_commands
+    |> Enum.map(fn command ->
+      "#{command}=#{Map.get(controls, command, :illegal)}"
+    end)
+    |> Enum.join(" ")
+  end
 end

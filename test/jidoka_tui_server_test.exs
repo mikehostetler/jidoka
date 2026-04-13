@@ -9,6 +9,26 @@ defmodule Jidoka.TuiServerTest do
   alias Jidoka.TuiServer
   alias Jidoka.TuiRenderer
 
+  defmodule CancelSlowAdapter do
+    @moduledoc false
+
+    @behaviour Jidoka.AttemptExecution
+
+    alias Jidoka.AttemptExecution.{AttemptOutput, AttemptSpec}
+
+    @impl true
+    def execute(%AttemptSpec{} = _spec) do
+      Process.sleep(200)
+
+      {:ok,
+       %AttemptOutput{
+         status: :succeeded,
+         progress: [],
+         metadata: %{adapter: :cancel_slow}
+       }}
+    end
+  end
+
   test "booted shell opens a new session and renders stable regions" do
     {:ok, pid} = TuiServer.start_link(poll_interval: 0)
     on_exit(fn -> safe_stop_tui(pid) end)
@@ -112,6 +132,261 @@ defmodule Jidoka.TuiServerTest do
     assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "run_id=#{run.id}"))
     assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "attempt_id=#{attempt.id}"))
     assert Enum.any?(model.events.lines, &String.contains?(&1, "attempt_progress"))
+  end
+
+  test "reconnect command reattaches to an existing session after restart" do
+    session_id = unique_id("tui-reconnect")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-reconnect")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert TuiServer.state(pid).mode == :attached
+    assert TuiServer.stop(pid) == :ok
+
+    {:ok, pid} = TuiServer.start_link(poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert TuiServer.state(pid).mode == :recoverable
+    assert :ok = TuiServer.command(pid, :reconnect, session_id)
+
+    state = TuiServer.state(pid)
+    assert state.mode == :attached
+    assert state.session_ref == session_id
+  end
+
+  test "control-state presentation reflects legal and illegal actions" do
+    session_id = unique_id("tui-control-state")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-control-state")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "state check run",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_attempt_id != nil &&
+                 state.active_attempt_status in [:running, :succeeded]
+             end)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :awaiting_approval
+             end)
+
+    render = TuiServer.render_model(pid)
+
+    assert Enum.any?(render.status.lines, &String.contains?(&1, "approve=legal"))
+    assert Enum.any?(render.status.lines, &String.contains?(&1, "reject=legal"))
+    assert Enum.any?(render.status.lines, &String.contains?(&1, "retry=illegal"))
+  end
+
+  test "interrupted run uses the interrupt command family through public runtime control path" do
+    session_id = unique_id("tui-interrupt")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-interrupt")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "interrupt run",
+               execution_adapter: CancelSlowAdapter
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status in [:running, :queued]
+             end)
+
+    state = TuiServer.state(pid)
+    assert state.command_controls.interrupt == :legal
+    assert :ok = TuiServer.command(pid, :interrupt, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :canceled
+             end)
+  end
+
+  test "steer command routes through the same control surface as runtime controls" do
+    session_id = unique_id("tui-steer")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-steer")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "steer run",
+               execution_adapter: CancelSlowAdapter
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :running
+             end)
+
+    assert :ok = TuiServer.command(pid, :steer, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :canceled
+             end)
+  end
+
+  test "approve command finalizes an awaiting approval run" do
+    session_id = unique_id("tui-approve")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-approve")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "approve run",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :awaiting_approval
+             end)
+
+    assert :ok = TuiServer.command(pid, :approve, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :completed
+             end)
+  end
+
+  test "reject command finalizes run as terminal failed for approval family" do
+    session_id = unique_id("tui-reject")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-reject")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "reject run",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :awaiting_approval
+             end)
+
+    assert :ok = TuiServer.command(pid, :reject, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :failed and state.active_run_outcome == :terminal_failed
+             end)
+  end
+
+  test "retry command starts a new attempt from retryable failure" do
+    session_id = unique_id("tui-retry")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-retry")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "retry run",
+               execution_adapter: Success,
+               verification_adapter: Jidoka.TestVerificationAdapters.RetryableFailed
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :failed
+             end)
+
+    assert :ok = TuiServer.command(pid, :retry, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :awaiting_approval
+             end)
+  end
+
+  test "cancel command stops a running attempt" do
+    session_id = unique_id("tui-cancel")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-cancel")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(
+               session_id,
+               "cancel run",
+               execution_adapter: CancelSlowAdapter
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status in [:running, :queued]
+             end)
+
+    assert :ok = TuiServer.command(pid, :cancel, run.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_status == :canceled
+             end)
+  end
+
+  test "command failures are surfaced in status output and state" do
+    session_id = unique_id("tui-failure")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-failure")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run}} =
+             Agent.submit(session_id, "failure run", execution_adapter: Success)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status in [:queued, :running]
+             end)
+
+    assert {:error, {:command_not_allowed, :approve}} = TuiServer.command(pid, :approve, run.id)
+
+    assert TuiServer.state(pid).last_error == {:command_not_allowed, :approve}
+
+    assert Enum.any?(
+             TuiServer.render_model(pid).status.lines,
+             &String.contains?(&1, "command_error={:command_not_allowed, :approve}")
+           )
   end
 
   test "status line summarizes session, run, attempt, and lease identity" do
