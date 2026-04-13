@@ -3,6 +3,7 @@ defmodule Jidoka.TuiServerTest do
 
   alias Jidoka.Agent
   alias Jidoka.Artifact
+  alias Jidoka.SessionServer
   alias Jidoka.TestAttemptExecutionAdapters.Success
   alias Jidoka.TestVerificationAdapters.Passed
   alias Jidoka.VerificationResult
@@ -154,6 +155,134 @@ defmodule Jidoka.TuiServerTest do
     state = TuiServer.state(pid)
     assert state.mode == :attached
     assert state.session_ref == session_id
+  end
+
+  test "TUI lists available runs and focuses each run independently" do
+    session_id = unique_id("tui-run-focus")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-run-focus")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run_a, attempt: attempt_a}} =
+             Agent.submit(
+               session_id,
+               "first run for focus",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert {:ok, %{run: run_b, attempt: attempt_b}} =
+             Agent.submit(
+               session_id,
+               "second run for focus",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    artifact_a = unique_id("artifact-a")
+    artifact_b = unique_id("artifact-b")
+
+    assert :ok =
+             SessionServer.persist_attempt_artifacts(
+               attempt_a.id,
+               [%{id: artifact_a, type: :diff, status: :ready, location: "/tmp/#{artifact_a}"}]
+             )
+
+    assert :ok =
+             SessionServer.persist_attempt_artifacts(
+               attempt_b.id,
+               [%{id: artifact_b, type: :diff, status: :ready, location: "/tmp/#{artifact_b}"}]
+             )
+
+    assert :ok =
+             await_session_activity_contains(
+               pid,
+               fn state ->
+                 MapSet.new(state.available_runs || []) == MapSet.new([run_a.id, run_b.id])
+               end
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id in [run_a.id, run_b.id]
+             end)
+
+    assert :ok = TuiServer.command(pid, :focus_run, run_a.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run_a.id &&
+                 state.active_attempt_id == attempt_a.id
+             end)
+
+    model = TuiServer.render_model(pid)
+
+    assert Enum.any?(model.status.lines, &(&1 == "active_run_id=#{run_a.id}"))
+    assert Enum.any?(model.events.lines, &String.contains?(&1, "run=#{run_a.id}"))
+    assert Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=#{artifact_a}"))
+
+    assert :ok = TuiServer.command(pid, :focus_run, run_b.id)
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run_b.id &&
+                 state.active_attempt_id == attempt_b.id
+             end)
+
+    model = TuiServer.render_model(pid)
+
+    assert Enum.any?(model.status.lines, &(&1 == "active_run_id=#{run_b.id}"))
+    assert Enum.any?(model.events.lines, &String.contains?(&1, "run=#{run_b.id}"))
+    assert Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=#{artifact_b}"))
+    refute Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=#{artifact_a}"))
+  end
+
+  test "reconnect keeps focused run when still available in session snapshot" do
+    session_id = unique_id("tui-run-focus-reconnect")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-run-focus-reconnect")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run_a}} =
+             Agent.submit(
+               session_id,
+               "run A for reconnect focus",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert {:ok, %{run: run_b}} =
+             Agent.submit(
+               session_id,
+               "run B for reconnect focus",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert :ok =
+             await_session_activity_contains(
+               pid,
+               fn state ->
+                 MapSet.new(state.available_runs || []) == MapSet.new([run_a.id, run_b.id])
+               end
+             )
+
+    assert :ok = TuiServer.command(pid, :focus_run, run_a.id)
+
+    assert :ok =
+             await_session_activity_contains(
+               pid,
+               fn state ->
+                 state.active_run_id == run_a.id && state.active_run_status == :awaiting_approval
+               end
+             )
+
+    assert :ok = TuiServer.command(pid, :reconnect, session_id)
+    assert TuiServer.state(pid).active_run_id == run_a.id
   end
 
   test "control-state presentation reflects legal and illegal actions" do

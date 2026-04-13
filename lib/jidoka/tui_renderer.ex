@@ -21,7 +21,16 @@ defmodule Jidoka.TuiRenderer do
     "waiting for attempt progress event"
   ]
 
-  @control_commands [:interrupt, :steer, :approve, :reject, :retry, :cancel, :reconnect]
+  @control_commands [
+    :interrupt,
+    :steer,
+    :approve,
+    :reject,
+    :retry,
+    :cancel,
+    :focus_run,
+    :reconnect
+  ]
 
   @prompt "jidoka> "
 
@@ -84,6 +93,7 @@ defmodule Jidoka.TuiRenderer do
       "session_id=#{state.session_ref || "<none>"}",
       "session_status=#{inspect(state.session_status)}",
       "active_run_id=#{state.active_run_id || "<none>"}",
+      "available_runs=#{format_run_list(state.available_runs)}",
       "active_run_status=#{inspect(state.active_run_status)}",
       "active_attempt_id=#{state.active_attempt_id || "<none>"}",
       "active_attempt_status=#{inspect(state.active_attempt_status)}",
@@ -158,6 +168,10 @@ defmodule Jidoka.TuiRenderer do
   defp format_status_value(nil), do: "<none>"
   defp format_status_value(value) when is_atom(value), do: to_string(value)
   defp format_status_value(value), do: inspect(value)
+
+  defp format_run_list(nil), do: "<none>"
+  defp format_run_list([]), do: "<none>"
+  defp format_run_list(runs), do: Enum.join(runs, ",")
 
   defp input_lines(state) do
     ["prompt=#{@prompt}", "buffer=#{state.input_buffer || ""}"]

@@ -470,3 +470,23 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 4) blockers/assumptions
 - No blockers encountered.
 - Assumption: role metadata is treated as optional opaque durable metadata (stored but not type-enforced in `Event`), with a default of nil to preserve existing behavior.
+1. changed files
+- [lib/jidoka/tui_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex)
+- [lib/jidoka/tui_renderer.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex)
+- [test/jidoka_tui_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs)
+
+2. tests/commands executed
+- `cd /Users/mhostetler/Source/OrigJido/jidoka && mix format lib/jidoka/tui_server.ex test/jidoka_tui_server_test.exs lib/jidoka/tui_renderer.ex`
+- `cd /Users/mhostetler/Source/OrigJido/jidoka && mix precommit` (passed)
+
+3. acceptance criteria coverage
+- TUI can list available runs within a session and switch focus among them: implemented `available_runs` tracking in state, focus-aware status derivation, `focus_run` command handling, and UI/rendering of run list.
+- Run navigation does not require/imply child-run delegation: added explicit in-TUI run focus switching only; no multi-agent/delegation path introduced.
+- Focused artifact/status/event panes update when selected run changes: server now switches state and derived view data on `focus_run`; added test coverage asserting focused panes reflect run-specific artifact/status/event state after focus transitions.
+- Reconnect preserves selected run when practical: reconnect/hydration now attempts to retain a preferred `run_id` if still available; added test asserting focused run is retained across reconnect.
+- Tests or scripted UI coverage verifies switching and focused pane updates: added two tests in `test/jidoka_tui_server_test.exs` covering multi-run focus and reconnect-focused run preservation.
+
+4. blockers/assumptions
+- No blockers encountered.
+- Assumed existing session snapshot behavior and run identifiers are stable enough to preserve focus during reconnect.
+

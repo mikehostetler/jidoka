@@ -16,7 +16,16 @@ defmodule Jidoka.TuiServer do
   @event_history_limit 24
   @attempt_progress_history_limit 8
   @artifact_focus_types [:diff, :command_log, :verifier_report]
-  @all_control_commands [:interrupt, :steer, :approve, :retry, :reject, :cancel, :reconnect]
+  @all_control_commands [
+    :interrupt,
+    :steer,
+    :approve,
+    :retry,
+    :reject,
+    :cancel,
+    :focus_run,
+    :reconnect
+  ]
 
   defmodule State do
     @moduledoc false
@@ -39,6 +48,7 @@ defmodule Jidoka.TuiServer do
       :event_path,
       :focused_artifacts,
       :active_verification_result,
+      :available_runs,
       :command_controls,
       :activity_lines,
       :focused_progress_lines,
@@ -74,6 +84,7 @@ defmodule Jidoka.TuiServer do
             event_path: String.t() | nil,
             focused_artifacts: map(),
             active_verification_result: map() | Jidoka.VerificationResult.t() | nil,
+            available_runs: [String.t()],
             command_controls: map(),
             activity_lines: [String.t()],
             focused_progress_lines: [String.t()],
@@ -84,7 +95,14 @@ defmodule Jidoka.TuiServer do
           }
 
   @type control_request ::
-          :interrupt | :steer | :approve | :retry | :reject | :cancel | :reconnect
+          :interrupt
+          | :steer
+          | :approve
+          | :retry
+          | :reject
+          | :cancel
+          | :focus_run
+          | :reconnect
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -152,6 +170,7 @@ defmodule Jidoka.TuiServer do
         active_lease_id: nil,
         active_lease_workspace_path: nil,
         focused_artifacts: default_artifact_focus(),
+        available_runs: [],
         command_controls: default_command_controls(:recoverable),
         active_verification_result: nil,
         activity_lines: [],
@@ -199,6 +218,12 @@ defmodule Jidoka.TuiServer do
           {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
         end
 
+      :focus_run ->
+        case apply_focus_run(state, target) do
+          {:ok, next_state} -> {:reply, :ok, next_state}
+          {:error, reason, next_state} -> {:reply, {:error, reason}, next_state}
+        end
+
       control ->
         case apply_run_command(state, control, target) do
           {:ok, next_state} -> {:reply, :ok, next_state}
@@ -240,7 +265,8 @@ defmodule Jidoka.TuiServer do
           | session_handle: session_handle,
             session_ref: session_ref,
             event_path: event_path(session_ref),
-            mode: :recoverable
+            mode: :recoverable,
+            available_runs: []
         }
 
         hydrate_from_snapshot(state_with_handle)
@@ -264,6 +290,7 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            available_runs: [],
             command_controls:
               default_command_controls(:recoverable, state.session_ref, session_status: nil),
             active_run_outcome: nil,
@@ -292,6 +319,7 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            available_runs: [],
             command_controls:
               default_command_controls(:recoverable, state.session_ref, reason: reason),
             active_run_outcome: nil,
@@ -320,7 +348,7 @@ defmodule Jidoka.TuiServer do
   defp hydrate_from_snapshot(state) do
     with {:ok, snapshot} <- Agent.snapshot(state.session_ref),
          {:ok, log} <- Bus.get_log(path: state.event_path) do
-      derive_state = derive_status(snapshot)
+      derive_state = derive_status(snapshot, state.active_run_id)
 
       {activity_lines, focused_progress_lines, last_event_count} =
         summarize_events(state, log, derive_state.active_run_id, derive_state.active_attempt_id)
@@ -353,6 +381,7 @@ defmodule Jidoka.TuiServer do
             active_lease_id: derive_state.active_lease_id,
             active_lease_workspace_path: derive_state.active_lease_workspace_path,
             focused_artifacts: derive_state.focused_artifacts,
+            available_runs: derive_state.available_runs,
             active_verification_result: derive_state.active_verification_result,
             activity_lines: activity_lines,
             focused_progress_lines: focused_progress_lines,
@@ -384,6 +413,7 @@ defmodule Jidoka.TuiServer do
             active_lease_id: derive_state.active_lease_id,
             active_lease_workspace_path: derive_state.active_lease_workspace_path,
             focused_artifacts: derive_state.focused_artifacts,
+            available_runs: derive_state.available_runs,
             active_verification_result: derive_state.active_verification_result,
             activity_lines: activity_lines,
             focused_progress_lines: focused_progress_lines,
@@ -409,6 +439,7 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            available_runs: [],
             command_controls:
               default_command_controls(:recoverable, state.session_ref, session_status: nil),
             active_run_outcome: nil,
@@ -435,6 +466,7 @@ defmodule Jidoka.TuiServer do
             active_lease_workspace_path: nil,
             focused_artifacts: default_artifact_focus(),
             active_verification_result: nil,
+            available_runs: [],
             command_controls:
               default_command_controls(:recoverable, state.session_ref, session_status: nil),
             active_run_outcome: nil,
@@ -446,9 +478,9 @@ defmodule Jidoka.TuiServer do
     end
   end
 
-  defp derive_status(snapshot) do
+  defp derive_status(snapshot, preferred_run_id \\ nil) do
     session = snapshot.session
-    active_run = active_run(snapshot.runs, session)
+    active_run = active_run(snapshot.runs, session, preferred_run_id)
     active_attempt = active_attempt(snapshot.attempts, active_run)
     active_run_attempt_count = active_attempt_count(snapshot.attempts, active_run)
     active_lease = active_lease(snapshot.leases, active_attempt)
@@ -459,6 +491,7 @@ defmodule Jidoka.TuiServer do
       active_run_status: active_run && active_run.status,
       active_run_task: active_run && active_run.task,
       active_run_outcome: active_run && active_run.outcome,
+      available_runs: run_ids(snapshot.runs),
       active_run_attempt_count: active_run_attempt_count,
       active_attempt_id: active_attempt && active_attempt.id,
       active_attempt_status: active_attempt && active_attempt.status,
@@ -472,19 +505,33 @@ defmodule Jidoka.TuiServer do
     }
   end
 
-  defp active_run([], _session), do: nil
+  defp run_ids(runs) when is_list(runs), do: Enum.map(runs, & &1.id)
+  defp run_ids(_), do: []
 
-  defp active_run(runs, session) do
-    if session.active_run_id in [nil, ""] do
-      List.last(runs)
-    else
-      Enum.find(runs, fn run -> run.id == session.active_run_id end) || List.last(runs)
+  defp active_run([], _session, _preferred_run_id), do: nil
+
+  defp active_run(runs, %{} = session, preferred_run_id) do
+    preferred_exists =
+      is_binary(preferred_run_id) and preferred_run_id != "" and
+        Enum.any?(runs, &(&1.id == preferred_run_id))
+
+    cond do
+      preferred_exists ->
+        Enum.find(runs, fn run -> run.id == preferred_run_id end)
+
+      session.active_run_id in [nil, ""] ->
+        List.last(runs)
+
+      true ->
+        Enum.find(runs, fn run -> run.id == session.active_run_id end) || List.last(runs)
     end
   end
 
-  defp active_attempt(attempts, nil), do: nil
+  defp active_run(runs, _session, _preferred_run_id) do
+    List.last(runs)
+  end
 
-  defp active_attempt([], _run), do: nil
+  defp active_attempt(attempts, nil), do: nil
 
   defp active_attempt(attempts, active_run) do
     if active_run.latest_attempt_id in [nil, ""] do
@@ -519,6 +566,7 @@ defmodule Jidoka.TuiServer do
           reject: :illegal,
           retry: :illegal,
           cancel: :illegal,
+          focus_run: :illegal,
           reconnect: :illegal
         }
     end
@@ -537,11 +585,14 @@ defmodule Jidoka.TuiServer do
       reject: :illegal,
       retry: :illegal,
       cancel: :illegal,
+      focus_run: :illegal,
       reconnect: reconnect
     }
   end
 
   defp derive_command_controls(:attached, _session_ref, run_status, run_outcome, attempt_status) do
+    focus_run = if is_atom(run_status), do: :legal, else: :illegal
+
     %{
       interrupt: command_legal?(:interrupt, run_status, run_outcome, attempt_status),
       steer: command_legal?(:steer, run_status, run_outcome, attempt_status),
@@ -549,6 +600,7 @@ defmodule Jidoka.TuiServer do
       reject: command_legal?(:reject, run_status, run_outcome, attempt_status),
       retry: command_legal?(:retry, run_status, run_outcome, attempt_status),
       cancel: command_legal?(:cancel, run_status, run_outcome, attempt_status),
+      focus_run: focus_run,
       reconnect: :illegal
     }
   end
@@ -586,6 +638,45 @@ defmodule Jidoka.TuiServer do
 
       {:error, reason} ->
         {:error, reason, mark_command_error(state, reason)}
+    end
+  end
+
+  defp apply_focus_run(state, target) do
+    with {:ok, run_id} <- resolve_focus_target(state, target) do
+      {:ok, clear_command_error(hydrate_from_snapshot(%{state | active_run_id: run_id}))}
+    else
+      {:error, reason} -> {:error, reason, mark_command_error(state, reason)}
+    end
+  end
+
+  defp resolve_focus_target(%{available_runs: available_runs} = state, nil) do
+    case cycle_focus_run(available_runs || [], state.active_run_id) do
+      {:ok, focused_run_id} -> {:ok, focused_run_id}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp resolve_focus_target(_state, run_id) when is_binary(run_id) and byte_size(run_id) == 0,
+    do: {:error, :missing_run_id}
+
+  defp resolve_focus_target(%{available_runs: available_runs}, run_id) when is_binary(run_id) do
+    if run_id in (available_runs || []) do
+      {:ok, run_id}
+    else
+      {:error, :unknown_run_id}
+    end
+  end
+
+  defp resolve_focus_target(_state, _), do: {:error, :unknown_run_id}
+
+  defp cycle_focus_run([], _current_run_id), do: {:error, :missing_run_id}
+
+  defp cycle_focus_run([single], _current_run_id), do: {:ok, single}
+
+  defp cycle_focus_run(run_ids, current_run_id) do
+    case Enum.find_index(run_ids, fn run_id -> run_id == current_run_id end) do
+      nil -> {:ok, List.first(run_ids)}
+      index -> {:ok, Enum.at(run_ids, rem(index + 1, length(run_ids)))}
     end
   end
 
@@ -650,6 +741,7 @@ defmodule Jidoka.TuiServer do
   defp normalize_control("retry"), do: :retry
   defp normalize_control("reject"), do: :reject
   defp normalize_control("cancel"), do: :cancel
+  defp normalize_control("focus_run"), do: :focus_run
   defp normalize_control("reconnect"), do: :reconnect
   defp normalize_control(_), do: {:error, :unknown_control}
 
