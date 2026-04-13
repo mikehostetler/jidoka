@@ -3,7 +3,7 @@ defmodule Jidoka.Hardening.EvaluationFixtures do
 
   @fixture_path Path.join(
                   Path.expand("../../..", __DIR__),
-                  "test/fixtures/mvp_012_fixtures.exs"
+                  "priv/fixtures/mvp_012_fixtures.exs"
                 )
 
   @spec load!() :: [map()]

@@ -7,7 +7,14 @@ defmodule Jidoka.SessionProcess do
 
   use GenServer
 
-  @impl true
+  def child_spec(session_id) when is_binary(session_id) do
+    %{
+      id: {__MODULE__, session_id},
+      start: {__MODULE__, :start_link, [session_id]},
+      restart: :temporary
+    }
+  end
+
   def start_link(session_id) when is_binary(session_id) do
     GenServer.start_link(__MODULE__, session_id, name: via_name(session_id))
   end

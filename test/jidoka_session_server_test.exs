@@ -242,7 +242,7 @@ defmodule JidokaSessionServerTest do
 
     assert :ok = await_run_status(session_id, run.id, :awaiting_approval)
     {:ok, pre_snapshot} = SessionServer.run_snapshot(session_id, run.id)
-    pre_attempt = latest_attempt(pre_snapshot)
+    _pre_attempt = latest_attempt(pre_snapshot)
 
     assert :ok = SessionServer.approve(session_id, run.id)
 

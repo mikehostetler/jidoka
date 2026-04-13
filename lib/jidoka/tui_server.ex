@@ -10,12 +10,14 @@ defmodule Jidoka.TuiServer do
 
   alias Jidoka.Agent
   alias Jidoka.Bus
+  alias Jidoka.SessionBusPath
   alias Jidoka.TuiRenderer
 
   @default_poll_interval 150
   @event_history_limit 24
   @attempt_progress_history_limit 8
   @artifact_focus_types [:diff, :command_log, :verifier_report]
+  @remembered_session_key {__MODULE__, :last_session_ref}
   @all_control_commands [
     :interrupt,
     :steer,
@@ -150,6 +152,7 @@ defmodule Jidoka.TuiServer do
     session_handle = Keyword.get(opts, :session)
     poll_interval = Keyword.get(opts, :poll_interval, @default_poll_interval)
     open_options = Keyword.take(opts, [:id, :cwd, :workspace_path, :metadata, :status])
+    remembered_session = remembered_session_ref()
 
     state =
       %State{
@@ -171,7 +174,7 @@ defmodule Jidoka.TuiServer do
         active_lease_workspace_path: nil,
         focused_artifacts: default_artifact_focus(),
         available_runs: [],
-        command_controls: default_command_controls(:recoverable),
+        command_controls: default_command_controls(),
         active_verification_result: nil,
         activity_lines: [],
         focused_progress_lines: [],
@@ -181,7 +184,21 @@ defmodule Jidoka.TuiServer do
         poll_interval: interval_or_nil(poll_interval),
         open_options: open_options
       }
-      |> connect(session_handle, open_options)
+
+    state =
+      cond do
+        is_binary(session_handle) or is_pid(session_handle) ->
+          connect(state, session_handle, open_options)
+
+        open_options != [] ->
+          connect(state, nil, open_options)
+
+        reconnectable_session?(remembered_session) ->
+          recoverable_reconnect_state(state, remembered_session)
+
+        true ->
+          connect(state, nil, open_options)
+      end
 
     state =
       if should_poll?(state) do
@@ -260,74 +277,29 @@ defmodule Jidoka.TuiServer do
   defp connect(state, session_handle, open_opts) do
     case ensure_session_handle(session_handle, open_opts) do
       {:ok, session_ref} ->
-        state_with_handle = %{
-          state
-          | session_handle: session_handle,
-            session_ref: session_ref,
-            event_path: event_path(session_ref),
-            mode: :recoverable,
-            available_runs: []
-        }
-
-        hydrate_from_snapshot(state_with_handle)
+        state
+        |> put_state(
+          session_handle: session_handle,
+          session_ref: session_ref,
+          event_path: event_path(session_ref),
+          mode: :recoverable,
+          available_runs: []
+        )
+        |> hydrate_from_snapshot()
 
       {:error, :not_found} ->
-        %{
-          state
-          | mode: :recoverable,
-            recoverable_reason: :missing,
-            session_ref: nil,
-            event_path: nil,
-            session_status: nil,
-            active_run_id: nil,
-            active_run_status: nil,
-            active_attempt_id: nil,
-            active_attempt_status: nil,
-            active_run_task: nil,
-            active_run_attempt_count: 0,
-            active_attempt_number: nil,
-            active_lease_id: nil,
-            active_lease_workspace_path: nil,
-            focused_artifacts: default_artifact_focus(),
-            active_verification_result: nil,
-            available_runs: [],
-            command_controls:
-              default_command_controls(:recoverable, state.session_ref, session_status: nil),
-            active_run_outcome: nil,
-            activity_lines: [],
-            focused_progress_lines: [],
-            last_event_count: 0,
-            last_error: :not_found
-        }
+        recoverable_state(state, :missing,
+          session_ref: nil,
+          event_path: nil,
+          last_error: :not_found
+        )
 
       {:error, reason} ->
-        %{
-          state
-          | mode: :recoverable,
-            recoverable_reason: :invalid_session_handle,
-            session_ref: nil,
-            event_path: nil,
-            session_status: nil,
-            active_run_id: nil,
-            active_run_status: nil,
-            active_attempt_id: nil,
-            active_attempt_status: nil,
-            active_run_task: nil,
-            active_run_attempt_count: 0,
-            active_attempt_number: nil,
-            active_lease_id: nil,
-            active_lease_workspace_path: nil,
-            focused_artifacts: default_artifact_focus(),
-            active_verification_result: nil,
-            available_runs: [],
-            command_controls:
-              default_command_controls(:recoverable, state.session_ref, reason: reason),
-            active_run_outcome: nil,
-            activity_lines: [],
-            focused_progress_lines: [],
-            last_event_count: 0,
-            last_error: reason
-        }
+        recoverable_state(state, :invalid_session_handle,
+          session_ref: nil,
+          event_path: nil,
+          last_error: reason
+        )
     end
   end
 
@@ -353,132 +325,49 @@ defmodule Jidoka.TuiServer do
       {activity_lines, focused_progress_lines, last_event_count} =
         summarize_events(state, log, derive_state.active_run_id, derive_state.active_attempt_id)
 
-      session_status = derive_state.session_status
+      case derive_state.session_status do
+        :closed ->
+          recoverable_state(
+            state,
+            :closed,
+            runtime_view_fields(
+              derive_state,
+              activity_lines,
+              focused_progress_lines,
+              last_event_count
+            ) ++
+              [
+                command_controls:
+                  derive_command_controls(
+                    :recoverable,
+                    state.session_ref,
+                    derive_state.active_run_status,
+                    derive_state.active_run_outcome,
+                    derive_state.active_attempt_status,
+                    session_status: :closed
+                  )
+              ]
+          )
 
-      if session_status == :closed do
-        %{
-          state
-          | mode: :recoverable,
-            recoverable_reason: :closed,
-            session_status: session_status,
-            active_run_id: derive_state.active_run_id,
-            active_run_status: derive_state.active_run_status,
-            active_attempt_id: derive_state.active_attempt_id,
-            active_attempt_status: derive_state.active_attempt_status,
-            active_run_task: derive_state.active_run_task,
-            active_run_attempt_count: derive_state.active_run_attempt_count,
-            active_attempt_number: derive_state.active_attempt_number,
-            active_run_outcome: derive_state.active_run_outcome,
-            command_controls:
-              derive_command_controls(
-                :recoverable,
-                state.session_ref,
-                derive_state.active_run_status,
-                derive_state.active_run_outcome,
-                derive_state.active_attempt_status,
-                session_status: :closed
-              ),
-            active_lease_id: derive_state.active_lease_id,
-            active_lease_workspace_path: derive_state.active_lease_workspace_path,
-            focused_artifacts: derive_state.focused_artifacts,
-            available_runs: derive_state.available_runs,
-            active_verification_result: derive_state.active_verification_result,
-            activity_lines: activity_lines,
-            focused_progress_lines: focused_progress_lines,
-            last_event_count: last_event_count,
-            last_error: nil
-        }
-      else
-        %{
-          state
-          | mode: :attached,
-            recoverable_reason: nil,
-            session_status: session_status,
-            active_run_id: derive_state.active_run_id,
-            active_run_status: derive_state.active_run_status,
-            active_attempt_id: derive_state.active_attempt_id,
-            active_attempt_status: derive_state.active_attempt_status,
-            active_run_task: derive_state.active_run_task,
-            active_run_attempt_count: derive_state.active_run_attempt_count,
-            active_attempt_number: derive_state.active_attempt_number,
-            active_run_outcome: derive_state.active_run_outcome,
-            command_controls:
-              derive_command_controls(
-                :attached,
-                state.session_ref,
-                derive_state.active_run_status,
-                derive_state.active_run_outcome,
-                derive_state.active_attempt_status
-              ),
-            active_lease_id: derive_state.active_lease_id,
-            active_lease_workspace_path: derive_state.active_lease_workspace_path,
-            focused_artifacts: derive_state.focused_artifacts,
-            available_runs: derive_state.available_runs,
-            active_verification_result: derive_state.active_verification_result,
-            activity_lines: activity_lines,
-            focused_progress_lines: focused_progress_lines,
-            last_event_count: last_event_count,
-            last_error: nil
-        }
+        _session_status ->
+          attach_state(
+            state,
+            derive_state,
+            activity_lines,
+            focused_progress_lines,
+            last_event_count
+          )
       end
     else
       {:error, :not_found} ->
-        %{
-          state
-          | mode: :recoverable,
-            recoverable_reason: :missing,
-            session_status: nil,
-            active_run_id: nil,
-            active_run_status: nil,
-            active_attempt_id: nil,
-            active_attempt_status: nil,
-            active_run_task: nil,
-            active_run_attempt_count: 0,
-            active_attempt_number: nil,
-            active_lease_id: nil,
-            active_lease_workspace_path: nil,
-            focused_artifacts: default_artifact_focus(),
-            active_verification_result: nil,
-            available_runs: [],
-            command_controls:
-              default_command_controls(:recoverable, state.session_ref, session_status: nil),
-            active_run_outcome: nil,
-            activity_lines: [],
-            focused_progress_lines: [],
-            last_event_count: 0,
-            last_error: :not_found
-        }
+        recoverable_state(state, :missing, last_error: :not_found)
 
       {:error, _reason} ->
-        %{
-          state
-          | mode: :recoverable,
-            recoverable_reason: :disconnected,
-            session_status: nil,
-            active_run_id: nil,
-            active_run_status: nil,
-            active_attempt_id: nil,
-            active_attempt_status: nil,
-            active_run_task: nil,
-            active_run_attempt_count: 0,
-            active_attempt_number: nil,
-            active_lease_id: nil,
-            active_lease_workspace_path: nil,
-            focused_artifacts: default_artifact_focus(),
-            active_verification_result: nil,
-            available_runs: [],
-            command_controls:
-              default_command_controls(:recoverable, state.session_ref, session_status: nil),
-            active_run_outcome: nil,
-            activity_lines: [],
-            focused_progress_lines: [],
-            last_event_count: 0,
-            last_error: :disconnected
-        }
+        recoverable_state(state, :disconnected, last_error: :disconnected)
     end
   end
 
-  defp derive_status(snapshot, preferred_run_id \\ nil) do
+  defp derive_status(snapshot, preferred_run_id) do
     session = snapshot.session
     active_run = active_run(snapshot.runs, session, preferred_run_id)
     active_attempt = active_attempt(snapshot.attempts, active_run)
@@ -510,7 +399,7 @@ defmodule Jidoka.TuiServer do
 
   defp active_run([], _session, _preferred_run_id), do: nil
 
-  defp active_run(runs, %{} = session, preferred_run_id) do
+  defp active_run(runs, session, preferred_run_id) when is_map(session) do
     preferred_exists =
       is_binary(preferred_run_id) and preferred_run_id != "" and
         Enum.any?(runs, &(&1.id == preferred_run_id))
@@ -527,11 +416,7 @@ defmodule Jidoka.TuiServer do
     end
   end
 
-  defp active_run(runs, _session, _preferred_run_id) do
-    List.last(runs)
-  end
-
-  defp active_attempt(attempts, nil), do: nil
+  defp active_attempt(_attempts, nil), do: nil
 
   defp active_attempt(attempts, active_run) do
     if active_run.latest_attempt_id in [nil, ""] do
@@ -548,31 +433,18 @@ defmodule Jidoka.TuiServer do
     Enum.count(attempts, &(&1.run_id == run_id))
   end
 
-  defp default_command_controls(mode, session_ref \\ nil, opts \\ []) do
-    case mode do
-      :recoverable ->
-        derive_command_controls(:recoverable, session_ref, nil, nil, nil,
-          session_status: Keyword.get(opts, :session_status)
-        )
-
-      :attached ->
-        derive_command_controls(:attached, session_ref, nil, nil, nil)
-
-      _ ->
-        %{
-          interrupt: :illegal,
-          steer: :illegal,
-          approve: :illegal,
-          reject: :illegal,
-          retry: :illegal,
-          cancel: :illegal,
-          focus_run: :illegal,
-          reconnect: :illegal
-        }
-    end
+  defp default_command_controls(session_ref \\ nil, opts \\ []) do
+    derive_command_controls(:recoverable, session_ref, nil, nil, nil,
+      session_status: Keyword.get(opts, :session_status)
+    )
   end
 
-  defp derive_command_controls(:recoverable, session_ref, run_status, run_outcome, attempt_status,
+  defp derive_command_controls(
+         :recoverable,
+         session_ref,
+         _run_status,
+         _run_outcome,
+         _attempt_status,
          session_status: session_status
        ) do
     reconnect =
@@ -606,10 +478,16 @@ defmodule Jidoka.TuiServer do
   end
 
   defp command_legal?(:interrupt, :running, _run_outcome, :running), do: :legal
+  defp command_legal?(:interrupt, :running, _run_outcome, :pending), do: :legal
+  defp command_legal?(:interrupt, :queued, _run_outcome, :running), do: :legal
+  defp command_legal?(:interrupt, :queued, _run_outcome, :pending), do: :legal
   defp command_legal?(:steer, :running, _run_outcome, :running), do: :legal
   defp command_legal?(:approve, :awaiting_approval, _outcome, :succeeded), do: :legal
   defp command_legal?(:reject, :awaiting_approval, _outcome, :succeeded), do: :legal
-  defp command_legal?(:retry, :failed, :retryable_failed, :retryable_failed), do: :legal
+
+  defp command_legal?(:retry, :failed, :retryable_failed, attempt_status)
+       when attempt_status in [:succeeded, :retryable_failed],
+       do: :legal
 
   defp command_legal?(:cancel, :queued, _run_outcome, :pending), do: :legal
   defp command_legal?(:cancel, :queued, _run_outcome, :running), do: :legal
@@ -753,10 +631,9 @@ defmodule Jidoka.TuiServer do
   end
 
   defp summarize_focus_artifacts(_artifacts, nil, _active_attempt), do: default_artifact_focus()
-  defp summarize_focus_artifacts(_artifacts, nil, nil), do: default_artifact_focus()
 
   defp summarize_focus_artifacts(artifacts, active_run, active_attempt) do
-    run_id = active_run && active_run.id
+    run_id = active_run.id
     attempt_id = active_attempt && active_attempt.id
 
     relevant =
@@ -783,7 +660,7 @@ defmodule Jidoka.TuiServer do
   defp summarize_focus_verification_result(_results, nil), do: nil
 
   defp summarize_focus_verification_result(results, active_attempt) do
-    attempt_id = active_attempt && active_attempt.id
+    attempt_id = active_attempt.id
 
     results
     |> Enum.filter(fn result ->
@@ -902,8 +779,6 @@ defmodule Jidoka.TuiServer do
     |> Enum.join(" ")
   end
 
-  defp event_line_details(_, _), do: nil
-
   defp event_for_active_run?(%{signal: signal}, active_run_id, active_attempt_id) do
     payload = Map.get(signal, :payload, %{})
     type = Map.get(signal, :type, :unknown)
@@ -944,8 +819,7 @@ defmodule Jidoka.TuiServer do
   end
 
   defp maybe_refresh(%{mode: :recoverable} = state) do
-    with {:ok, snapshot} <- Agent.snapshot(state.session_ref),
-         {:ok, log} <- Bus.get_log(path: state.event_path) do
+    with {:ok, snapshot} <- Agent.snapshot(state.session_ref) do
       # allow operator to retry attach if the target is now healthy.
       if snapshot.session.status == :closed do
         state
@@ -972,7 +846,130 @@ defmodule Jidoka.TuiServer do
   defp interval_or_nil(_), do: nil
 
   defp event_path(session_id) when is_binary(session_id),
-    do: "jidoka.session." <> Base.url_encode64(session_id, padding: false) <> ".events"
+    do: SessionBusPath.events(session_id)
 
   defp event_path(_), do: nil
+
+  defp recoverable_reconnect_state(state, session_ref) do
+    recoverable_state(state, :disconnected,
+      session_handle: session_ref,
+      session_ref: session_ref,
+      event_path: event_path(session_ref)
+    )
+  end
+
+  defp remember_session_ref(session_ref) when is_binary(session_ref) do
+    :persistent_term.put(@remembered_session_key, session_ref)
+  end
+
+  defp remember_session_ref(_session_ref), do: :ok
+
+  defp remembered_session_ref do
+    :persistent_term.get(@remembered_session_key, nil)
+  end
+
+  defp reconnectable_session?(session_ref) when is_binary(session_ref) do
+    case Agent.snapshot(session_ref) do
+      {:ok, %{session: %{status: status}}} when status != :closed -> true
+      _ -> false
+    end
+  end
+
+  defp reconnectable_session?(_session_ref), do: false
+
+  defp attach_state(
+         state,
+         derive_state,
+         activity_lines,
+         focused_progress_lines,
+         last_event_count
+       ) do
+    remember_session_ref(state.session_ref)
+
+    put_state(
+      state,
+      runtime_view_fields(derive_state, activity_lines, focused_progress_lines, last_event_count) ++
+        [
+          mode: :attached,
+          recoverable_reason: nil,
+          command_controls:
+            derive_command_controls(
+              :attached,
+              state.session_ref,
+              derive_state.active_run_status,
+              derive_state.active_run_outcome,
+              derive_state.active_attempt_status
+            )
+        ]
+    )
+  end
+
+  defp recoverable_state(state, reason, attrs) do
+    session_ref = Keyword.get(attrs, :session_ref, state.session_ref)
+    session_status = Keyword.get(attrs, :session_status)
+
+    put_state(
+      state,
+      Keyword.merge(
+        [
+          mode: :recoverable,
+          recoverable_reason: reason,
+          session_ref: session_ref,
+          event_path: Keyword.get(attrs, :event_path, state.event_path),
+          session_status: session_status,
+          active_run_id: nil,
+          active_run_status: nil,
+          active_attempt_id: nil,
+          active_attempt_status: nil,
+          active_run_task: nil,
+          active_run_attempt_count: 0,
+          active_attempt_number: nil,
+          active_run_outcome: nil,
+          active_lease_id: nil,
+          active_lease_workspace_path: nil,
+          focused_artifacts: default_artifact_focus(),
+          active_verification_result: nil,
+          available_runs: [],
+          command_controls: default_command_controls(session_ref, session_status: session_status),
+          activity_lines: [],
+          focused_progress_lines: [],
+          last_event_count: 0,
+          last_error: nil
+        ],
+        attrs
+      )
+    )
+  end
+
+  defp runtime_view_fields(
+         derive_state,
+         activity_lines,
+         focused_progress_lines,
+         last_event_count
+       ) do
+    [
+      session_status: derive_state.session_status,
+      active_run_id: derive_state.active_run_id,
+      active_run_status: derive_state.active_run_status,
+      active_attempt_id: derive_state.active_attempt_id,
+      active_attempt_status: derive_state.active_attempt_status,
+      active_run_task: derive_state.active_run_task,
+      active_run_attempt_count: derive_state.active_run_attempt_count,
+      active_attempt_number: derive_state.active_attempt_number,
+      active_run_outcome: derive_state.active_run_outcome,
+      active_lease_id: derive_state.active_lease_id,
+      active_lease_workspace_path: derive_state.active_lease_workspace_path,
+      focused_artifacts: derive_state.focused_artifacts,
+      available_runs: derive_state.available_runs,
+      active_verification_result: derive_state.active_verification_result,
+      activity_lines: activity_lines,
+      focused_progress_lines: focused_progress_lines,
+      last_event_count: last_event_count,
+      last_error: nil
+    ]
+  end
+
+  defp put_state(state, attrs) do
+    struct(state, attrs)
+  end
 end

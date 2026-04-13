@@ -10,7 +10,6 @@ defmodule Jidoka.Persistence.InMemory do
   alias Jidoka.EnvironmentLease
   alias Jidoka.Event
   alias Jidoka.Outcome
-  alias Jidoka.Persistence
   alias Jidoka.Persistence.{EventRecord, SessionEnvelope}
   alias Jidoka.Run
   alias Jidoka.Session

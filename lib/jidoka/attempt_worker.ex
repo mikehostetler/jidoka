@@ -12,15 +12,33 @@ defmodule Jidoka.AttemptWorker do
   alias Jidoka.Verifier.VerificationOutput
   alias Jidoka.SessionServer
 
+  def child_spec(%AttemptSpec{} = spec) do
+    %{
+      id: {__MODULE__, spec.attempt_id},
+      start: {__MODULE__, :start_link, [spec]},
+      restart: :temporary
+    }
+  end
+
   def start_link(%AttemptSpec{} = spec) do
     GenServer.start_link(__MODULE__, spec, name: via_name(spec.attempt_id))
   end
 
-  @spec stop(String.t()) :: :ok | {:error, term()}
+  @spec stop(String.t()) :: :ok | {:error, :not_found}
   def stop(attempt_id) when is_binary(attempt_id) do
     case Registry.lookup(Jidoka.Registry, {:attempt, attempt_id}) do
-      [] -> {:error, :not_found}
-      [{pid, _}] -> GenServer.stop(pid, :normal)
+      [] ->
+        {:error, :not_found}
+
+      [{pid, _}] ->
+        ref = Process.monitor(pid)
+        Process.exit(pid, :kill)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+        after
+          1_000 -> :ok
+        end
     end
   end
 
@@ -37,23 +55,25 @@ defmodule Jidoka.AttemptWorker do
 
   @impl true
   def handle_info(:run, %AttemptSpec{} = spec) do
-    with :ok <- SessionServer.mark_attempt_running(spec.attempt_id),
-         {:ok, output} <- AttemptExecution.execute(spec),
-         :ok <- emit_progress_events(spec.attempt_id, output),
-         :ok <- persist_execution_result(spec.attempt_id, output),
-         :ok <- run_verification(spec, output) do
-      :ok
-    else
-      {:ok, invalid_output} ->
-        emit_failure_event(spec.attempt_id, %{
-          error: {:invalid_adapter_output, inspect(invalid_output)}
-        })
+    case SessionServer.mark_attempt_running(spec.attempt_id) do
+      :ok ->
+        case AttemptExecution.execute(spec) do
+          {:ok, %AttemptOutput{} = output} ->
+            with :ok <- emit_progress_events(spec.attempt_id, output),
+                 :ok <- persist_execution_result(spec.attempt_id, output),
+                 :ok <- run_verification(spec, output) do
+              :ok
+            else
+              {:error, reason} ->
+                emit_failure_event(spec.attempt_id, {:error, reason})
+            end
+
+          {:error, reason} ->
+            emit_failure_event(spec.attempt_id, {:error, reason})
+        end
 
       {:error, reason} ->
-        emit_failure_event(spec.attempt_id, reason)
-
-      _ ->
-        emit_failure_event(spec.attempt_id, :unexpected_worker_error)
+        emit_failure_event(spec.attempt_id, {:error, reason})
     end
 
     {:stop, :normal, spec}
@@ -103,9 +123,6 @@ defmodule Jidoka.AttemptWorker do
     case Verifier.execute(verification_spec) do
       {:ok, %VerificationOutput{} = output} ->
         {:ok, output}
-
-      {:ok, invalid_output} ->
-        {:error, {:invalid_verifier_output, inspect(invalid_output)}}
 
       {:error, reason} ->
         {:error, reason}
@@ -165,7 +182,7 @@ defmodule Jidoka.AttemptWorker do
          attempt_id,
          %AttemptOutput{status: :succeeded, metadata: metadata, artifacts: artifacts}
        ) do
-    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts || []),
+    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts),
          :ok <- SessionServer.mark_attempt_completed(attempt_id, metadata) do
       :ok
     end
@@ -176,7 +193,7 @@ defmodule Jidoka.AttemptWorker do
          %AttemptOutput{status: status, metadata: metadata, artifacts: artifacts, error: error}
        )
        when status in [:retryable_failed, :terminal_failed] do
-    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts || []),
+    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts),
          :ok <- SessionServer.mark_attempt_failed(attempt_id, status, error, metadata) do
       :ok
     end

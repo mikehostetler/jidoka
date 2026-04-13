@@ -8,7 +8,6 @@ defmodule Jidoka.AttemptExecution.NoopAdapter do
 
   @behaviour Jidoka.AttemptExecution
 
-  alias Jidoka.AttemptExecution
   alias Jidoka.AttemptExecution.{AttemptOutput, AttemptSpec, ProgressEvent}
 
   @impl true

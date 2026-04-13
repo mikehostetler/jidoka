@@ -156,21 +156,16 @@ defmodule Jidoka.Hardening.EvaluationHarness do
       {:ok, snapshot} ->
         summary = run_snapshot_summary(context.session_ref, snapshot)
 
-        if expected == nil || summary.run_status == expected do
+        if summary.run_status == expected do
           {:ok, summary}
         else
           Process.sleep(@poll_interval)
           await_status(context, expected, remaining - 1)
         end
 
-      {:error, reason} ->
+      {:error, _reason} ->
         Process.sleep(@poll_interval)
-
-        if remaining == 0 do
-          {:error, reason}
-        else
-          await_status(context, expected, remaining - 1)
-        end
+        await_status(context, expected, remaining - 1)
     end
   end
 

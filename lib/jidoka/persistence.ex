@@ -38,7 +38,7 @@ defmodule Jidoka.Persistence do
             recorded_at: DateTime.t()
           }
 
-    @spec new(String.t(), event_sequence(), Event.t()) :: t()
+    @spec new(String.t(), Jidoka.Persistence.event_sequence(), Event.t()) :: t()
     def new(session_id, sequence, event) do
       %__MODULE__{
         session_id: session_id,
@@ -135,4 +135,9 @@ defmodule Jidoka.Persistence do
               {:ok, [EventRecord.t()]} | {:error, :not_found}
   @callback load_session_envelope(storage, session_id()) ::
               {:ok, SessionEnvelope.t()} | {:error, :not_found}
+
+  @spec delete(session_id()) :: :ok
+  def delete(session_id) when is_binary(session_id) do
+    Jidoka.AgentState.delete(session_id)
+  end
 end

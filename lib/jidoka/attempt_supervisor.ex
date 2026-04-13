@@ -5,7 +5,6 @@ defmodule Jidoka.AttemptSupervisor do
 
   use DynamicSupervisor
 
-  @impl true
   def start_link(_opts) do
     DynamicSupervisor.start_link(__MODULE__, :ok, name: __MODULE__)
   end

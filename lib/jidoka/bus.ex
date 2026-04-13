@@ -29,6 +29,11 @@ defmodule Jidoka.Bus do
     GenServer.call(__MODULE__, {:get_log, pattern})
   end
 
+  def clear_log(opts \\ []) do
+    pattern = Keyword.get(opts, :path)
+    GenServer.call(__MODULE__, {:clear_log, pattern})
+  end
+
   @impl true
   def init(:ok) do
     {:ok, %__MODULE__{entries: []}}
@@ -50,6 +55,15 @@ defmodule Jidoka.Bus do
 
   def handle_call({:get_log, pattern}, _from, state) when is_binary(pattern) do
     {:reply, {:ok, Enum.filter(state.entries, &path_match?(pattern, &1.path))}, state}
+  end
+
+  def handle_call({:clear_log, nil}, _from, state) do
+    {:reply, :ok, %{state | entries: []}}
+  end
+
+  def handle_call({:clear_log, pattern}, _from, state) when is_binary(pattern) do
+    remaining = Enum.reject(state.entries, &path_match?(pattern, &1.path))
+    {:reply, :ok, %{state | entries: remaining}}
   end
 
   defp path_match?(pattern, value) when is_binary(pattern) and is_binary(value) do

@@ -23,10 +23,10 @@ defmodule Jidoka.SessionServer do
   alias Jidoka.AttemptWorker
   alias Jidoka.Durable
   alias Jidoka.Durable.AttemptStatus
+  alias Jidoka.SessionBusPath
   alias Jidoka.Verifier
   alias Jidoka.VerificationResult
 
-  @bus_path_prefix "jidoka.session."
   @default_adapter InMemory
   @default_execution_adapter AttemptExecution.NoopAdapter
   @default_verification_adapter Verifier.NoopAdapter
@@ -228,8 +228,12 @@ defmodule Jidoka.SessionServer do
 
       {:ok, session_id} ->
         case Map.get(state.active_sessions, session_id) do
-          pid when is_pid(pid) and Process.alive?(pid) ->
-            {:reply, {:ok, %{session_ref: session_id, pid: pid}}, state}
+          pid when is_pid(pid) ->
+            if Process.alive?(pid) do
+              {:reply, {:ok, %{session_ref: session_id, pid: pid}}, state}
+            else
+              {:reply, {:error, :not_found}, state}
+            end
 
           _ ->
             {:reply, {:error, :not_found}, state}
@@ -463,7 +467,7 @@ defmodule Jidoka.SessionServer do
     session_id = Keyword.get(opts, :id, generate_id("session"))
     workspace_path = Keyword.get(opts, :workspace_path, Keyword.get(opts, :cwd))
     metadata = Keyword.get(opts, :metadata, %{})
-    status = Keyword.get(opts, :status, :active)
+    status = Keyword.get(opts, :status, :initializing)
 
     case state.storage_adapter.load_session(state.storage, session_id) do
       {:ok, session} ->
@@ -510,17 +514,25 @@ defmodule Jidoka.SessionServer do
 
   defp ensure_session_process(state, session_id) do
     case Map.get(state.active_sessions, session_id) do
-      pid when is_pid(pid) and Process.alive?(pid) ->
-        {:ok, state}
+      pid when is_pid(pid) ->
+        if Process.alive?(pid) do
+          {:ok, state}
+        else
+          start_session_process(state, session_id)
+        end
 
       _ ->
-        case ensure_existing_process_started(state, session_id) do
-          {:ok, pid} ->
-            {:ok, %{state | active_sessions: Map.put(state.active_sessions, session_id, pid)}}
+        start_session_process(state, session_id)
+    end
+  end
 
-          {:error, reason} ->
-            {:error, reason}
-        end
+  defp start_session_process(state, session_id) do
+    case ensure_existing_process_started(state, session_id) do
+      {:ok, pid} ->
+        {:ok, %{state | active_sessions: Map.put(state.active_sessions, session_id, pid)}}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
@@ -621,8 +633,8 @@ defmodule Jidoka.SessionServer do
     end
   end
 
-  defp reconcile_running_attempt(state, run, attempt, lease) do
-    with {:ok, state, recovered_run} <-
+  defp reconcile_running_attempt(state, _run, attempt, lease) do
+    with {:ok, state} <-
            update_attempt_status(
              state,
              attempt.id,
@@ -635,6 +647,7 @@ defmodule Jidoka.SessionServer do
                recovery_source: :resume
              }
            ),
+         {:ok, recovered_run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
          {:ok, state} <- mark_orphaned_lease(state, lease, attempt.id),
          {:ok, state} <-
            append_run_updated_event(
@@ -678,7 +691,6 @@ defmodule Jidoka.SessionServer do
     case File.rm_rf(path) do
       {:ok, _} -> :removed
       {:error, reason, _path} -> {:failed, reason}
-      {:error, reason} -> {:failed, reason}
     end
   end
 
@@ -686,7 +698,7 @@ defmodule Jidoka.SessionServer do
     match?([_ | _], Registry.lookup(Jidoka.Registry, {:attempt, attempt_id}))
   end
 
-  defp resolve_session_id(state, session_handle) when is_binary(session_handle) do
+  defp resolve_session_id(_state, session_handle) when is_binary(session_handle) do
     {:ok, session_handle}
   end
 
@@ -773,6 +785,7 @@ defmodule Jidoka.SessionServer do
 
   defp apply_approve_command(state, %Run{} = run) do
     with :ok <- ensure_run_status(run.status, :awaiting_approval, :approve),
+         :ok <- validate_run_transition(run.status, :completed),
          {:ok, attempt} <- load_latest_attempt(state.storage_adapter, state.storage, run),
          :ok <- ensure_attempt_status(attempt.status, [:succeeded], :approve),
          updated_run <- %{
@@ -813,8 +826,10 @@ defmodule Jidoka.SessionServer do
   defp apply_retry_command(state, %Run{} = run, %Session{} = session, opts) do
     with :ok <- ensure_run_status(run.status, :failed, :retry),
          :ok <- ensure_retryable_outcome(run.outcome, :retry),
+         :ok <- validate_run_transition(run.status, :queued),
          {:ok, previous_attempt} <- load_latest_attempt(state.storage_adapter, state.storage, run),
-         :ok <- ensure_attempt_status(previous_attempt.status, [:retryable_failed], :retry),
+         :ok <-
+           ensure_attempt_status(previous_attempt.status, [:succeeded, :retryable_failed], :retry),
          updated_run <- %{run | status: :queued, outcome: nil, updated_at: now()},
          {:ok, state} <- persist_run_record(state, updated_run),
          {:ok, attempt} <- build_retry_attempt(run.id, previous_attempt, opts),
@@ -864,7 +879,6 @@ defmodule Jidoka.SessionServer do
     case AttemptWorker.stop(attempt_id) do
       :ok -> :ok
       {:error, :not_found} -> :ok
-      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -910,17 +924,16 @@ defmodule Jidoka.SessionServer do
   defp ensure_retryable_outcome(outcome, :retry),
     do: {:error, {:invalid_run_outcome_for_action, :retry, :retryable_failed, outcome}}
 
-  defp append_run_updated_event(state, %Run{} = run, operation, opts \\ []) do
+  defp append_run_updated_event(state, %Run{} = run, operation, opts) do
     payload =
-      Keyword.merge(
-        [
-          run_id: run.id,
-          operation: operation,
-          parent_run_id: run.parent_run_id,
-          role: run.role
-        ],
-        opts
+      opts
+      |> Keyword.merge(
+        run_id: run.id,
+        operation: operation,
+        parent_run_id: run.parent_run_id,
+        role: run.role
       )
+      |> Map.new()
 
     with {:ok, storage_record, _event_record} <-
            append_event_record(state, state.storage, :run_updated, run.session_id, payload,
@@ -953,12 +966,23 @@ defmodule Jidoka.SessionServer do
   end
 
   defp build_retry_attempt(run_id, %Attempt{} = previous_attempt, opts) do
+    base_metadata =
+      previous_attempt.metadata
+      |> Map.drop([
+        :verification_adapter,
+        "verification_adapter",
+        :execution_phase,
+        "execution_phase",
+        :execution_failure_reason,
+        "execution_failure_reason"
+      ])
+
     Attempt.new(
       id: Keyword.get(opts, :attempt_id, generate_id("attempt")),
       run_id: run_id,
       attempt_number: previous_attempt.attempt_number + 1,
       status: Keyword.get(opts, :attempt_status, :pending),
-      metadata: Map.merge(previous_attempt.metadata, Keyword.get(opts, :attempt_metadata, %{}))
+      metadata: Map.merge(base_metadata, Keyword.get(opts, :attempt_metadata, %{}))
     )
   end
 
@@ -988,7 +1012,7 @@ defmodule Jidoka.SessionServer do
                updated_at: now()
            },
          {:ok, state} <- persist_attempt_record(state, updated_attempt),
-         {:ok, state, _event_record} <-
+         {:ok, storage, _event_record} <-
            append_event_record(
              state,
              state.storage,
@@ -1011,7 +1035,7 @@ defmodule Jidoka.SessionServer do
              role: run.role,
              attempt_id: attempt.id
            ) do
-      {:ok, state}
+      {:ok, %{state | storage: storage}}
     end
   end
 
@@ -1022,8 +1046,8 @@ defmodule Jidoka.SessionServer do
   defp validate_attempt_transition(:running, :terminal_failed), do: :ok
   defp validate_attempt_transition(:running, :canceled), do: :ok
 
-  defp validate_attempt_transition(_current, _next),
-    do: {:error, {:illegal_attempt_transition, _current, _next}}
+  defp validate_attempt_transition(current, next),
+    do: {:error, {:illegal_attempt_transition, current, next}}
 
   defp transition_run_for_attempt(state, run, :pending, :running) do
     transition_run_if_needed(state, run, :running)
@@ -1068,7 +1092,7 @@ defmodule Jidoka.SessionServer do
   defp append_attempt_progress_event(state, attempt_id, payload) do
     with {:ok, attempt} <- state.storage_adapter.load_attempt(state.storage, attempt_id),
          {:ok, run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
-         {:ok, state, _event_record} <-
+         {:ok, storage, _event_record} <-
            append_event_record(
              state,
              state.storage,
@@ -1088,7 +1112,7 @@ defmodule Jidoka.SessionServer do
              role: run.role,
              attempt_id: attempt.id
            ) do
-      {:ok, state}
+      {:ok, %{state | storage: storage}}
     end
   end
 
@@ -1101,7 +1125,6 @@ defmodule Jidoka.SessionServer do
   defp validate_run_transition(:awaiting_approval, :canceled), do: :ok
   defp validate_run_transition(:queued, :canceled), do: :ok
   defp validate_run_transition(:failed, :queued), do: :ok
-  defp validate_run_transition(:failed, :canceled), do: :ok
 
   defp validate_run_transition(current, next),
     do: {:error, {:illegal_run_transition, current, next}}
@@ -1121,10 +1144,7 @@ defmodule Jidoka.SessionServer do
   defp maybe_publish(session_id, event_type, payload) do
     event = %{session_id: session_id, type: event_type, payload: payload}
 
-    Bus.record(
-      event,
-      @bus_path_prefix <> Base.url_encode64(session_id, padding: false) <> ".events"
-    )
+    Bus.record(event, SessionBusPath.events(session_id))
 
     :ok
   end
@@ -1321,12 +1341,12 @@ defmodule Jidoka.SessionServer do
     end
   end
 
-  defp build_verifier_adapter(task_pack, opts) do
-    Keyword.get(opts, :verification_adapter) || default_verification_adapter(task_pack)
-  end
-
   defp build_verifier_adapter(%Run{task_pack: task_pack}, opts) do
     build_verifier_adapter(task_pack, opts)
+  end
+
+  defp build_verifier_adapter(task_pack, opts) do
+    Keyword.get(opts, :verification_adapter) || default_verification_adapter(task_pack)
   end
 
   defp execution_adapter_for_attempt(%Attempt{} = attempt, opts) do
@@ -1585,7 +1605,7 @@ defmodule Jidoka.SessionServer do
          {:ok, state} <- persist_attempt_record(state, updated_attempt),
          {:ok, updated_run} <- transition_run_for_verification(run, verification_result),
          {:ok, state} <- persist_run_record(state, updated_run),
-         {:ok, state, _event_record} <-
+         {:ok, storage, _event_record} <-
            append_event_record(
              state,
              state.storage,
@@ -1600,7 +1620,7 @@ defmodule Jidoka.SessionServer do
              run_id: run.id,
              attempt_id: attempt.id
            ) do
-      {:ok, state}
+      {:ok, %{state | storage: storage}}
     end
   end
 

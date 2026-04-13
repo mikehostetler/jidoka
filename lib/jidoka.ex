@@ -23,6 +23,10 @@ defmodule Jidoka do
   @spec close_session(session_handle()) :: :ok | {:error, term()}
   def close_session(session), do: Agent.close(session)
 
+  @spec submit(session_handle(), String.t(), keyword()) :: {:ok, map()} | {:error, term()}
+  def submit(session, task, opts \\ []) when is_binary(task),
+    do: Agent.submit(session, task, opts)
+
   @spec snapshot_session(session_handle()) :: {:ok, map()} | {:error, term()}
   def snapshot_session(session), do: Agent.snapshot(session)
 

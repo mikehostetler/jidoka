@@ -270,40 +270,28 @@ defmodule JidokaPersistenceTest do
     end
   end
 
-  defp save!(%InMemory{} = state, %Session{} = session) do
-    {:ok, state} = InMemory.save_session(state, session)
-    state
-  end
+  defp save!({:ok, %InMemory{} = state}, record), do: save!(state, record)
 
-  defp save!(%InMemory{} = state, %Run{} = run) do
-    {:ok, state} = InMemory.save_run(state, run)
-    state
-  end
+  defp save!(%InMemory{} = state, %Session{} = session),
+    do: InMemory.save_session(state, session)
 
-  defp save!(%InMemory{} = state, %Attempt{} = attempt) do
-    {:ok, state} = InMemory.save_attempt(state, attempt)
-    state
-  end
+  defp save!(%InMemory{} = state, %Run{} = run),
+    do: InMemory.save_run(state, run)
 
-  defp save!(%InMemory{} = state, %EnvironmentLease{} = lease) do
-    {:ok, state} = InMemory.save_environment_lease(state, lease)
-    state
-  end
+  defp save!(%InMemory{} = state, %Attempt{} = attempt),
+    do: InMemory.save_attempt(state, attempt)
 
-  defp save!(%InMemory{} = state, %Artifact{} = artifact) do
-    {:ok, state} = InMemory.save_artifact(state, artifact)
-    state
-  end
+  defp save!(%InMemory{} = state, %EnvironmentLease{} = lease),
+    do: InMemory.save_environment_lease(state, lease)
 
-  defp save!(%InMemory{} = state, %VerificationResult{} = result) do
-    {:ok, state} = InMemory.save_verification_result(state, result)
-    state
-  end
+  defp save!(%InMemory{} = state, %Artifact{} = artifact),
+    do: InMemory.save_artifact(state, artifact)
 
-  defp save!(%InMemory{} = state, %Outcome{} = outcome) do
-    {:ok, state} = InMemory.save_outcome(state, outcome)
-    state
-  end
+  defp save!(%InMemory{} = state, %VerificationResult{} = result),
+    do: InMemory.save_verification_result(state, result)
+
+  defp save!(%InMemory{} = state, %Outcome{} = outcome),
+    do: InMemory.save_outcome(state, outcome)
 
   defp no_pid_data?(value) when is_pid(value), do: false
   defp no_pid_data?(value) when is_list(value), do: Enum.all?(value, &no_pid_data?/1)
