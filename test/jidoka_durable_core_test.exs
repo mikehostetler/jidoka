@@ -138,6 +138,25 @@ defmodule JidokaDurableCoreTest do
     assert run.task_pack == :coding
   end
 
+  test "event constructor supports optional lineage metadata" do
+    assert {:ok, event} =
+             Event.new(
+               id: "event-001",
+               session_id: "session-001",
+               type: :run_submitted,
+               run_id: "run-001",
+               attempt_id: "attempt-001",
+               parent_run_id: "run-000",
+               role: :coordinator,
+               payload: %{status: :ok}
+             )
+
+    assert event.parent_run_id == "run-000"
+    assert event.role == :coordinator
+    assert event.run_id == "run-001"
+    assert event.attempt_id == "attempt-001"
+  end
+
   test "attempt constructor validates lifecycle and identifiers" do
     assert {:error, :invalid_id} = Attempt.new(status: :pending, run_id: "run-001")
 

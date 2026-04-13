@@ -443,3 +443,30 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - No blockers encountered.
 - I did not run full `mix test`; only `mix precommit` as requested by you.
 - I used existing test adapter patterns and temporary `/tmp` workspaces for recovery/cleanup assertions.
+1) changed files
+- [/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/event.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/event.ex)
+- [/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- [/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_durable_core_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_durable_core_test.exs)
+- [/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+
+2) tests/commands executed
+- `mix format lib/jidoka/event.ex lib/jidoka/session_server.ex test/jidoka_durable_core_test.exs test/jidoka_session_server_test.exs`
+- `mix precommit` ✅ passed
+
+3) acceptance criteria coverage
+- Durable shapes carry optional lineage metadata:
+  - `Jidoka.Event` now has optional `parent_run_id` and `role` fields and validates optional lineage IDs.
+  - `SessionServer.submit` path now accepts `parent_run_id` and `role` via options and stores them on created runs.
+  - Run/attempt lineage and role are carried through run-scoped events (`run_submitted`, `run_updated`, attempt progress/artifact events) via event payload and event struct fields.
+- Session snapshots are multi-run tolerant:
+  - Added test ensuring a single session snapshot can enumerate two runs and that each run’s `run_snapshot/2` is scoped to that run.
+  - Added assertions for run linkage (`parent_run_id`) and role on both root and child snapshots.
+- Backward compatibility preserved:
+  - Existing submit/command paths and single-run execution behavior unchanged.
+  - Lineage fields are optional defaults, so current MVP payloads continue to work.
+- No delegation/run-graph/child-run execution introduced:
+  - No new delegation commands or supervisors were added; behavior remains one-at-a-time run execution.
+
+4) blockers/assumptions
+- No blockers encountered.
+- Assumption: role metadata is treated as optional opaque durable metadata (stored but not type-enforced in `Event`), with a default of nil to preserve existing behavior.

@@ -16,6 +16,8 @@ defmodule Jidoka.Event do
     :session_id,
     :run_id,
     :attempt_id,
+    :parent_run_id,
+    :role,
     :payload
   ]
 
@@ -29,6 +31,8 @@ defmodule Jidoka.Event do
           session_id: String.t(),
           run_id: String.t() | nil,
           attempt_id: String.t() | nil,
+          parent_run_id: String.t() | nil,
+          role: atom() | nil,
           payload: map()
         }
 
@@ -49,6 +53,8 @@ defmodule Jidoka.Event do
         session_id: attrs[:session_id],
         run_id: attrs[:run_id],
         attempt_id: attrs[:attempt_id],
+        parent_run_id: attrs[:parent_run_id],
+        role: attrs[:role],
         payload: Map.get(attrs, :payload, %{})
       })
 
@@ -61,6 +67,7 @@ defmodule Jidoka.Event do
          :ok <- type_ok?(event.type),
          :ok <- optional_id_ok?(event.run_id),
          :ok <- optional_id_ok?(event.attempt_id),
+         :ok <- optional_id_ok?(event.parent_run_id),
          :ok <- payload_ok?(event.payload) do
       {:ok, event}
     end

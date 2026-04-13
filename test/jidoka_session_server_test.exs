@@ -174,6 +174,60 @@ defmodule JidokaSessionServerTest do
     assert :ok = SessionServer.close(session_id)
   end
 
+  test "submit can persist lineage metadata and session snapshots enumerate multiple runs" do
+    session_id = unique_id("session-multi-run")
+    assert {:ok, ^session_id} = SessionServer.open(id: session_id, cwd: "/tmp/session-multi-run")
+
+    assert {:ok, %{run: root_run}} =
+             SessionServer.submit(
+               session_id,
+               "parent run for snapshot test",
+               role: :coordinator
+             )
+
+    assert {:ok, %{run: child_run}} =
+             SessionServer.submit(
+               session_id,
+               "child run for snapshot test",
+               parent_run_id: root_run.id,
+               role: :worker
+             )
+
+    assert {:ok, session_snapshot} = SessionServer.session_snapshot(session_id)
+    run_ids = Enum.map(session_snapshot.runs, & &1.id)
+    assert MapSet.new(run_ids) == MapSet.new([root_run.id, child_run.id])
+    assert MapSet.new(session_snapshot.session.run_ids) == MapSet.new(run_ids)
+    assert session_snapshot.session.active_run_id == child_run.id
+    assert session_snapshot.session.status in [:initializing, :active]
+
+    assert {:ok, root_snapshot} = SessionServer.run_snapshot(session_id, root_run.id)
+    assert root_snapshot.run.id == root_run.id
+    assert root_snapshot.run.parent_run_id == nil
+    assert root_snapshot.run.role == :coordinator
+
+    assert Enum.any?(
+             root_snapshot.events,
+             &(&1.event.type == :run_submitted && &1.event.payload[:run_id] == root_run.id)
+           )
+
+    assert {:ok, child_snapshot} = SessionServer.run_snapshot(session_id, child_run.id)
+    assert child_snapshot.run.id == child_run.id
+    assert child_snapshot.run.parent_run_id == root_run.id
+    assert child_snapshot.run.role == :worker
+
+    assert Enum.any?(
+             child_snapshot.events,
+             &(&1.event.type == :run_submitted && &1.event.payload[:run_id] == child_run.id)
+           )
+
+    refute Enum.any?(
+             child_snapshot.events,
+             &(&1.event.type == :run_submitted && &1.event.payload[:run_id] == root_run.id)
+           )
+
+    assert :ok = SessionServer.close(session_id)
+  end
+
   test "approve finalizes run outcome and seals accepted artifact set" do
     session_id = unique_id("session-approve")
     assert {:ok, ^session_id} = SessionServer.open(id: session_id, cwd: "/tmp/session-approve")

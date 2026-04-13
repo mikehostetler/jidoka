@@ -915,14 +915,18 @@ defmodule Jidoka.SessionServer do
       Keyword.merge(
         [
           run_id: run.id,
-          operation: operation
+          operation: operation,
+          parent_run_id: run.parent_run_id,
+          role: run.role
         ],
         opts
       )
 
     with {:ok, storage_record, _event_record} <-
            append_event_record(state, state.storage, :run_updated, run.session_id, payload,
-             run_id: run.id
+             run_id: run.id,
+             parent_run_id: run.parent_run_id,
+             role: run.role
            ) do
       {:ok, %{state | storage: storage_record}}
     end
@@ -994,6 +998,8 @@ defmodule Jidoka.SessionServer do
                %{
                  run_id: run.id,
                  attempt_id: attempt.id,
+                 parent_run_id: run.parent_run_id,
+                 role: run.role,
                  status: status,
                  started_at: updated_attempt.started_at,
                  finished_at: updated_attempt.finished_at
@@ -1001,6 +1007,8 @@ defmodule Jidoka.SessionServer do
                event_payload
              ),
              run_id: run.id,
+             parent_run_id: run.parent_run_id,
+             role: run.role,
              attempt_id: attempt.id
            ) do
       {:ok, state}
@@ -1067,10 +1075,17 @@ defmodule Jidoka.SessionServer do
              :attempt_progress,
              run.session_id,
              Map.merge(
-               %{run_id: run.id, attempt_id: attempt.id},
+               %{
+                 run_id: run.id,
+                 attempt_id: attempt.id,
+                 parent_run_id: run.parent_run_id,
+                 role: run.role
+               },
                payload
              ),
              run_id: run.id,
+             parent_run_id: run.parent_run_id,
+             role: run.role,
              attempt_id: attempt.id
            ) do
       {:ok, state}
@@ -1117,13 +1132,17 @@ defmodule Jidoka.SessionServer do
   defp append_event_record(state, storage, event_type, session_id, payload) do
     append_event_record(state, storage, event_type, session_id, payload,
       run_id: nil,
-      attempt_id: nil
+      attempt_id: nil,
+      parent_run_id: nil,
+      role: nil
     )
   end
 
   defp append_event_record(state, storage, event_type, session_id, payload, opts) do
     run_id = Keyword.get(opts, :run_id)
     attempt_id = Keyword.get(opts, :attempt_id)
+    parent_run_id = Keyword.get(opts, :parent_run_id)
+    role = Keyword.get(opts, :role)
 
     with {:ok, event} <-
            Event.new(
@@ -1132,6 +1151,8 @@ defmodule Jidoka.SessionServer do
              session_id: session_id,
              run_id: run_id,
              attempt_id: attempt_id,
+             parent_run_id: parent_run_id,
+             role: role,
              payload: payload
            ),
          {:ok, storage, event_record} <- state.storage_adapter.append_event(storage, event) do
@@ -1171,9 +1192,7 @@ defmodule Jidoka.SessionServer do
 
     events =
       Enum.filter(envelope.events, fn event_record ->
-        event_record.event.run_id == run_id or
-          (event_record.event.attempt_id != nil and
-             MapSet.member?(attempt_ids, event_record.event.attempt_id))
+        event_for_run?(event_record.event, run_id, attempt_ids)
       end)
 
     case Enum.find(envelope.runs, &(&1.id == run_id)) do
@@ -1195,6 +1214,14 @@ defmodule Jidoka.SessionServer do
     end
   end
 
+  defp event_for_run?(event, run_id, attempt_ids) do
+    event_run_id = event.run_id || event.payload[:run_id]
+    event_attempt_id = event.attempt_id || event.payload[:attempt_id]
+
+    event_run_id == run_id or
+      (is_binary(event_attempt_id) and MapSet.member?(attempt_ids, event_attempt_id))
+  end
+
   defp ensure_member(ids, value) when is_list(ids) do
     if value in ids do
       {:ok, ids}
@@ -1209,7 +1236,9 @@ defmodule Jidoka.SessionServer do
       session_id: session_id,
       task: task,
       task_pack: Keyword.get(opts, :task_pack, :coding),
-      status: Keyword.get(opts, :run_status, :queued)
+      status: Keyword.get(opts, :run_status, :queued),
+      parent_run_id: Keyword.get(opts, :parent_run_id),
+      role: Keyword.get(opts, :role)
     )
   end
 
@@ -1276,8 +1305,16 @@ defmodule Jidoka.SessionServer do
              state.storage,
              :run_submitted,
              session_id,
-             %{run_id: run.id, attempt_id: attempt.id, task_pack: run.task_pack},
+             %{
+               run_id: run.id,
+               attempt_id: attempt.id,
+               parent_run_id: run.parent_run_id,
+               role: run.role,
+               task_pack: run.task_pack
+             },
              run_id: run.id,
+             parent_run_id: run.parent_run_id,
+             role: run.role,
              attempt_id: attempt.id
            ) do
       {:ok, %{state | storage: storage_record}}
@@ -1378,6 +1415,8 @@ defmodule Jidoka.SessionServer do
         %{
           run_id: run.id,
           attempt_id: attempt.id,
+          parent_run_id: run.parent_run_id,
+          role: run.role,
           artifact_ids: Enum.map(new_artifacts, & &1.id),
           attempt_artifact_ids: attempt.artifact_ids
         }
@@ -1389,6 +1428,8 @@ defmodule Jidoka.SessionServer do
         run.session_id,
         payload,
         run_id: run.id,
+        parent_run_id: run.parent_run_id,
+        role: run.role,
         attempt_id: attempt.id
       )
       |> case do
