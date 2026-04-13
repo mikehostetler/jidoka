@@ -236,3 +236,31 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - No `AGENTS.md` was found in this repo, so implementation followed existing module conventions in `lib/` and test suite patterns.
 - Verifier selection defaults to a noop verifier for all task packs today (coding mapping explicit, fallback also noop); this is intentional for MVP scope and can be expanded in a follow-up story.
 
+1) changed files
+- [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex)
+- [lib/jidoka/agent.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/agent.ex)
+- [lib/jidoka.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka.ex)
+- [test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+
+2) tests/commands executed
+- `mix format lib/jidoka/session_server.ex lib/jidoka/attempt_worker.ex lib/jidoka/agent.ex lib/jidoka.ex test/jidoka_session_server_test.exs`
+- `mix format test/jidoka_session_server_test.exs`
+- `mix precommit` (passed)
+
+3) acceptance criteria coverage
+- Added runtime operator action commands: `approve`, `reject`, `retry`, `cancel` in `SessionServer`, exposed through `Agent` and top-level `Jidoka`.
+- Enforced run/attempt ownership checks and transition validation in command handlers.
+- Implemented approve flow to move run to `:completed`, set outcome `:approved`, and persist accepted run artifact linkage via `run.artifact_ids`.
+- Implemented reject flow to persist terminal outcome `:terminal_failed` and keep attempt-level artifact IDs unchanged.
+- Implemented retry flow from `:failed` + `:retryable_failed` to new attempt (`attempt_number` +1), persisted via new lease, and starts a fresh isolated attempt.
+- Implemented cancel flow to stop in-flight attempt worker (via registry-based stop), persist canceled attempt state and canceled run outcome.
+- Added session-server tests covering:
+  - legal approve/reject/retry/cancel transitions and durable outcomes
+  - retry creating a new attempt + new lease
+  - illegal transition errors for approve/reject/retry from non-allowed run states
+  - cancel behavior with running attempt and resulting state
+
+4) blockers/assumptions
+- I did not execute the full test suite (only `mix precommit` as requested), so runtime behavior is not end-to-end validated by tests here.
+- Artifact handling remains limited to `attempt.artifact_ids`/`run.artifact_ids` (no separate durable artifact mutation path was introduced in this story).

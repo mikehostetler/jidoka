@@ -13,7 +13,20 @@ defmodule Jidoka.AttemptWorker do
   alias Jidoka.SessionServer
 
   def start_link(%AttemptSpec{} = spec) do
-    GenServer.start_link(__MODULE__, spec)
+    GenServer.start_link(__MODULE__, spec, name: via_name(spec.attempt_id))
+  end
+
+  @spec stop(String.t()) :: :ok | {:error, term()}
+  def stop(attempt_id) when is_binary(attempt_id) do
+    case Registry.lookup(Jidoka.Registry, {:attempt, attempt_id}) do
+      [] -> {:error, :not_found}
+      [{pid, _}] -> GenServer.stop(pid, :normal)
+    end
+  end
+
+  @spec via_name(String.t()) :: {:via, Registry, {module(), any()}}
+  def via_name(attempt_id) when is_binary(attempt_id) do
+    {:via, Registry, {Jidoka.Registry, {:attempt, attempt_id}}}
   end
 
   @impl true

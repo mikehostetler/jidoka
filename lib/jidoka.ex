@@ -28,4 +28,17 @@ defmodule Jidoka do
 
   @spec run_snapshot(session_handle(), String.t()) :: {:ok, map()} | {:error, term()}
   def run_snapshot(session, run_id), do: Agent.run_snapshot(session, run_id)
+
+  @spec approve(session_handle(), String.t()) :: :ok | {:error, term()}
+  def approve(session, run_id), do: Agent.approve(session, run_id)
+
+  @spec reject(session_handle(), String.t()) :: :ok | {:error, term()}
+  def reject(session, run_id), do: Agent.reject(session, run_id)
+
+  @spec retry(session_handle(), String.t(), keyword()) :: :ok | {:error, term()}
+  def retry(session, run_id, opts \\ []) when is_binary(run_id),
+    do: Agent.retry(session, run_id, opts)
+
+  @spec cancel(session_handle(), String.t()) :: :ok | {:error, term()}
+  def cancel(session, run_id), do: Agent.cancel(session, run_id)
 end

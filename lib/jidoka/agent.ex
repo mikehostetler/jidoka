@@ -31,4 +31,17 @@ defmodule Jidoka.Agent do
 
   @spec run_snapshot(session_handle(), String.t()) :: {:ok, map()} | {:error, term()}
   def run_snapshot(session_handle, run_id), do: SessionServer.run_snapshot(session_handle, run_id)
+
+  @spec approve(session_handle(), String.t()) :: :ok | {:error, term()}
+  def approve(session_handle, run_id), do: SessionServer.approve(session_handle, run_id)
+
+  @spec reject(session_handle(), String.t()) :: :ok | {:error, term()}
+  def reject(session_handle, run_id), do: SessionServer.reject(session_handle, run_id)
+
+  @spec retry(session_handle(), String.t(), keyword()) :: :ok | {:error, term()}
+  def retry(session_handle, run_id, opts \\ []) when is_binary(run_id),
+    do: SessionServer.retry(session_handle, run_id, opts)
+
+  @spec cancel(session_handle(), String.t()) :: :ok | {:error, term()}
+  def cancel(session_handle, run_id), do: SessionServer.cancel(session_handle, run_id)
 end
