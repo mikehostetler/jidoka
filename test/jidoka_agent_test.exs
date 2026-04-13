@@ -147,7 +147,9 @@ defmodule Jidoka.AgentTest do
     end
   end
 
-  test "IEx helper stays thin and works against the same runtime surface", %{session_ref: session_ref} do
+  test "IEx helper stays thin and works against the same runtime surface", %{
+    session_ref: session_ref
+  } do
     assert {:ok, ^session_ref} = JidokaIEx.open(id: session_ref, cwd: File.cwd!())
     assert {:ok, subscription_id} = JidokaIEx.watch(session_ref)
     assert {:ok, request} = JidokaIEx.ask(session_ref, "inspect from iex")

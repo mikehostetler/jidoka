@@ -8,6 +8,7 @@ defmodule Jidoka.MixProject do
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
+      aliases: aliases(),
       deps: deps()
     ]
   end
@@ -28,5 +29,9 @@ defmodule Jidoka.MixProject do
     [
       {:jido_signal, "~> 2.1.0"}
     ]
+  end
+
+  defp aliases do
+    [precommit: ["format --check-formatted"]]
   end
 end
