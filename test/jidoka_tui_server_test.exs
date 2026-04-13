@@ -2,8 +2,12 @@ defmodule Jidoka.TuiServerTest do
   use ExUnit.Case, async: false
 
   alias Jidoka.Agent
+  alias Jidoka.Artifact
   alias Jidoka.TestAttemptExecutionAdapters.Success
+  alias Jidoka.TestVerificationAdapters.Passed
+  alias Jidoka.VerificationResult
   alias Jidoka.TuiServer
+  alias Jidoka.TuiRenderer
 
   test "booted shell opens a new session and renders stable regions" do
     {:ok, pid} = TuiServer.start_link(poll_interval: 0)
@@ -19,10 +23,12 @@ defmodule Jidoka.TuiServerTest do
     assert is_list(state.focused_progress_lines)
     assert Map.has_key?(model, :status)
     assert Map.has_key?(model, :focused_run)
+    assert Map.has_key?(model, :artifacts)
     assert Map.has_key?(model, :events)
     assert Map.has_key?(model, :input)
     assert String.contains?(render, "[status]")
     assert String.contains?(render, "[focused run]")
+    assert String.contains?(render, "[artifacts]")
     assert String.contains?(render, "[event stream]")
     assert String.contains?(render, "[operator input]")
 
@@ -106,6 +112,150 @@ defmodule Jidoka.TuiServerTest do
     assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "run_id=#{run.id}"))
     assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "attempt_id=#{attempt.id}"))
     assert Enum.any?(model.events.lines, &String.contains?(&1, "attempt_progress"))
+  end
+
+  test "status line summarizes session, run, attempt, and lease identity" do
+    state = %TuiServer.State{
+      session_ref: "session-status",
+      session_status: :running,
+      active_run_id: "run-status",
+      active_run_status: :queued,
+      active_attempt_id: "attempt-status",
+      active_attempt_status: :succeeded,
+      active_lease_id: "lease-status",
+      active_lease_workspace_path: "/tmp/lease-status",
+      active_run_task: "status summary",
+      active_run_attempt_count: 1,
+      active_attempt_number: 1,
+      focused_artifacts: %{diff: [], command_log: [], verifier_report: []},
+      active_verification_result: nil,
+      activity_lines: [],
+      focused_progress_lines: [],
+      input_buffer: ""
+    }
+
+    model = TuiRenderer.render_model(state)
+
+    assert Enum.any?(
+             model.status.lines,
+             &(&1 == "summary=session=running run=queued attempt=succeeded lease=lease-status")
+           )
+
+    assert Enum.any?(model.status.lines, &(&1 == "environment_lease=lease-status"))
+  end
+
+  test "artifact inspection renders empty artifact categories safely" do
+    state = %TuiServer.State{
+      focused_artifacts: %{diff: [], command_log: [], verifier_report: []},
+      active_verification_result: nil,
+      activity_lines: [],
+      focused_progress_lines: [],
+      input_buffer: ""
+    }
+
+    model = TuiRenderer.render_model(state)
+
+    assert model.artifacts.lines == [
+             "diff:",
+             "  <none>",
+             "log:",
+             "  <none>",
+             "verifier report:",
+             "  <none>"
+           ]
+  end
+
+  test "artifact inspection summarizes populated artifact types and verifier results" do
+    {:ok, diff} =
+      Artifact.new(
+        id: "artifact-diff",
+        attempt_id: "attempt-abc",
+        status: :ready,
+        type: :diff,
+        location: "/tmp/diff.patch"
+      )
+
+    {:ok, command_log} =
+      Artifact.new(
+        id: "artifact-log",
+        attempt_id: "attempt-abc",
+        status: :ready,
+        type: :command_log,
+        location: "/tmp/command.log"
+      )
+
+    {:ok, verifier_report} =
+      Artifact.new(
+        id: "artifact-verifier",
+        attempt_id: "attempt-abc",
+        status: :ready,
+        type: :verifier_report,
+        location: "/tmp/verifier.json"
+      )
+
+    {:ok, verification} =
+      VerificationResult.new(
+        id: "verification-status",
+        attempt_id: "attempt-abc",
+        status: :passed,
+        outcome_summary: %{checks: [:passed]}
+      )
+
+    state = %TuiServer.State{
+      active_run_id: "run-abc",
+      active_run_status: :awaiting_approval,
+      active_attempt_id: "attempt-abc",
+      active_attempt_status: :succeeded,
+      active_run_task: "artifacts and verifier",
+      active_run_attempt_count: 1,
+      active_attempt_number: 1,
+      focused_artifacts: %{
+        diff: [diff],
+        command_log: [command_log],
+        verifier_report: [verifier_report]
+      },
+      active_verification_result: verification,
+      activity_lines: [],
+      focused_progress_lines: [],
+      input_buffer: ""
+    }
+
+    model = TuiRenderer.render_model(state)
+
+    assert Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=artifact-diff"))
+    assert Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=artifact-log"))
+    assert Enum.any?(model.artifacts.lines, &String.contains?(&1, "id=artifact-verifier"))
+    assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "verifier_status=:passed"))
+  end
+
+  test "verification result appears when run verification completes" do
+    session_id = unique_id("tui-verification")
+    assert {:ok, ^session_id} = Agent.open(id: session_id, cwd: "/tmp/tui-verification")
+    on_exit(fn -> close_session(session_id) end)
+
+    {:ok, pid} = TuiServer.start_link(session: session_id, poll_interval: 0)
+    on_exit(fn -> safe_stop_tui(pid) end)
+
+    assert {:ok, %{run: run, lease: lease}} =
+             Agent.submit(
+               session_id,
+               "verify result should be visible",
+               execution_adapter: Success,
+               verification_adapter: Passed
+             )
+
+    assert :ok =
+             await_session_activity_contains(pid, fn state ->
+               state.active_run_id == run.id && state.active_run_status == :awaiting_approval
+             end)
+
+    state = TuiServer.state(pid)
+    model = TuiServer.render_model(pid)
+
+    assert state.active_lease_id == lease.id
+    assert Enum.any?(model.focused_run.lines, &String.contains?(&1, "verifier_status=:passed"))
+    assert Enum.any?(model.status.lines, &String.contains?(&1, "summary=session="))
+    assert Enum.any?(model.status.lines, &String.contains?(&1, "lease=#{lease.id}"))
   end
 
   defp await_session_activity_contains(pid, fun) do

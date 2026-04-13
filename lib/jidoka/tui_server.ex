@@ -15,6 +15,7 @@ defmodule Jidoka.TuiServer do
   @default_poll_interval 150
   @event_history_limit 24
   @attempt_progress_history_limit 8
+  @artifact_focus_types [:diff, :command_log, :verifier_report]
 
   defmodule State do
     @moduledoc false
@@ -31,7 +32,11 @@ defmodule Jidoka.TuiServer do
       :active_run_task,
       :active_run_attempt_count,
       :active_attempt_number,
+      :active_lease_id,
+      :active_lease_workspace_path,
       :event_path,
+      :focused_artifacts,
+      :active_verification_result,
       :activity_lines,
       :focused_progress_lines,
       :input_buffer,
@@ -60,7 +65,11 @@ defmodule Jidoka.TuiServer do
             active_run_task: String.t() | nil,
             active_run_attempt_count: non_neg_integer(),
             active_attempt_number: non_neg_integer() | nil,
+            active_lease_id: String.t() | nil,
+            active_lease_workspace_path: String.t() | nil,
             event_path: String.t() | nil,
+            focused_artifacts: map(),
+            active_verification_result: map() | Jidoka.VerificationResult.t() | nil,
             activity_lines: [String.t()],
             focused_progress_lines: [String.t()],
             input_buffer: String.t(),
@@ -116,6 +125,10 @@ defmodule Jidoka.TuiServer do
         active_run_task: nil,
         active_run_attempt_count: 0,
         active_attempt_number: nil,
+        active_lease_id: nil,
+        active_lease_workspace_path: nil,
+        focused_artifacts: default_artifact_focus(),
+        active_verification_result: nil,
         activity_lines: [],
         focused_progress_lines: [],
         input_buffer: "",
@@ -202,6 +215,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: nil,
             active_run_attempt_count: 0,
             active_attempt_number: nil,
+            active_lease_id: nil,
+            active_lease_workspace_path: nil,
+            focused_artifacts: default_artifact_focus(),
+            active_verification_result: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -223,6 +240,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: nil,
             active_run_attempt_count: 0,
             active_attempt_number: nil,
+            active_lease_id: nil,
+            active_lease_workspace_path: nil,
+            focused_artifacts: default_artifact_focus(),
+            active_verification_result: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -268,6 +289,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: derive_state.active_run_task,
             active_run_attempt_count: derive_state.active_run_attempt_count,
             active_attempt_number: derive_state.active_attempt_number,
+            active_lease_id: derive_state.active_lease_id,
+            active_lease_workspace_path: derive_state.active_lease_workspace_path,
+            focused_artifacts: derive_state.focused_artifacts,
+            active_verification_result: derive_state.active_verification_result,
             activity_lines: activity_lines,
             focused_progress_lines: focused_progress_lines,
             last_event_count: last_event_count,
@@ -286,6 +311,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: derive_state.active_run_task,
             active_run_attempt_count: derive_state.active_run_attempt_count,
             active_attempt_number: derive_state.active_attempt_number,
+            active_lease_id: derive_state.active_lease_id,
+            active_lease_workspace_path: derive_state.active_lease_workspace_path,
+            focused_artifacts: derive_state.focused_artifacts,
+            active_verification_result: derive_state.active_verification_result,
             activity_lines: activity_lines,
             focused_progress_lines: focused_progress_lines,
             last_event_count: last_event_count,
@@ -306,6 +335,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: nil,
             active_run_attempt_count: 0,
             active_attempt_number: nil,
+            active_lease_id: nil,
+            active_lease_workspace_path: nil,
+            focused_artifacts: default_artifact_focus(),
+            active_verification_result: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -325,6 +358,10 @@ defmodule Jidoka.TuiServer do
             active_run_task: nil,
             active_run_attempt_count: 0,
             active_attempt_number: nil,
+            active_lease_id: nil,
+            active_lease_workspace_path: nil,
+            focused_artifacts: default_artifact_focus(),
+            active_verification_result: nil,
             activity_lines: [],
             focused_progress_lines: [],
             last_event_count: 0,
@@ -338,6 +375,7 @@ defmodule Jidoka.TuiServer do
     active_run = active_run(snapshot.runs, session)
     active_attempt = active_attempt(snapshot.attempts, active_run)
     active_run_attempt_count = active_attempt_count(snapshot.attempts, active_run)
+    active_lease = active_lease(snapshot.leases, active_attempt)
 
     %{
       session_status: session.status,
@@ -347,7 +385,13 @@ defmodule Jidoka.TuiServer do
       active_run_attempt_count: active_run_attempt_count,
       active_attempt_id: active_attempt && active_attempt.id,
       active_attempt_status: active_attempt && active_attempt.status,
-      active_attempt_number: active_attempt && active_attempt.attempt_number
+      active_attempt_number: active_attempt && active_attempt.attempt_number,
+      active_lease_id: active_lease && active_lease.id,
+      active_lease_workspace_path: active_lease && active_lease.workspace_path,
+      focused_artifacts:
+        summarize_focus_artifacts(snapshot.artifacts, active_run, active_attempt),
+      active_verification_result:
+        summarize_focus_verification_result(snapshot.verification_results, active_attempt)
     }
   end
 
@@ -378,6 +422,62 @@ defmodule Jidoka.TuiServer do
 
   defp active_attempt_count(attempts, %Jidoka.Run{id: run_id}) do
     Enum.count(attempts, &(&1.run_id == run_id))
+  end
+
+  defp default_artifact_focus do
+    %{diff: [], command_log: [], verifier_report: []}
+  end
+
+  defp summarize_focus_artifacts(_artifacts, nil, _active_attempt), do: default_artifact_focus()
+  defp summarize_focus_artifacts(_artifacts, nil, nil), do: default_artifact_focus()
+
+  defp summarize_focus_artifacts(artifacts, active_run, active_attempt) do
+    run_id = active_run && active_run.id
+    attempt_id = active_attempt && active_attempt.id
+
+    relevant =
+      Enum.filter(artifacts, fn artifact ->
+        (is_binary(run_id) && artifact.run_id == run_id) or
+          (is_binary(attempt_id) && artifact.attempt_id == attempt_id)
+      end)
+
+    for type <- @artifact_focus_types, into: %{} do
+      entries =
+        relevant
+        |> Enum.filter(fn artifact -> artifact.type == type end)
+        |> Enum.sort_by(
+          fn artifact ->
+            artifact.updated_at || artifact.created_at
+          end,
+          {:desc, DateTime}
+        )
+
+      {type, entries}
+    end
+  end
+
+  defp summarize_focus_verification_result(_results, nil), do: nil
+
+  defp summarize_focus_verification_result(results, active_attempt) do
+    attempt_id = active_attempt && active_attempt.id
+
+    results
+    |> Enum.filter(fn result ->
+      result.attempt_id == attempt_id and is_binary(result.attempt_id)
+    end)
+    |> Enum.sort_by(
+      fn result ->
+        result.updated_at || result.created_at
+      end,
+      {:desc, DateTime}
+    )
+    |> List.first()
+  end
+
+  defp active_lease(_leases, nil), do: nil
+
+  defp active_lease(leasings, %Jidoka.Attempt{id: attempt_id}) do
+    Enum.find(leasings, fn lease -> lease.attempt_id == attempt_id end)
   end
 
   defp summarize_events(state, log, active_run_id, active_attempt_id) do

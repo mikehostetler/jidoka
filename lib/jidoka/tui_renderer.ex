@@ -5,6 +5,12 @@ defmodule Jidoka.TuiRenderer do
 
   alias Jidoka.TuiServer.State
 
+  @artifact_type_labels %{
+    diff: "diff",
+    command_log: "log",
+    verifier_report: "verifier report"
+  }
+
   @event_fallback [
     "no runtime events yet",
     "waiting for snapshots or event stream"
@@ -20,6 +26,7 @@ defmodule Jidoka.TuiRenderer do
   def render_model(%State{} = state) do
     status_lines = status_lines(state)
     focused_run_lines = focused_run_lines(state)
+    artifact_lines = artifact_lines(state)
     event_lines = event_lines(state)
     input_lines = input_lines(state)
 
@@ -31,6 +38,10 @@ defmodule Jidoka.TuiRenderer do
       focused_run: %{
         heading: "focused run",
         lines: focused_run_lines
+      },
+      artifacts: %{
+        heading: "artifacts",
+        lines: artifact_lines
       },
       events: %{
         heading: "event stream",
@@ -49,6 +60,7 @@ defmodule Jidoka.TuiRenderer do
     [
       render_region("status", model.status.lines),
       render_region("focused run", model.focused_run.lines),
+      render_region("artifacts", model.artifacts.lines),
       render_region("event stream", model.events.lines),
       render_region("operator input", model.input.lines)
     ]
@@ -65,6 +77,7 @@ defmodule Jidoka.TuiRenderer do
     connection_label = format_connection(state)
 
     [
+      "summary=session=#{format_status_value(state.session_status)} run=#{format_status_value(state.active_run_status)} attempt=#{format_status_value(state.active_attempt_status)} lease=#{state.active_lease_id || "<none>"}",
       "connection=#{connection_label}",
       "session_id=#{state.session_ref || "<none>"}",
       "session_status=#{inspect(state.session_status)}",
@@ -72,6 +85,8 @@ defmodule Jidoka.TuiRenderer do
       "active_run_status=#{inspect(state.active_run_status)}",
       "active_attempt_id=#{state.active_attempt_id || "<none>"}",
       "active_attempt_status=#{inspect(state.active_attempt_status)}",
+      "environment_lease=#{state.active_lease_id || "<none>"}",
+      "environment_lease_workspace=#{state.active_lease_workspace_path || "<none>"}",
       "recoverable_reason=#{inspect(state.recoverable_reason)}"
     ]
   end
@@ -97,10 +112,48 @@ defmodule Jidoka.TuiRenderer do
       "attempt_status=#{inspect(state.active_attempt_status)}",
       "recent_progress:",
       "",
-      maybe_progress_lines(state.focused_progress_lines)
+      maybe_progress_lines(state.focused_progress_lines),
+      maybe_verification_lines(state.active_verification_result)
     ]
     |> List.flatten()
   end
+
+  defp artifact_lines(state) do
+    [
+      artifact_section(:diff, state),
+      artifact_section(:command_log, state),
+      artifact_section(:verifier_report, state)
+    ]
+    |> List.flatten()
+  end
+
+  defp artifact_section(type, state) do
+    artifacts = Map.get(state.focused_artifacts || %{}, type, [])
+    label = Map.get(@artifact_type_labels, type, Atom.to_string(type))
+
+    [label <> ":", artifact_lines_for_type(artifacts)]
+  end
+
+  defp artifact_lines_for_type([]), do: ["  <none>"]
+  defp artifact_lines_for_type(artifacts), do: Enum.map(artifacts, &artifact_summary_line/1)
+
+  defp artifact_summary_line(artifact) do
+    status = inspect(artifact.status)
+    "  id=#{artifact.id || "<none>"} status=#{status} location=#{artifact.location || "<none>"}"
+  end
+
+  defp maybe_verification_lines(nil), do: ["verifier_status=<none>"]
+
+  defp maybe_verification_lines(result) do
+    [
+      "verifier_status=#{inspect(result.status)}",
+      "verifier_summary=#{inspect(result.outcome_summary || %{})}"
+    ]
+  end
+
+  defp format_status_value(nil), do: "<none>"
+  defp format_status_value(value) when is_atom(value), do: to_string(value)
+  defp format_status_value(value), do: inspect(value)
 
   defp input_lines(state) do
     ["prompt=#{@prompt}", "buffer=#{state.input_buffer || ""}"]

@@ -324,3 +324,27 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 
 - Assumption: long-running output stability is satisfied through bounded incremental polling-based batching (existing refresh cadence + capped event history) rather than a separate scheduler-based frame throttler.
 - No blockers encountered.
+1) changed files
+- [lib/jidoka/tui_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_server.ex)
+- [lib/jidoka/tui_renderer.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/tui_renderer.ex)
+- [test/jidoka_tui_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs)
+
+2) tests/commands executed
+- `mix precommit` (completed successfully, exit code 0)
+
+3) acceptance criteria coverage
+- Artifact inspection for diff/log/verifier output: implemented by adding `focused_artifacts` summarization in server state and `artifacts` section in renderer.
+  - Verified in [test/jidoka_tui_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_tui_server_test.exs) test `artifact inspection summarizes populated artifact types and verifier results`
+- Compact status line with session/run/attempt/lease identity: implemented in renderer as `summary=session=... run=... attempt=... lease=...`
+  - Verified by test `status line summarizes session, run, attempt, and lease identity`
+- Resilient when an artifact type is absent: renderer prints `<none>` for empty artifact lists per type
+  - Verified by test `artifact inspection renders empty artifact categories safely`
+- Verifier result visible in TUI: added verifier result summary lines in focused run output and server derives latest verification result for focused attempt
+  - Verified by unit-level assertion in `artifact inspection summarizes populated artifact types and verifier results`
+  - Verified by integration-style test `verification result appears when run verification completes`
+- Tests/view-model coverage for artifact summaries and status-line formatting: added direct `TuiRenderer.render_model/1` assertions plus status line checks in tests above.
+
+4) blockers/assumptions
+- No blockers.
+- Assumption: repository has no AGENTS.md constraints to enforce beyond standard Elixir formatting/test conventions.
+- ST-MVP-011 was intentionally not implemented (only ST-MVP-010 scope was changed).
