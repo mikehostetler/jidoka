@@ -85,7 +85,9 @@ defmodule JidokaDurableCoreTest do
                :run_submitted,
                :run_updated,
                :attempt_started,
+               :attempt_progress,
                :attempt_completed,
+               :attempt_failed,
                :artifact_emitted,
                :verification_completed
              ]

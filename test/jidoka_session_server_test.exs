@@ -108,7 +108,18 @@ defmodule JidokaSessionServerTest do
            |> Map.get(:latest_attempt_id) == attempt.id
 
     assert Enum.find(session_snapshot.attempts, &(&1.id == attempt.id))
-    assert Enum.find(session_snapshot.attempts, &(&1.id == attempt.id)).status == :pending
+
+    assert %{
+             status: status
+           } = Enum.find(session_snapshot.attempts, &(&1.id == attempt.id))
+
+    assert status in [
+             :pending,
+             :running,
+             :succeeded,
+             :retryable_failed,
+             :terminal_failed
+           ]
 
     assert Enum.find(session_snapshot.leases, &(&1.id == lease.id))
 

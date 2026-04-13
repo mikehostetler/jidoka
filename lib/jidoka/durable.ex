@@ -194,7 +194,9 @@ defmodule Jidoka.Durable do
             | :run_submitted
             | :run_updated
             | :attempt_started
+            | :attempt_progress
             | :attempt_completed
+            | :attempt_failed
             | :artifact_emitted
             | :verification_completed
     @values [
@@ -203,7 +205,9 @@ defmodule Jidoka.Durable do
       :run_submitted,
       :run_updated,
       :attempt_started,
+      :attempt_progress,
       :attempt_completed,
+      :attempt_failed,
       :artifact_emitted,
       :verification_completed
     ]

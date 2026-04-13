@@ -10,6 +10,7 @@ defmodule Jidoka.SessionServer do
   use GenServer
 
   alias Jidoka.Attempt
+  alias Jidoka.AttemptExecution
   alias Jidoka.EnvironmentLease
   alias Jidoka.Event
   alias Jidoka.Bus
@@ -17,9 +18,13 @@ defmodule Jidoka.SessionServer do
   alias Jidoka.Run
   alias Jidoka.Session
   alias Jidoka.SessionProcess
+  alias Jidoka.AttemptWorker
+  alias Jidoka.Durable
+  alias Jidoka.Durable.AttemptStatus
 
   @bus_path_prefix "jidoka.session."
   @default_adapter InMemory
+  @default_execution_adapter AttemptExecution.NoopAdapter
   @server __MODULE__
 
   defstruct storage_adapter: @default_adapter,
@@ -91,6 +96,30 @@ defmodule Jidoka.SessionServer do
           {:ok, map()} | {:error, term()}
   def submit(session_handle, task, opts \\ []) when is_binary(task) do
     GenServer.call(@server, {:submit, session_handle, task, opts})
+  end
+
+  @spec mark_attempt_running(String.t()) :: :ok | {:error, term()}
+  def mark_attempt_running(attempt_id) when is_binary(attempt_id) do
+    GenServer.call(@server, {:mark_attempt_running, attempt_id})
+  end
+
+  @spec mark_attempt_progress(String.t(), map()) :: :ok | {:error, term()}
+  def mark_attempt_progress(attempt_id, payload) when is_binary(attempt_id) and is_map(payload) do
+    GenServer.call(@server, {:mark_attempt_progress, attempt_id, payload})
+  end
+
+  @spec mark_attempt_completed(String.t(), map()) :: :ok | {:error, term()}
+  def mark_attempt_completed(attempt_id, metadata)
+      when is_binary(attempt_id) and is_map(metadata) do
+    GenServer.call(@server, {:mark_attempt_completed, attempt_id, metadata})
+  end
+
+  @spec mark_attempt_failed(String.t(), AttemptStatus.t(), term(), map()) ::
+          :ok | {:error, term()}
+  def mark_attempt_failed(attempt_id, status, reason, metadata)
+      when is_binary(attempt_id) and is_map(metadata) and
+             status in [:retryable_failed, :terminal_failed] do
+    GenServer.call(@server, {:mark_attempt_failed, attempt_id, status, reason, metadata})
   end
 
   @impl true
@@ -240,6 +269,69 @@ defmodule Jidoka.SessionServer do
   end
 
   @impl true
+  def handle_call({:mark_attempt_running, attempt_id}, _from, state) do
+    with {:ok, state} <-
+           update_attempt_status(
+             state,
+             attempt_id,
+             :running,
+             status_started_at: now(),
+             event_type: :attempt_started,
+             event_payload: %{status: :running},
+             output_metadata: %{execution_phase: :running}
+           ) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:mark_attempt_progress, attempt_id, payload}, _from, state) do
+    with {:ok, state} <- append_attempt_progress_event(state, attempt_id, payload) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:mark_attempt_completed, attempt_id, metadata}, _from, state) do
+    with {:ok, state} <-
+           update_attempt_status(
+             state,
+             attempt_id,
+             :succeeded,
+             status_finished_at: now(),
+             event_type: :attempt_completed,
+             event_payload: %{status: :succeeded},
+             output_metadata: metadata
+           ) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:mark_attempt_failed, attempt_id, status, reason, metadata}, _from, state) do
+    with {:ok, state} <-
+           update_attempt_status(
+             state,
+             attempt_id,
+             status,
+             status_finished_at: now(),
+             event_type: :attempt_failed,
+             event_payload: %{status: status, reason: reason},
+             output_metadata: Map.put(metadata, :execution_failure_reason, reason)
+           ) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
   def handle_call({:submit, session_handle, task, opts}, _from, state) do
     with {:ok, session_id} <- resolve_session_id(state, session_handle),
          {:ok, session} <- state.storage_adapter.load_session(state.storage, session_id),
@@ -249,7 +341,8 @@ defmodule Jidoka.SessionServer do
          {:ok, state} <- persist_attempt_record(state, attempt),
          {:ok, lease} <- build_submit_lease(session, run, attempt, opts),
          {:ok, state} <- persist_environment_lease_record(state, lease),
-         {:ok, state} <- append_run_submitted_event(state, session_id, run, attempt) do
+         {:ok, state} <- append_run_submitted_event(state, session_id, run, attempt),
+         {:ok, state} <- start_attempt_worker(state, session_id, run, attempt, lease, opts) do
       {:reply, {:ok, %{run: run, attempt: attempt, lease: lease}}, state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -392,6 +485,107 @@ defmodule Jidoka.SessionServer do
       {:ok, %{state | storage: storage}}
     end
   end
+
+  defp start_attempt_worker(state, session_id, run, attempt, lease, opts) do
+    attempt_adapter = Keyword.get(opts, :execution_adapter, @default_execution_adapter)
+
+    attempt_spec =
+      %AttemptExecution.AttemptSpec{
+        session_id: session_id,
+        run_id: run.id,
+        attempt_id: attempt.id,
+        task: run.task,
+        attempt_number: attempt.attempt_number,
+        task_pack: run.task_pack,
+        environment_lease: lease,
+        metadata: %{source: :submit},
+        adapter: attempt_adapter
+      }
+
+    case DynamicSupervisor.start_child(
+           Jidoka.AttemptSupervisor,
+           {AttemptWorker, attempt_spec}
+         ) do
+      {:ok, _pid} ->
+        {:ok, state}
+
+      {:error, {:already_started, _pid}} ->
+        {:ok, state}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp update_attempt_status(
+         state,
+         attempt_id,
+         status,
+         opts
+       ) do
+    started_at = Keyword.get(opts, :status_started_at)
+    finished_at = Keyword.get(opts, :status_finished_at)
+    output_metadata = Keyword.get(opts, :output_metadata, %{})
+    event_type = Keyword.fetch!(opts, :event_type)
+    event_payload = Keyword.get(opts, :event_payload, %{})
+
+    with {:ok, attempt} <- state.storage_adapter.load_attempt(state.storage, attempt_id),
+         {:ok, run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
+         updated_attempt <-
+           %{
+             attempt
+             | status: status,
+               started_at: started_at || attempt.started_at,
+               finished_at: finished_at || attempt.finished_at,
+               metadata: merge_metadata(attempt.metadata, output_metadata),
+               updated_at: now()
+           },
+         {:ok, state} <- persist_attempt_record(state, updated_attempt),
+         {:ok, state, _event_record} <-
+           append_event_record(
+             state,
+             state.storage,
+             event_type,
+             run.session_id,
+             Map.merge(
+               %{
+                 run_id: run.id,
+                 attempt_id: attempt.id,
+                 status: status,
+                 started_at: updated_attempt.started_at,
+                 finished_at: updated_attempt.finished_at
+               },
+               event_payload
+             ),
+             run_id: run.id,
+             attempt_id: attempt.id
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp append_attempt_progress_event(state, attempt_id, payload) do
+    with {:ok, attempt} <- state.storage_adapter.load_attempt(state.storage, attempt_id),
+         {:ok, run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
+         {:ok, state, _event_record} <-
+           append_event_record(
+             state,
+             state.storage,
+             :attempt_progress,
+             run.session_id,
+             Map.merge(
+               %{run_id: run.id, attempt_id: attempt.id},
+               payload
+             ),
+             run_id: run.id,
+             attempt_id: attempt.id
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp merge_metadata(nil, overrides), do: Map.merge(%{}, overrides)
+  defp merge_metadata(base, overrides), do: Map.merge(base, overrides)
 
   defp publish_and_store_session(state, %Session{} = session) do
     with {:ok, storage} <- state.storage_adapter.save_session(state.storage, session) do
@@ -566,6 +760,10 @@ defmodule Jidoka.SessionServer do
            ) do
       {:ok, %{state | storage: storage_record}}
     end
+  end
+
+  defp now do
+    Durable.now()
   end
 
   defp generate_id(prefix) when is_binary(prefix) do

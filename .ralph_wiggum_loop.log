@@ -178,3 +178,37 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 4) blockers/assumptions
 - Only `mix precommit` was run, per your request. I did not run the full test suite.
 - Existing codebase uses a single in-memory durability model and does not yet wire execution/streaming of attempts; submit flow correctly sets durable state only (no execution starts).
+1) changed files
+- Modified:
+  - [lib/jidoka/durable.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/durable.ex)
+  - [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+  - [test/jidoka_durable_core_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_durable_core_test.exs)
+  - [test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+- Added:
+  - [lib/jidoka/attempt_execution.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_execution.ex)
+  - [lib/jidoka/attempt_execution/noop_adapter.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_execution/noop_adapter.ex)
+  - [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex)
+  - [test/jidoka_attempt_worker_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_attempt_worker_test.exs)
+  - [test/support/jidoka_test_attempt_execution_adapters.ex](/Users/mhostetler/Source/OrigJido/jidoka/test/support/jidoka_test_attempt_execution_adapters.ex)
+
+2) tests/commands executed
+- `mix precommit`
+- (already passing with these changes)
+
+3) acceptance criteria coverage
+- Execution boundary accepts typed attempt input and returns typed output:
+  - Covered by `Jidoka.AttemptExecution` API and structs in [lib/jidoka/attempt_execution.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_execution.ex), plus `NoopAdapter` in [lib/jidoka/attempt_execution/noop_adapter.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_execution/noop_adapter.ex)
+- `Jidoka.AttemptWorker` receives typed attempt spec, uses lease info, invokes execution adapter:
+  - Implemented in [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex) and uses typed spec fields including lease context
+- Typed lifecycle/progress events emitted through runtime event path:
+  - Start/progress/completion/failure events emitted in worker and persisted via SessionServer event/update helpers in [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex) and [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- Only durable writer is SessionServer:
+  - Attempt state transitions moved to SessionServer methods (`mark_attempt_running`, `mark_attempt_progress`, `mark_attempt_completed`, `mark_attempt_failed`) in [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- Tests with stub/fake adapter cover expected event sequence and resulting attempt status:
+  - Added adapter stubs in [test/support/jidoka_test_attempt_execution_adapters.ex](/Users/mhostetler/Source/OrigJido/jidoka/test/support/jidoka_test_attempt_execution_adapters.ex)
+  - Added acceptance coverage in [test/jidoka_attempt_worker_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_attempt_worker_test.exs)
+
+4) blockers/assumptions
+- `AttemptSupervisor` availability is assumed; ST-MVP-005 uses it to launch workers from session submit path.
+- Event ordering is asynchronous by design (worker updates state after start), so tests assert allowed transition windows rather than immediate final state in submit path.
+- I did not make changes for verifier pipeline or TUI, per story out-of-scope.
