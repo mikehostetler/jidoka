@@ -21,10 +21,13 @@ defmodule Jidoka.SessionServer do
   alias Jidoka.AttemptWorker
   alias Jidoka.Durable
   alias Jidoka.Durable.AttemptStatus
+  alias Jidoka.Verifier
+  alias Jidoka.VerificationResult
 
   @bus_path_prefix "jidoka.session."
   @default_adapter InMemory
   @default_execution_adapter AttemptExecution.NoopAdapter
+  @default_verification_adapter Verifier.NoopAdapter
   @server __MODULE__
 
   defstruct storage_adapter: @default_adapter,
@@ -120,6 +123,12 @@ defmodule Jidoka.SessionServer do
       when is_binary(attempt_id) and is_map(metadata) and
              status in [:retryable_failed, :terminal_failed] do
     GenServer.call(@server, {:mark_attempt_failed, attempt_id, status, reason, metadata})
+  end
+
+  @spec mark_verification_completed(String.t(), VerificationResult.t()) :: :ok | {:error, term()}
+  def mark_verification_completed(attempt_id, %VerificationResult{} = verification_result)
+      when is_binary(attempt_id) do
+    GenServer.call(@server, {:mark_verification_completed, attempt_id, verification_result})
   end
 
   @impl true
@@ -332,6 +341,19 @@ defmodule Jidoka.SessionServer do
   end
 
   @impl true
+  def handle_call(
+        {:mark_verification_completed, attempt_id, %VerificationResult{} = result},
+        _from,
+        state
+      ) do
+    with {:ok, state} <- persist_verification_completed(state, attempt_id, result) do
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
   def handle_call({:submit, session_handle, task, opts}, _from, state) do
     with {:ok, session_id} <- resolve_session_id(state, session_handle),
          {:ok, session} <- state.storage_adapter.load_session(state.storage, session_id),
@@ -488,6 +510,7 @@ defmodule Jidoka.SessionServer do
 
   defp start_attempt_worker(state, session_id, run, attempt, lease, opts) do
     attempt_adapter = Keyword.get(opts, :execution_adapter, @default_execution_adapter)
+    verifier_adapter = build_verifier_adapter(run, opts)
 
     attempt_spec =
       %AttemptExecution.AttemptSpec{
@@ -499,7 +522,8 @@ defmodule Jidoka.SessionServer do
         task_pack: run.task_pack,
         environment_lease: lease,
         metadata: %{source: :submit},
-        adapter: attempt_adapter
+        adapter: attempt_adapter,
+        verification_adapter: verifier_adapter
       }
 
     case DynamicSupervisor.start_child(
@@ -760,6 +784,66 @@ defmodule Jidoka.SessionServer do
            ) do
       {:ok, %{state | storage: storage_record}}
     end
+  end
+
+  defp build_verifier_adapter(%Run{task_pack: task_pack}, opts) do
+    Keyword.get(opts, :verification_adapter) ||
+      default_verification_adapter(task_pack)
+  end
+
+  defp default_verification_adapter(:coding), do: @default_verification_adapter
+  defp default_verification_adapter("coding"), do: @default_verification_adapter
+  defp default_verification_adapter(_), do: @default_verification_adapter
+
+  defp persist_verification_completed(
+         state,
+         attempt_id,
+         %VerificationResult{} = verification_result
+       ) do
+    with {:ok, attempt} <- state.storage_adapter.load_attempt(state.storage, attempt_id),
+         {:ok, run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
+         {:ok, state} <- persist_verification_result_record(state, verification_result),
+         updated_attempt <-
+           %{attempt | verification_result_id: verification_result.id},
+         {:ok, state} <- persist_attempt_record(state, updated_attempt),
+         updated_run <- update_run_for_verification(run, verification_result),
+         {:ok, state} <- persist_run_record(state, updated_run),
+         {:ok, state, _event_record} <-
+           append_event_record(
+             state,
+             state.storage,
+             :verification_completed,
+             run.session_id,
+             %{
+               run_id: run.id,
+               attempt_id: attempt.id,
+               verification_result_id: verification_result.id,
+               verification_status: verification_result.status
+             },
+             run_id: run.id,
+             attempt_id: attempt.id
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp persist_verification_result_record(state, %VerificationResult{} = verification_result) do
+    with {:ok, storage} <-
+           state.storage_adapter.save_verification_result(state.storage, verification_result) do
+      {:ok, %{state | storage: storage}}
+    end
+  end
+
+  defp update_run_for_verification(run, %VerificationResult{status: :passed}) do
+    %{run | status: :awaiting_approval, outcome: nil, updated_at: now()}
+  end
+
+  defp update_run_for_verification(run, %VerificationResult{status: :retryable_failed}) do
+    %{run | status: :failed, outcome: :retryable_failed, updated_at: now()}
+  end
+
+  defp update_run_for_verification(run, %VerificationResult{status: :terminal_failed}) do
+    %{run | status: :failed, outcome: :terminal_failed, updated_at: now()}
   end
 
   defp now do

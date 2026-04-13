@@ -212,3 +212,27 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - `AttemptSupervisor` availability is assumed; ST-MVP-005 uses it to launch workers from session submit path.
 - Event ordering is asynchronous by design (worker updates state after start), so tests assert allowed transition windows rather than immediate final state in submit path.
 - I did not make changes for verifier pipeline or TUI, per story out-of-scope.
+1) changed files
+- [lib/jidoka/attempt_execution.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_execution.ex)
+- [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex)
+- [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- [lib/jidoka/verifier.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/verifier.ex)
+- [lib/jidoka/verifier/noop_adapter.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/verifier/noop_adapter.ex)
+- [test/support/jidoka_test_verification_adapters.ex](/Users/mhostetler/Source/OrigJido/jidoka/test/support/jidoka_test_verification_adapters.ex)
+- [test/jidoka_attempt_worker_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_attempt_worker_test.exs)
+
+2) tests/commands executed
+- `mix precommit` (passed)
+
+3) acceptance criteria coverage
+- A coding run selects or derives a verifier plan before/during execution: implemented in `SessionServer.start_attempt_worker/6` via `build_verifier_adapter/2` and `default_verification_adapter/1`, passing through `AttemptExecution.AttemptSpec.verification_adapter`.
+- When an attempt finishes, verification runs automatically and yields durable `VerificationResult`: implemented in `AttemptWorker.run_verification/2`, `AttemptWorker.execute_verifier/2`, and `SessionServer.mark_verification_completed/2`.
+- Verification results are linked and reflected in run state: `attempt.verification_result_id` is persisted and `run_snapshot` includes `verification_results`; attempt and run linkage is done in `SessionServer.persist_verification_completed/3`.
+- Run moves to `awaiting_approval` when verification passes: `update_run_for_verification/2` sets `run.status = :awaiting_approval` for `:passed`.
+- Run moves to retryable/terminal failure outcome when verification fails: `update_run_for_verification/2` sets `run.status = :failed` and `run.outcome = :retryable_failed` / `:terminal_failed` accordingly.
+- Tests for pass/retryable fail/terminal fail verification outcomes: added in [test/jidoka_attempt_worker_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_attempt_worker_test.exs) three dedicated tests (pass, retryable failed, terminal failed).
+
+4) blockers/assumptions
+- No `AGENTS.md` was found in this repo, so implementation followed existing module conventions in `lib/` and test suite patterns.
+- Verifier selection defaults to a noop verifier for all task packs today (coding mapping explicit, fallback also noop); this is intentional for MVP scope and can be expanded in a follow-up story.
+

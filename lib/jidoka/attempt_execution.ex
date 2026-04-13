@@ -24,7 +24,8 @@ defmodule Jidoka.AttemptExecution do
       :environment_lease,
       :task_pack,
       :metadata,
-      :adapter
+      :adapter,
+      :verification_adapter
     ]
 
     @type t :: %__MODULE__{
@@ -36,7 +37,8 @@ defmodule Jidoka.AttemptExecution do
             environment_lease: EnvironmentLease.t(),
             task_pack: atom() | String.t(),
             metadata: map(),
-            adapter: module()
+            adapter: module(),
+            verification_adapter: module() | nil
           }
   end
 

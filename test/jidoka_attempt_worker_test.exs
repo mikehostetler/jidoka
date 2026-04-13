@@ -4,8 +4,9 @@ defmodule JidokaAttemptWorkerTest do
   alias Jidoka.Bus
   alias Jidoka.SessionServer
   alias Jidoka.TestAttemptExecutionAdapters.{Failure, Success}
+  alias Jidoka.TestVerificationAdapters.{RetryableFailed, TerminalFailed}
 
-  test "attempt worker streams progress and completion events" do
+  test "attempt worker streams progress, completion, and verifier pass updates run state" do
     session_id = unique_id("attempt-worker-success")
     on_exit(fn -> SessionServer.close(session_id) end)
 
@@ -23,6 +24,8 @@ defmodule JidokaAttemptWorkerTest do
 
     {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
     assert run_snapshot.run.id == run.id
+    assert run_snapshot.run.status == :awaiting_approval
+    refute run_snapshot.run.outcome
 
     assert run_snapshot.run.latest_attempt_id == List.last(run_snapshot.attempts).id
 
@@ -51,6 +54,19 @@ defmodule JidokaAttemptWorkerTest do
            ]
 
     assert hd(attempts_events).signal.payload[:status] == :running
+
+    latest_attempt = latest_attempt(run_snapshot)
+    assert latest_attempt.verification_result_id
+
+    verification =
+      Enum.find(
+        run_snapshot.verification_results,
+        &(&1.id == latest_attempt.verification_result_id)
+      )
+
+    assert verification
+    assert verification.status == :passed
+    assert verification.outcome_summary == %{checks: :noop}
   end
 
   test "attempt worker emits failure event when adapter returns error" do
@@ -94,6 +110,73 @@ defmodule JidokaAttemptWorkerTest do
            )
   end
 
+  test "verification retryable failure puts run into failed run state" do
+    session_id = unique_id("attempt-worker-retryable")
+    on_exit(fn -> SessionServer.close(session_id) end)
+
+    assert {:ok, ^session_id} =
+             SessionServer.open(id: session_id, cwd: "/tmp/attempt-worker-retryable")
+
+    assert {:ok, %{run: run}} =
+             SessionServer.submit(
+               session_id,
+               "fix flaky tests",
+               execution_adapter: Success,
+               verification_adapter: RetryableFailed
+             )
+
+    assert :ok = await_run_status(session_id, run.id, :failed)
+
+    {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    latest_attempt = latest_attempt(run_snapshot)
+
+    assert latest_attempt.status == :succeeded
+    assert latest_attempt.verification_result_id
+    assert run_snapshot.run.status == :failed
+    assert run_snapshot.run.outcome == :retryable_failed
+
+    verification =
+      Enum.find(
+        run_snapshot.verification_results,
+        &(&1.id == latest_attempt.verification_result_id)
+      )
+
+    assert verification.status == :retryable_failed
+  end
+
+  test "verification terminal failure puts run into failed run state" do
+    session_id = unique_id("attempt-worker-terminal")
+    on_exit(fn -> SessionServer.close(session_id) end)
+
+    assert {:ok, ^session_id} =
+             SessionServer.open(id: session_id, cwd: "/tmp/attempt-worker-terminal")
+
+    assert {:ok, %{run: run}} =
+             SessionServer.submit(
+               session_id,
+               "fix flaky tests",
+               execution_adapter: Success,
+               verification_adapter: TerminalFailed
+             )
+
+    assert :ok = await_run_status(session_id, run.id, :failed)
+
+    {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    latest_attempt = latest_attempt(run_snapshot)
+
+    assert latest_attempt.status == :succeeded
+    assert run_snapshot.run.outcome == :terminal_failed
+    assert latest_attempt.verification_result_id
+
+    verification =
+      Enum.find(
+        run_snapshot.verification_results,
+        &(&1.id == latest_attempt.verification_result_id)
+      )
+
+    assert verification.status == :terminal_failed
+  end
+
   defp await_attempt_status(session_id, run_id, expected_status) do
     await_attempt_status(session_id, run_id, expected_status, 25)
   end
@@ -112,6 +195,23 @@ defmodule JidokaAttemptWorkerTest do
   defp await_attempt_status(_session_id, _run_id, _expected_status, 0),
     do: :error
 
+  defp await_run_status(session_id, run_id, expected_status) do
+    await_run_status(session_id, run_id, expected_status, 25)
+  end
+
+  defp await_run_status(session_id, run_id, expected_status, remaining) when remaining > 0 do
+    case latest_run_status(session_id, run_id) do
+      {:ok, status} when status == expected_status ->
+        :ok
+
+      _ ->
+        Process.sleep(10)
+        await_run_status(session_id, run_id, expected_status, remaining - 1)
+    end
+  end
+
+  defp await_run_status(_session_id, _run_id, _expected_status, 0), do: :error
+
   defp latest_attempt_status(session_id, run_id) do
     with {:ok, run_snapshot} <- SessionServer.run_snapshot(session_id, run_id),
          latest_attempt when is_map(latest_attempt) <-
@@ -120,6 +220,18 @@ defmodule JidokaAttemptWorkerTest do
     else
       _ -> :error
     end
+  end
+
+  defp latest_run_status(session_id, run_id) do
+    with {:ok, run_snapshot} <- SessionServer.run_snapshot(session_id, run_id) do
+      {:ok, run_snapshot.run.status}
+    else
+      _ -> :error
+    end
+  end
+
+  defp latest_attempt(run_snapshot) do
+    Enum.find(run_snapshot.attempts, &(&1.id == run_snapshot.run.latest_attempt_id))
   end
 
   defp unique_id(prefix) do
