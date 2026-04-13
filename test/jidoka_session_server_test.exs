@@ -25,6 +25,25 @@ defmodule JidokaSessionServerTest do
     end
   end
 
+  defmodule HangingAdapter do
+    @moduledoc false
+    @behaviour Jidoka.AttemptExecution
+
+    alias Jidoka.AttemptExecution.{AttemptOutput, AttemptSpec}
+
+    @impl true
+    def execute(%AttemptSpec{}) do
+      Process.sleep(500)
+
+      {:ok,
+       %AttemptOutput{
+         status: :succeeded,
+         metadata: %{adapter: :hanging},
+         artifacts: []
+       }}
+    end
+  end
+
   test "OTP boot tree includes session, attempt and event bus processes" do
     assert is_pid(Process.whereis(Jidoka.Registry))
     assert is_pid(Process.whereis(Jidoka.SessionSupervisor))
@@ -286,6 +305,205 @@ defmodule JidokaSessionServerTest do
     assert latest.status == :canceled
     assert latest.metadata.cancellation_reason == :operator
     assert Enum.any?(snapshot.outcomes, &(&1.outcome == :canceled and &1.attempt_id == latest.id))
+  end
+
+  test "resume marks orphaned running attempt as terminal_failed and cleans workspace" do
+    session_id = unique_id("session-orphaned-running")
+
+    assert {:ok, ^session_id} =
+             SessionServer.open(id: session_id, cwd: "/tmp/session-orphaned-running")
+
+    assert {:ok, %{run: run}} =
+             SessionServer.submit(
+               session_id,
+               "resume interrupted attempt",
+               execution_adapter: HangingAdapter
+             )
+
+    assert :ok = await_attempt_status(session_id, run.id, :running)
+
+    {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    running_attempt = latest_attempt(run_snapshot)
+    lease = Enum.find(run_snapshot.leases, &(&1.attempt_id == running_attempt.id))
+    assert lease
+    assert lease.status == :active
+
+    :ok = File.mkdir_p!(lease.workspace_path)
+    assert File.exists?(lease.workspace_path)
+
+    assert :ok = Jidoka.AttemptWorker.stop(running_attempt.id)
+
+    assert :ok = SessionServer.close(session_id)
+    assert {:ok, ^session_id} = SessionServer.resume(session_id)
+    assert :ok = await_run_status(session_id, run.id, :failed)
+    assert :ok = await_attempt_status(session_id, run.id, :terminal_failed)
+
+    assert :ok = SessionServer.close(session_id)
+
+    {:ok, resumed_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    resumed_attempt = latest_attempt(resumed_snapshot)
+    resumed_lease = Enum.find(resumed_snapshot.leases, &(&1.attempt_id == resumed_attempt.id))
+
+    assert resumed_attempt.status == :terminal_failed
+    assert resumed_snapshot.run.status == :failed
+    assert resumed_snapshot.run.outcome == :terminal_failed
+    assert resumed_lease.status == :expired
+    assert resumed_lease.metadata.orphaned_recovery == :running_worker_missing
+    assert resumed_lease.metadata.orphaned_cleanup_status == :removed
+    refute File.exists?(lease.workspace_path)
+
+    assert Enum.any?(
+             resumed_snapshot.events,
+             &(&1.event.type == :attempt_failed &&
+                 &1.event.payload[:reason] == :orphaned_running_worker)
+           )
+  end
+
+  test "resume reattaches orphaned pending attempt when workspace lease is present" do
+    session_id = unique_id("session-orphaned-pending")
+
+    assert {:ok, ^session_id} =
+             SessionServer.open(id: session_id, cwd: "/tmp/session-orphaned-pending")
+
+    assert {:ok, run} =
+             Run.new(
+               id: unique_id("run-orphaned-pending"),
+               session_id: session_id,
+               task: "reattach orphaned attempt"
+             )
+
+    assert :ok = SessionServer.persist_run(run)
+
+    attempt_id = unique_id("attempt-orphaned-pending")
+    workspace_path = "/tmp/lease-orphaned-pending-#{attempt_id}"
+
+    assert :ok = File.mkdir_p(workspace_path)
+
+    assert {:ok, attempt} =
+             Attempt.new(
+               id: attempt_id,
+               run_id: run.id,
+               attempt_number: 1,
+               status: :pending,
+               metadata: %{
+                 execution_adapter: CancelSlowAdapter,
+                 verification_adapter: Jidoka.TestVerificationAdapters.Passed
+               }
+             )
+
+    assert :ok = SessionServer.persist_attempt(attempt)
+
+    assert {:ok, lease} =
+             EnvironmentLease.new(
+               id: unique_id("lease-orphaned-pending"),
+               attempt_id: attempt.id,
+               status: :active,
+               mode: :exclusive,
+               workspace_path: workspace_path,
+               metadata: %{run_id: run.id, source_workspace_path: "/tmp/session-orphaned-pending"}
+             )
+
+    assert :ok = SessionServer.persist_environment_lease(lease)
+
+    assert :ok = SessionServer.close(session_id)
+    assert {:ok, ^session_id} = SessionServer.resume(session_id)
+    assert :ok = await_run_status(session_id, run.id, :awaiting_approval)
+    assert :ok = await_attempt_status(session_id, run.id, :succeeded)
+
+    {:ok, resumed_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    resumed_attempt = latest_attempt(resumed_snapshot)
+    resumed_lease = Enum.find(resumed_snapshot.leases, &(&1.attempt_id == resumed_attempt.id))
+
+    assert resumed_attempt.id == attempt.id
+    assert resumed_attempt.status == :succeeded
+    assert resumed_lease.status == :active
+    assert File.exists?(workspace_path)
+
+    assert Enum.any?(
+             resumed_snapshot.events,
+             &(&1.event.type == :run_updated &&
+                 &1.event.payload[:operation] == :attempt_recovered &&
+                 &1.event.payload[:strategy] == :reattach)
+           )
+
+    assert :ok = SessionServer.close(session_id)
+  end
+
+  test "artifact retention keeps latest diff/logs/transcript/verifier_report per attempt" do
+    session_id = unique_id("session-artifact-retention")
+
+    assert {:ok, ^session_id} =
+             SessionServer.open(id: session_id, cwd: "/tmp/session-artifact-retention")
+
+    assert {:ok, %{run: run}} =
+             SessionServer.submit(
+               session_id,
+               "artifact retention",
+               execution_adapter: CancelSlowAdapter,
+               verification_adapter: Jidoka.TestVerificationAdapters.Passed
+             )
+
+    assert :ok = await_run_status(session_id, run.id, :awaiting_approval)
+
+    {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    attempt = latest_attempt(run_snapshot)
+
+    diff_old = unique_id("artifact-diff-old")
+    diff_new = unique_id("artifact-diff-new")
+    transcript_old = unique_id("artifact-transcript-old")
+    transcript_new = unique_id("artifact-transcript-new")
+    log_old = unique_id("artifact-log-old")
+    log_new = unique_id("artifact-log-new")
+    verifier_old = unique_id("artifact-verifier-old")
+    verifier_new = unique_id("artifact-verifier-new")
+
+    assert :ok =
+             SessionServer.persist_attempt_artifacts(
+               attempt.id,
+               [
+                 %{id: diff_old, type: :diff, location: "/tmp/#{diff_old}"},
+                 %{id: diff_new, type: :diff, location: "/tmp/#{diff_new}"},
+                 %{id: transcript_old, type: :transcript, location: "/tmp/#{transcript_old}"},
+                 %{id: transcript_new, type: :transcript, location: "/tmp/#{transcript_new}"},
+                 %{id: log_old, type: :command_log, location: "/tmp/#{log_old}"},
+                 %{id: log_new, type: :command_log, location: "/tmp/#{log_new}"},
+                 %{id: verifier_old, type: :verifier_report, location: "/tmp/#{verifier_old}"},
+                 %{id: verifier_new, type: :verifier_report, location: "/tmp/#{verifier_new}"}
+               ]
+             )
+
+    {:ok, resumed_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    resumed_attempt = latest_attempt(resumed_snapshot)
+
+    assert MapSet.new(resumed_attempt.artifact_ids) ==
+             MapSet.new([diff_new, transcript_new, log_new, verifier_new])
+
+    attempt_artifacts =
+      Enum.filter(resumed_snapshot.artifacts, &(&1.attempt_id == resumed_attempt.id))
+
+    assert Enum.count(attempt_artifacts, &(&1.type == :diff)) == 2
+    assert Enum.count(attempt_artifacts, &(&1.type == :transcript)) == 2
+    assert Enum.count(attempt_artifacts, &(&1.type == :command_log)) == 2
+    assert Enum.count(attempt_artifacts, &(&1.type == :verifier_report)) == 2
+
+    assert Enum.any?(attempt_artifacts, &(&1.id == diff_new and &1.status == :ready))
+    assert Enum.any?(attempt_artifacts, &(&1.id == diff_old and &1.status == :archived))
+    assert Enum.any?(attempt_artifacts, &(&1.id == transcript_new and &1.status == :ready))
+    assert Enum.any?(attempt_artifacts, &(&1.id == transcript_old and &1.status == :archived))
+    assert Enum.any?(attempt_artifacts, &(&1.id == log_new and &1.status == :ready))
+    assert Enum.any?(attempt_artifacts, &(&1.id == log_old and &1.status == :archived))
+    assert Enum.any?(attempt_artifacts, &(&1.id == verifier_new and &1.status == :ready))
+    assert Enum.any?(attempt_artifacts, &(&1.id == verifier_old and &1.status == :archived))
+
+    assert {:error, {:invalid_artifact_type, _, :execution_report}} =
+             SessionServer.persist_attempt_artifacts(
+               attempt.id,
+               [
+                 %{id: unique_id("artifact-bad"), type: :execution_report, location: "/tmp/bad"}
+               ]
+             )
+
+    assert :ok = SessionServer.close(session_id)
   end
 
   test "operator transitions reject illegal action attempts" do

@@ -395,3 +395,51 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 
 - No blockers to implementation.
 - I assumed your request did not require full test execution beyond `mix precommit`; only format checks were explicitly requested to run.
+1) changed files
+- [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+  - Added resume/reconcile hooks for orphaned pending/running attempts in `open/1` and `resume/1`.
+  - Added `persist_attempt_artifacts/2` API and full persistence/retention flow in-session.
+  - Added isolated workspace cleanup/mark-for-review behavior on resume recovery (`:reattach`, `:cleanup`, `:mark_for_review`).
+  - Added core artifact retention enforcement (`:diff`, `:transcript`, `:command_log`, `:verifier_report`) with keep-latest/archive-rest logic and metadata propagation.
+  - Reworked adapter resolution to prefer persisted attempt metadata for resume/retry flows.
+  - Added run transition handling for attempt terminal/retryable failure outcomes into run failure state.
+- [lib/jidoka/attempt_worker.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/attempt_worker.ex)
+  - Fixed artifact persistence to use `AttemptOutput.artifacts` directly (was incorrectly reading `metadata[:artifacts]`).
+  - Ensured attempt artifacts are persisted for both succeeded and failed execution outcomes before attempt status transition.
+- [test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+  - Added `HangingAdapter` for interruption simulation.
+  - Added orphaned-running recovery test (resume + workspace cleanup + terminal-failed/expired-lease assertions).
+  - Added orphaned-pending reattach test (resume starts pending attempt, completes to `:succeeded`, reattach event asserted).
+  - Added artifact retention test for diff/log/transcript/verifier_report latest-only enforcement and invalid-type rejection.
+
+2) tests/commands executed
+- `mix format lib/jidoka/session_server.ex lib/jidoka/attempt_worker.ex test/jidoka_session_server_test.exs`
+- `mix precommit`  
+  - Result: passed (format check clean).
+
+3) acceptance criteria coverage
+- Interrupted session resume without corrupting durable state
+  - Implemented through `reconcile_session_attempts/2` invoked from both `open/1` and `resume/1`.
+  - Tested in `resume marks orphaned running attempt as terminal_failed and cleans workspace` using closed+resumed session and durable assertions on persisted run/attempt/lease state.
+- Orphaned isolated workspace behavior: reattach/cleanup/mark-review
+  - Implemented:
+    - Reattach path: pending attempt + lease => restart worker and continue (`:reattach` event).
+    - Cleanup path: running orphan => mark attempt `:terminal_failed`, expire lease, cleanup workspace path, persist cleanup metadata (`:removed`/failure details), emit recovery events.
+    - Mark-review path: pending orphan with missing lease updates attempt metadata and emits `:mark_for_review`.
+  - Covered by two new session tests (reattach + cleanup).
+- Artifact retention for diff/logs/transcript/verifier output
+  - Enforced in code via `@core_artifact_types` and `validate_artifact_type/1`.
+  - Enforcement and retention behavior implemented in `persist_attempt_artifacts/3` + `retain_core_artifacts/1` + `archive_artifacts/2`.
+  - Covered by artifact retention test: latest per core type kept, older archived, invalid type rejected.
+- Cleanup behavior testable and not silent
+  - Recovery paths emit `run_updated`/`attempt_failed` events with recovery payload and persist lease metadata (`:orphaned_cleanup_status`, `:orphaned_recovery`) so operator-visible state exists.
+  - File-system cleanup behavior is asserted by test (`File.rm_rf` side effect check).
+- Tests for interrupted attempt and reattach/cleanup scenario
+  - Yes:
+    - Interrupted attempt scenario: `resume marks orphaned running attempt ...`
+    - Reattach scenario: `resume reattaches orphaned pending attempt ...`
+
+4) blockers/assumptions
+- No blockers encountered.
+- I did not run full `mix test`; only `mix precommit` as requested by you.
+- I used existing test adapter patterns and temporary `/tmp` workspaces for recovery/cleanup assertions.

@@ -161,16 +161,25 @@ defmodule Jidoka.AttemptWorker do
 
   defp emit_progress_events(_attempt_id, _progress), do: :ok
 
-  defp persist_execution_result(attempt_id, %AttemptOutput{status: :succeeded, metadata: metadata}) do
-    SessionServer.mark_attempt_completed(attempt_id, metadata)
+  defp persist_execution_result(
+         attempt_id,
+         %AttemptOutput{status: :succeeded, metadata: metadata, artifacts: artifacts}
+       ) do
+    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts || []),
+         :ok <- SessionServer.mark_attempt_completed(attempt_id, metadata) do
+      :ok
+    end
   end
 
   defp persist_execution_result(
          attempt_id,
-         %AttemptOutput{status: status, metadata: metadata, error: error}
+         %AttemptOutput{status: status, metadata: metadata, artifacts: artifacts, error: error}
        )
        when status in [:retryable_failed, :terminal_failed] do
-    SessionServer.mark_attempt_failed(attempt_id, status, error, metadata)
+    with :ok <- SessionServer.persist_attempt_artifacts(attempt_id, artifacts || []),
+         :ok <- SessionServer.mark_attempt_failed(attempt_id, status, error, metadata) do
+      :ok
+    end
   end
 
   defp persist_execution_result(attempt_id, output) do

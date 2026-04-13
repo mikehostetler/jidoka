@@ -10,6 +10,7 @@ defmodule Jidoka.SessionServer do
   use GenServer
 
   alias Jidoka.Attempt
+  alias Jidoka.Artifact
   alias Jidoka.AttemptExecution
   alias Jidoka.EnvironmentLease
   alias Jidoka.Event
@@ -29,6 +30,7 @@ defmodule Jidoka.SessionServer do
   @default_adapter InMemory
   @default_execution_adapter AttemptExecution.NoopAdapter
   @default_verification_adapter Verifier.NoopAdapter
+  @core_artifact_types [:diff, :transcript, :command_log, :verifier_report]
   @server __MODULE__
 
   defstruct storage_adapter: @default_adapter,
@@ -94,6 +96,11 @@ defmodule Jidoka.SessionServer do
   @spec persist_environment_lease(EnvironmentLease.t()) :: :ok | {:error, term()}
   def persist_environment_lease(%EnvironmentLease{} = lease) do
     GenServer.call(@server, {:persist_environment_lease, lease})
+  end
+
+  @spec persist_attempt_artifacts(String.t(), [map()]) :: :ok | {:error, term()}
+  def persist_attempt_artifacts(attempt_id, artifact_specs) when is_binary(attempt_id) do
+    GenServer.call(@server, {:persist_attempt_artifacts, attempt_id, artifact_specs})
   end
 
   @spec submit(session_handle(), String.t(), keyword()) ::
@@ -169,7 +176,8 @@ defmodule Jidoka.SessionServer do
   def handle_call({:open, opts}, _from, state) do
     with {:ok, session_id, session} <- session_from_opts(state, opts),
          {:ok, state} <- ensure_session_process(state, session_id),
-         {:ok, state} <- maybe_persist_new_session(state, session_id, session) do
+         {:ok, state} <- maybe_persist_new_session(state, session_id, session),
+         {:ok, state} <- reconcile_session_attempts(state, session_id) do
       {:reply, {:ok, session_id}, state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -184,7 +192,8 @@ defmodule Jidoka.SessionServer do
 
       {:ok, session_id} ->
         with {:ok, state} <- ensure_session_process(state, session_id),
-             {:ok, state} <- ensure_loaded(state, session_id) do
+             {:ok, state} <- ensure_loaded(state, session_id),
+             {:ok, state} <- reconcile_session_attempts(state, session_id) do
           {:reply, {:ok, session_id}, state}
         else
           {:error, reason} -> {:reply, {:error, reason}, state}
@@ -292,6 +301,15 @@ defmodule Jidoka.SessionServer do
         %{attempt_id: lease.attempt_id, lease_id: lease.id}
       )
 
+      {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:persist_attempt_artifacts, attempt_id, artifact_specs}, _from, state) do
+    with {:ok, state} <- persist_attempt_artifacts(state, attempt_id, artifact_specs) do
       {:reply, :ok, state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
@@ -429,7 +447,7 @@ defmodule Jidoka.SessionServer do
          {:ok, session} <- state.storage_adapter.load_session(state.storage, session_id),
          {:ok, run} <- build_submit_run(session_id, task, opts),
          {:ok, state} <- persist_run_record(state, run),
-         {:ok, attempt} <- build_submit_attempt(run.id, opts),
+         {:ok, attempt} <- build_submit_attempt(run.id, run.task_pack, opts),
          {:ok, state} <- persist_attempt_record(state, attempt),
          {:ok, lease} <- build_submit_lease(session, run, attempt, opts),
          {:ok, state} <- persist_environment_lease_record(state, lease),
@@ -526,6 +544,148 @@ defmodule Jidoka.SessionServer do
     end
   end
 
+  defp reconcile_session_attempts(state, session_id) do
+    with {:ok, envelope} <- state.storage_adapter.load_session_envelope(state.storage, session_id) do
+      attempts_by_id = Map.new(envelope.attempts, &{&1.id, &1})
+      leases_by_attempt = Map.new(envelope.leases, &{&1.attempt_id, &1})
+
+      envelope.runs
+      |> Enum.filter(&(&1.status in [:queued, :running]))
+      |> Enum.reduce_while({:ok, state}, fn run, {:ok, acc_state} ->
+        case Map.get(attempts_by_id, run.latest_attempt_id) do
+          %Attempt{status: status} = attempt when status in [:pending, :running] ->
+            if attempt_worker_running?(attempt.id) do
+              {:cont, {:ok, acc_state}}
+            else
+              {:cont,
+               reconcile_orphaned_attempt(
+                 acc_state,
+                 run,
+                 attempt,
+                 Map.get(leases_by_attempt, attempt.id)
+               )}
+            end
+
+          _ ->
+            {:cont, {:ok, acc_state}}
+        end
+      end)
+    else
+      {:error, :not_found} -> {:ok, state}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp reconcile_orphaned_attempt(state, run, attempt, lease) do
+    cond do
+      attempt.status == :pending ->
+        reconcile_pending_attempt(state, run, attempt, lease)
+
+      attempt.status == :running ->
+        reconcile_running_attempt(state, run, attempt, lease)
+
+      true ->
+        {:ok, state}
+    end
+  end
+
+  defp reconcile_pending_attempt(state, run, attempt, nil) do
+    updated_attempt =
+      %{
+        attempt
+        | metadata: Map.put(attempt.metadata, :orphaned_recovery, :pending_worker_missing)
+      }
+
+    with {:ok, state} <- persist_attempt_record(state, updated_attempt),
+         {:ok, state} <-
+           append_run_updated_event(
+             state,
+             run,
+             :attempt_recovered,
+             attempt_id: attempt.id,
+             strategy: :mark_for_review,
+             reason: :orphaned_workspace_lease_missing
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp reconcile_pending_attempt(state, run, attempt, lease) do
+    with {:ok, state} <- start_attempt_worker(state, run.session_id, run, attempt, lease, []) do
+      append_run_updated_event(state, run, :attempt_recovered,
+        attempt_id: attempt.id,
+        strategy: :reattach
+      )
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp reconcile_running_attempt(state, run, attempt, lease) do
+    with {:ok, state, recovered_run} <-
+           update_attempt_status(
+             state,
+             attempt.id,
+             :terminal_failed,
+             status_finished_at: now(),
+             event_type: :attempt_failed,
+             event_payload: %{status: :terminal_failed, reason: :orphaned_running_worker},
+             output_metadata: %{
+               orphaned_recovery: :running_worker_missing,
+               recovery_source: :resume
+             }
+           ),
+         {:ok, state} <- mark_orphaned_lease(state, lease, attempt.id),
+         {:ok, state} <-
+           append_run_updated_event(
+             state,
+             recovered_run,
+             :attempt_recovered,
+             attempt_id: attempt.id,
+             strategy: :cleanup
+           ) do
+      {:ok, state}
+    end
+  end
+
+  defp mark_orphaned_lease(state, nil, _attempt_id), do: {:ok, state}
+
+  defp mark_orphaned_lease(state, %EnvironmentLease{} = lease, attempt_id) do
+    cleanup_status = cleanup_orphaned_workspace_path(lease.workspace_path)
+
+    lease_metadata =
+      (lease.metadata || %{})
+      |> Map.put(:orphaned_recovery, :running_worker_missing)
+      |> Map.put(:orphaned_attempt_id, attempt_id)
+      |> Map.put(:orphaned_cleanup_status, cleanup_status)
+
+    recovered_lease = %{
+      lease
+      | status: :expired,
+        updated_at: now(),
+        metadata: lease_metadata
+    }
+
+    with {:ok, storage} <-
+           state.storage_adapter.save_environment_lease(state.storage, recovered_lease) do
+      {:ok, %{state | storage: storage}}
+    end
+  end
+
+  defp cleanup_orphaned_workspace_path(nil), do: :not_applicable
+
+  defp cleanup_orphaned_workspace_path(path) when is_binary(path) do
+    case File.rm_rf(path) do
+      {:ok, _} -> :removed
+      {:error, reason, _path} -> {:failed, reason}
+      {:error, reason} -> {:failed, reason}
+    end
+  end
+
+  defp attempt_worker_running?(attempt_id) do
+    match?([_ | _], Registry.lookup(Jidoka.Registry, {:attempt, attempt_id}))
+  end
+
   defp resolve_session_id(state, session_handle) when is_binary(session_handle) do
     {:ok, session_handle}
   end
@@ -579,8 +739,8 @@ defmodule Jidoka.SessionServer do
   end
 
   defp start_attempt_worker(state, session_id, run, attempt, lease, opts) do
-    attempt_adapter = Keyword.get(opts, :execution_adapter, @default_execution_adapter)
-    verifier_adapter = build_verifier_adapter(run, opts)
+    attempt_adapter = execution_adapter_for_attempt(attempt, opts)
+    verifier_adapter = verifier_adapter_for_attempt(attempt, run, opts)
 
     attempt_spec =
       %AttemptExecution.AttemptSpec{
@@ -591,7 +751,7 @@ defmodule Jidoka.SessionServer do
         attempt_number: attempt.attempt_number,
         task_pack: run.task_pack,
         environment_lease: lease,
-        metadata: %{source: :submit},
+        metadata: Map.put(attempt.metadata || %{}, :source, :attempt_worker),
         adapter: attempt_adapter,
         verification_adapter: verifier_adapter
       }
@@ -794,7 +954,7 @@ defmodule Jidoka.SessionServer do
       run_id: run_id,
       attempt_number: previous_attempt.attempt_number + 1,
       status: Keyword.get(opts, :attempt_status, :pending),
-      metadata: Keyword.get(opts, :attempt_metadata, %{})
+      metadata: Map.merge(previous_attempt.metadata, Keyword.get(opts, :attempt_metadata, %{}))
     )
   end
 
@@ -861,6 +1021,14 @@ defmodule Jidoka.SessionServer do
     transition_run_if_needed(state, run, :running)
   end
 
+  defp transition_run_for_attempt(state, run, _attempt_status, :retryable_failed) do
+    transition_run_for_termination(state, run, :retryable_failed)
+  end
+
+  defp transition_run_for_attempt(state, run, _attempt_status, :terminal_failed) do
+    transition_run_for_termination(state, run, :terminal_failed)
+  end
+
   defp transition_run_for_attempt(state, run, _attempt_status, :canceled) do
     transition_run_if_needed(state, run, :canceled)
   end
@@ -872,6 +1040,16 @@ defmodule Jidoka.SessionServer do
   defp transition_run_if_needed(state, run, next_status) do
     with :ok <- validate_run_transition(run.status, next_status) do
       updated_run = %{run | status: next_status, updated_at: now()}
+
+      with {:ok, state} <- persist_run_record(state, updated_run) do
+        {:ok, state, updated_run}
+      end
+    end
+  end
+
+  defp transition_run_for_termination(state, run, outcome) do
+    with :ok <- validate_run_transition(run.status, :failed) do
+      updated_run = %{run | status: :failed, outcome: outcome, updated_at: now()}
 
       with {:ok, state} <- persist_run_record(state, updated_run) do
         {:ok, state, updated_run}
@@ -1035,14 +1213,29 @@ defmodule Jidoka.SessionServer do
     )
   end
 
-  defp build_submit_attempt(run_id, opts) do
+  defp build_submit_attempt(run_id, task_pack, opts) do
+    attempt_metadata =
+      Map.merge(
+        default_attempt_metadata(task_pack, opts),
+        Keyword.get(opts, :attempt_metadata, %{})
+      )
+
     Attempt.new(
       id: Keyword.get(opts, :attempt_id, generate_id("attempt")),
       run_id: run_id,
       attempt_number: Keyword.get(opts, :attempt_number, 1),
       status: Keyword.get(opts, :attempt_status, :pending),
-      metadata: Keyword.get(opts, :attempt_metadata, %{})
+      metadata: attempt_metadata
     )
+  end
+
+  defp default_attempt_metadata(task_pack, opts) do
+    %{
+      source: :submit,
+      execution_adapter: Keyword.get(opts, :execution_adapter, @default_execution_adapter),
+      verification_adapter: build_verifier_adapter(task_pack, opts),
+      attempt_number: Keyword.get(opts, :attempt_number, 1)
+    }
   end
 
   defp build_submit_lease(%Session{} = session, %Run{} = run, %Attempt{} = attempt, opts) do
@@ -1091,9 +1284,247 @@ defmodule Jidoka.SessionServer do
     end
   end
 
+  defp build_verifier_adapter(task_pack, opts) do
+    Keyword.get(opts, :verification_adapter) || default_verification_adapter(task_pack)
+  end
+
   defp build_verifier_adapter(%Run{task_pack: task_pack}, opts) do
-    Keyword.get(opts, :verification_adapter) ||
-      default_verification_adapter(task_pack)
+    build_verifier_adapter(task_pack, opts)
+  end
+
+  defp execution_adapter_for_attempt(%Attempt{} = attempt, opts) do
+    from_opts = Keyword.get(opts, :execution_adapter)
+    from_metadata = Map.get(attempt.metadata, :execution_adapter, @default_execution_adapter)
+    attempt_metadata = Map.get(attempt.metadata, "execution_adapter", @default_execution_adapter)
+
+    cond do
+      is_atom(from_opts) -> from_opts
+      is_atom(from_metadata) -> from_metadata
+      is_atom(attempt_metadata) -> attempt_metadata
+      true -> @default_execution_adapter
+    end
+  end
+
+  defp verifier_adapter_for_attempt(%Attempt{} = attempt, %Run{} = run, opts) do
+    from_opts = Keyword.get(opts, :verification_adapter)
+    from_metadata = Map.get(attempt.metadata, :verification_adapter)
+    attempt_metadata = Map.get(attempt.metadata, "verification_adapter")
+
+    cond do
+      is_atom(from_opts) -> from_opts
+      is_atom(from_metadata) -> from_metadata
+      is_atom(attempt_metadata) -> attempt_metadata
+      true -> build_verifier_adapter(run.task_pack, opts)
+    end
+  end
+
+  defp persist_attempt_artifacts(state, attempt_id, artifact_specs)
+       when is_list(artifact_specs) do
+    with {:ok, attempt} <- state.storage_adapter.load_attempt(state.storage, attempt_id),
+         {:ok, run} <- state.storage_adapter.load_run(state.storage, attempt.run_id),
+         {:ok, prepared_artifacts} <- prepare_artifact_records(attempt, run, artifact_specs),
+         {:ok, state} <- persist_attempt_artifact_records(state, prepared_artifacts),
+         {:ok, state} <-
+           reconcile_attempt_artifact_references(state, attempt, run, prepared_artifacts) do
+      {:ok, state}
+    else
+      {:error, reason} -> {:error, reason}
+      _ -> {:error, :invalid_attempt_artifacts}
+    end
+  end
+
+  defp persist_attempt_artifacts(_state, _attempt_id, _artifact_specs),
+    do: {:error, :invalid_artifact_payload}
+
+  defp reconcile_attempt_artifact_references(state, attempt, run, new_artifacts) do
+    with {:ok, run_artifacts} <-
+           state.storage_adapter.list_artifacts_for_run(state.storage, run.id) do
+      attempt_artifacts = Enum.filter(run_artifacts, &(&1.attempt_id == attempt.id))
+      all_attempt_artifacts = attempt_artifacts ++ new_artifacts
+
+      {kept_artifacts, archive_candidates} = retain_core_artifacts(all_attempt_artifacts)
+      retained_ids = Enum.map(kept_artifacts, & &1.id)
+
+      with {:ok, state} <- archive_artifacts(state, archive_candidates),
+           updated_attempt <- %{attempt | artifact_ids: retained_ids},
+           {:ok, state} <- persist_attempt_record(state, updated_attempt),
+           {:ok, state} <-
+             append_attempt_artifact_event(state, run, updated_attempt, new_artifacts) do
+        {:ok, state}
+      end
+    end
+  end
+
+  defp persist_attempt_artifact_records(state, artifacts) do
+    Enum.reduce_while(artifacts, {:ok, state}, fn artifact, {:ok, acc_state} ->
+      with {:ok, storage} <-
+             acc_state.storage_adapter.save_artifact(acc_state.storage, artifact) do
+        {:cont, {:ok, %{acc_state | storage: storage}}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, acc_state} -> {:ok, acc_state}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp append_attempt_artifact_event(state, run, attempt, new_artifacts) do
+    if Enum.empty?(new_artifacts) do
+      {:ok, state}
+    else
+      payload =
+        %{
+          run_id: run.id,
+          attempt_id: attempt.id,
+          artifact_ids: Enum.map(new_artifacts, & &1.id),
+          attempt_artifact_ids: attempt.artifact_ids
+        }
+
+      append_event_record(
+        state,
+        state.storage,
+        :artifact_emitted,
+        run.session_id,
+        payload,
+        run_id: run.id,
+        attempt_id: attempt.id
+      )
+      |> case do
+        {:ok, storage, _event_record} -> {:ok, %{state | storage: storage}}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp prepare_artifact_records(attempt, run, specs) do
+    Enum.reduce_while(
+      specs,
+      {:ok, []},
+      fn
+        spec, {:ok, acc} ->
+          case normalize_artifact_spec(attempt, run, spec) do
+            {:ok, artifact} -> {:cont, {:ok, [artifact | acc]}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+      end
+    )
+    |> case do
+      {:ok, artifacts} -> {:ok, Enum.reverse(artifacts)}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_artifact_spec(attempt, run, spec) when is_binary(spec) do
+    normalize_artifact_spec(attempt, run, %{location: spec})
+  end
+
+  defp normalize_artifact_spec(
+         %Attempt{} = attempt,
+         %Run{} = run,
+         %{} = spec
+       ) do
+    type = Map.get(spec, :type, :transcript)
+    metadata = Map.get(spec, :metadata, %{})
+    status = Map.get(spec, :status, :ready)
+
+    artifact_inputs =
+      Map.merge(
+        %{
+          id: Map.get(spec, :id, generate_id("artifact")),
+          run_id: run.id,
+          attempt_id: attempt.id,
+          type: type,
+          status: status,
+          location: Map.get(spec, :location),
+          metadata: metadata
+        },
+        Map.take(spec, [
+          :id,
+          :run_id,
+          :type,
+          :status,
+          :location,
+          :metadata,
+          :created_at,
+          :updated_at
+        ])
+      )
+
+    with :ok <- validate_artifact_type(type),
+         {:ok, artifact} <- Artifact.new(artifact_inputs),
+         :ok <- ensure_artifact_run_match(artifact.run_id, run.id) do
+      {:ok, artifact}
+    end
+  end
+
+  defp normalize_artifact_spec(_attempt, _run, _spec), do: {:error, :invalid_artifact_spec}
+
+  defp ensure_artifact_run_match(spec_run_id, run_id) when spec_run_id == run_id, do: :ok
+
+  defp ensure_artifact_run_match(spec_run_id, run_id),
+    do: {:error, {:artifact_run_mismatch, spec_run_id, run_id}}
+
+  defp validate_artifact_type(type) do
+    if type in @core_artifact_types do
+      :ok
+    else
+      {:error, {:invalid_artifact_type, @core_artifact_types, type}}
+    end
+  end
+
+  defp retain_core_artifacts(artifacts) do
+    @core_artifact_types
+    |> Enum.reduce({[], []}, fn type, {kept, archived} ->
+      typed_artifacts = Enum.filter(artifacts, &(&1.type == type))
+
+      case choose_latest_artifact(typed_artifacts) do
+        {:ok, selected} ->
+          remaining = Enum.reject(typed_artifacts, &(&1.id == selected.id))
+          {[selected | kept], archived ++ remaining}
+
+        :none ->
+          {kept, archived}
+      end
+    end)
+    |> then(fn {kept, archived} -> {Enum.reverse(kept), archived} end)
+  end
+
+  defp archive_artifacts(state, []), do: {:ok, state}
+
+  defp archive_artifacts(state, artifacts) do
+    Enum.reduce_while(artifacts, {:ok, state}, fn artifact, {:ok, acc_state} ->
+      archived_artifact = %{artifact | status: :archived, updated_at: now()}
+
+      with {:ok, storage} <-
+             acc_state.storage_adapter.save_artifact(acc_state.storage, archived_artifact) do
+        {:cont, {:ok, %{acc_state | storage: storage}}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, acc_state} -> {:ok, acc_state}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp choose_latest_artifact([]), do: :none
+
+  defp choose_latest_artifact([artifact]), do: {:ok, artifact}
+
+  defp choose_latest_artifact([a, b | rest]) do
+    selected = choose_newer_artifact(a, b)
+    choose_latest_artifact([selected | rest])
+  end
+
+  defp choose_newer_artifact(a, b) do
+    case DateTime.compare(a.created_at, b.created_at) do
+      :gt -> a
+      :lt -> b
+      :eq -> b
+    end
   end
 
   defp default_verification_adapter(:coding), do: @default_verification_adapter
