@@ -74,6 +74,57 @@ defmodule JidokaSessionServerTest do
     assert :ok = SessionServer.close(session_id)
   end
 
+  test "submit creates durable run, initial attempt, and writable lease for the attempt" do
+    session_id = unique_id("session-submit")
+    assert {:ok, ^session_id} = SessionServer.open(id: session_id, cwd: "/tmp/session-submit")
+
+    assert {:ok, %{run: run, attempt: attempt, lease: lease}} =
+             SessionServer.submit(
+               session_id,
+               "implement login flow",
+               task_pack: :coding
+             )
+
+    assert run.session_id == session_id
+    assert run.task == "implement login flow"
+    assert run.task_pack == :coding
+    assert run.status == :queued
+    assert attempt.run_id == run.id
+    assert attempt.status == :pending
+    assert attempt.attempt_number == 1
+    assert lease.attempt_id == attempt.id
+    assert lease.status == :active
+    assert lease.mode == :exclusive
+    assert lease.workspace_path =~ run.id
+    assert lease.workspace_path =~ attempt.id
+    assert lease.metadata.run_id == run.id
+    assert lease.metadata.source_workspace_path == "/tmp/session-submit"
+
+    assert {:ok, session_snapshot} = SessionServer.session_snapshot(session_id)
+    assert Enum.find(session_snapshot.runs, &(&1.id == run.id))
+
+    assert session_snapshot.runs
+           |> Enum.find(&(&1.id == run.id))
+           |> Map.get(:latest_attempt_id) == attempt.id
+
+    assert Enum.find(session_snapshot.attempts, &(&1.id == attempt.id))
+    assert Enum.find(session_snapshot.attempts, &(&1.id == attempt.id)).status == :pending
+
+    assert Enum.find(session_snapshot.leases, &(&1.id == lease.id))
+
+    assert Enum.find(session_snapshot.leases, &(&1.id == lease.id)).workspace_path ==
+             lease.workspace_path
+
+    assert {:ok, run_snapshot} = SessionServer.run_snapshot(session_id, run.id)
+    assert run_snapshot.run.id == run.id
+    assert run_snapshot.run.latest_attempt_id == attempt.id
+    assert Enum.any?(run_snapshot.attempts, &(&1.id == attempt.id))
+    assert Enum.any?(run_snapshot.leases, &(&1.id == lease.id))
+    assert Enum.any?(run_snapshot.events, &(&1.event.type == :run_submitted))
+
+    assert :ok = SessionServer.close(session_id)
+  end
+
   defp unique_id(prefix) do
     "#{prefix}-" <> Integer.to_string(System.unique_integer([:positive, :monotonic]))
   end

@@ -156,3 +156,25 @@ If you want, I can follow up by expanding `precommit` again once this runs in an
 - Persistence is in-process (`Jidoka.Persistence.InMemory`) by design for this story phase, consistent with ST-MVP-002 and current dependencies.
 - Full suite/tests beyond `mix precommit` were not run.
 - `Jidoka.Agent` was introduced as a lightweight façade to preserve the existing public-facing pattern and route lifecycle calls through `SessionServer`, without implementing out-of-scope coding/verification flows.
+1) changed files
+- [lib/jidoka/session_server.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/session_server.ex)
+- [lib/jidoka/agent.ex](/Users/mhostetler/Source/OrigJido/jidoka/lib/jidoka/agent.ex)
+- [test/jidoka_session_server_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_session_server_test.exs)
+- [test/jidoka_agent_test.exs](/Users/mhostetler/Source/OrigJido/jidoka/test/jidoka_agent_test.exs)
+
+2) tests/commands executed
+- `mix precommit` (failed: formatting check on `session_server.ex` and `jidoka_session_server_test.exs`)
+- `mix format lib/jidoka/session_server.ex test/jidoka_session_server_test.exs`
+- `mix precommit` (passed)
+
+3) acceptance criteria coverage
+- Submitted task creates durable run with coding identity: added `SessionServer.submit/3` and `Agent.submit/3`; submit path creates a `Run` with default `task_pack: :coding` and persists it (`SessionServer.submit` now persists run + emits `:run_submitted` event).
+- Submitting creates initial attempt linked to run: submit flow creates and persists one `Attempt` with `run_id` set to the new run and default attempt number `1`.
+- Write-capable isolated lease is created/persisted: submit flow allocates `EnvironmentLease` with `mode: :exclusive`, `status: :active`, links by `attempt_id`, and persists it before returning.
+- Lease metadata identifies backing workspace copy/worktree: lease records a concrete `workspace_path` derived from session workspace plus `runs/<run_id>/<attempt-id>` and metadata including `source_workspace_path`/`run_id`.
+- Snapshots show run/attempt/lease state: session and run snapshot assertions added to verify run status, latest attempt linkage, attempt status, and lease details via run/ session snapshots.
+- Tests added for submit flow and durable creation/persistence: new session server test validates submit return values and persisted `Run`/`Attempt`/`EnvironmentLease`; updated agent test asserts `Agent.submit/3` is exported.
+
+4) blockers/assumptions
+- Only `mix precommit` was run, per your request. I did not run the full test suite.
+- Existing codebase uses a single in-memory durability model and does not yet wire execution/streaming of attempts; submit flow correctly sets durable state only (no execution starts).

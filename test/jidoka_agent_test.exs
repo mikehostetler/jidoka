@@ -29,6 +29,7 @@ defmodule Jidoka.AgentTest do
 
     assert function_exported?(Jidoka.Agent, :open, 1)
     assert function_exported?(Jidoka.Agent, :ask, 3)
+    assert function_exported?(Jidoka.Agent, :submit, 3)
     assert function_exported?(Jidoka.Agent, :snapshot, 1)
 
     assert function_exported?(Jidoka, :start_session, 1)

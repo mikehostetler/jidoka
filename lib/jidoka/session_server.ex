@@ -87,6 +87,12 @@ defmodule Jidoka.SessionServer do
     GenServer.call(@server, {:persist_environment_lease, lease})
   end
 
+  @spec submit(session_handle(), String.t(), keyword()) ::
+          {:ok, map()} | {:error, term()}
+  def submit(session_handle, task, opts \\ []) when is_binary(task) do
+    GenServer.call(@server, {:submit, session_handle, task, opts})
+  end
+
   @impl true
   def init(opts) do
     adapter = Keyword.get(opts, :storage_adapter, @default_adapter)
@@ -228,6 +234,23 @@ defmodule Jidoka.SessionServer do
       )
 
       {:reply, :ok, state}
+    else
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call({:submit, session_handle, task, opts}, _from, state) do
+    with {:ok, session_id} <- resolve_session_id(state, session_handle),
+         {:ok, session} <- state.storage_adapter.load_session(state.storage, session_id),
+         {:ok, run} <- build_submit_run(session_id, task, opts),
+         {:ok, state} <- persist_run_record(state, run),
+         {:ok, attempt} <- build_submit_attempt(run.id, opts),
+         {:ok, state} <- persist_attempt_record(state, attempt),
+         {:ok, lease} <- build_submit_lease(session, run, attempt, opts),
+         {:ok, state} <- persist_environment_lease_record(state, lease),
+         {:ok, state} <- append_run_submitted_event(state, session_id, run, attempt) do
+      {:reply, {:ok, %{run: run, attempt: attempt, lease: lease}}, state}
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
@@ -391,11 +414,23 @@ defmodule Jidoka.SessionServer do
   end
 
   defp append_event_record(state, storage, event_type, session_id, payload) do
+    append_event_record(state, storage, event_type, session_id, payload,
+      run_id: nil,
+      attempt_id: nil
+    )
+  end
+
+  defp append_event_record(state, storage, event_type, session_id, payload, opts) do
+    run_id = Keyword.get(opts, :run_id)
+    attempt_id = Keyword.get(opts, :attempt_id)
+
     with {:ok, event} <-
            Event.new(
              id: generate_id("event"),
              type: event_type,
              session_id: session_id,
+             run_id: run_id,
+             attempt_id: attempt_id,
              payload: payload
            ),
          {:ok, storage, event_record} <- state.storage_adapter.append_event(storage, event) do
@@ -464,6 +499,72 @@ defmodule Jidoka.SessionServer do
       {:ok, ids}
     else
       {:ok, ids ++ [value]}
+    end
+  end
+
+  defp build_submit_run(session_id, task, opts) do
+    Run.new(
+      id: Keyword.get(opts, :run_id, generate_id("run")),
+      session_id: session_id,
+      task: task,
+      task_pack: Keyword.get(opts, :task_pack, :coding),
+      status: Keyword.get(opts, :run_status, :queued)
+    )
+  end
+
+  defp build_submit_attempt(run_id, opts) do
+    Attempt.new(
+      id: Keyword.get(opts, :attempt_id, generate_id("attempt")),
+      run_id: run_id,
+      attempt_number: Keyword.get(opts, :attempt_number, 1),
+      status: Keyword.get(opts, :attempt_status, :pending),
+      metadata: Keyword.get(opts, :attempt_metadata, %{})
+    )
+  end
+
+  defp build_submit_lease(%Session{} = session, %Run{} = run, %Attempt{} = attempt, opts) do
+    workspace_root = session.workspace_path || System.tmp_dir!()
+    workspace_suffix = Keyword.get(opts, :workspace_suffix, "attempt")
+
+    lease_metadata =
+      Map.merge(
+        %{
+          source_workspace_path: workspace_root,
+          run_id: run.id,
+          attempt_number: attempt.attempt_number
+        },
+        Keyword.get(opts, :lease_metadata, %{})
+      )
+
+    EnvironmentLease.new(
+      id: Keyword.get(opts, :lease_id, generate_id("lease")),
+      attempt_id: attempt.id,
+      status: :active,
+      mode: :exclusive,
+      workspace_path:
+        Path.join([
+          workspace_root,
+          ".jidoka",
+          "runs",
+          run.id,
+          "#{workspace_suffix}-#{attempt.id}"
+        ]),
+      metadata: lease_metadata
+    )
+  end
+
+  defp append_run_submitted_event(state, session_id, run, attempt) do
+    with {:ok, storage_record, _event_record} <-
+           append_event_record(
+             state,
+             state.storage,
+             :run_submitted,
+             session_id,
+             %{run_id: run.id, attempt_id: attempt.id, task_pack: run.task_pack},
+             run_id: run.id,
+             attempt_id: attempt.id
+           ) do
+      {:ok, %{state | storage: storage_record}}
     end
   end
 
