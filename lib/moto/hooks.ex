@@ -110,10 +110,28 @@ defmodule Moto.Hooks do
   def translate_chat_result({:error, {:interrupt, %Interrupt{} = interrupt}}),
     do: {:interrupt, interrupt}
 
+  def translate_chat_result({:error, {:failed, _status, {:interrupt, %Interrupt{} = interrupt}}}),
+    do: {:interrupt, interrupt}
+
+  def translate_chat_result({:error, {:failed, _status, reason}}),
+    do: {:error, reason}
+
   def translate_chat_result({:ok, {:interrupt, %Interrupt{} = interrupt}}),
     do: {:interrupt, interrupt}
 
   def translate_chat_result(other), do: other
+
+  @spec notify_interrupt(Jido.Agent.t(), String.t(), Interrupt.t()) :: :ok
+  def notify_interrupt(agent, request_id, %Interrupt{} = interrupt) when is_binary(request_id) do
+    hook_meta = get_request_hook_meta(agent, request_id) || %{}
+
+    invoke_interrupt_hooks(
+      get_in(hook_meta, [:hooks, :on_interrupt]) || [],
+      interrupt_input(agent, request_id, hook_meta, interrupt)
+    )
+  end
+
+  def notify_interrupt(_agent, _request_id, _interrupt), do: :ok
 
   @spec prepare_request_opts(keyword()) :: {:ok, keyword()} | {:error, term()}
   def prepare_request_opts(opts) when is_list(opts) do

@@ -43,6 +43,24 @@ defmodule Moto.Agent.Dsl do
     defstruct [:hook, :__spark_metadata__]
   end
 
+  defmodule InputGuardrail do
+    @moduledoc false
+
+    defstruct [:guardrail, :__spark_metadata__]
+  end
+
+  defmodule OutputGuardrail do
+    @moduledoc false
+
+    defstruct [:guardrail, :__spark_metadata__]
+  end
+
+  defmodule ToolGuardrail do
+    @moduledoc false
+
+    defstruct [:guardrail, :__spark_metadata__]
+  end
+
   @agent_section %Spark.Dsl.Section{
     name: :agent,
     describe: """
@@ -229,14 +247,78 @@ defmodule Moto.Agent.Dsl do
     entities: [@before_turn_hook_entity, @after_turn_hook_entity, @interrupt_hook_entity]
   }
 
+  @input_guardrail_entity %Spark.Dsl.Entity{
+    name: :input,
+    describe: """
+    Register a guardrail that validates the final turn input before the LLM call.
+    """,
+    target: InputGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @output_guardrail_entity %Spark.Dsl.Entity{
+    name: :output,
+    describe: """
+    Register a guardrail that validates the final turn outcome before Moto returns it.
+    """,
+    target: OutputGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @tool_guardrail_entity %Spark.Dsl.Entity{
+    name: :tool,
+    describe: """
+    Register a guardrail that validates model-selected tool calls before execution.
+    """,
+    target: ToolGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @guardrails_section %Spark.Dsl.Section{
+    name: :guardrails,
+    describe: """
+    Register Moto guardrails for this agent.
+    """,
+    entities: [@input_guardrail_entity, @output_guardrail_entity, @tool_guardrail_entity]
+  }
+
   use Spark.Dsl.Extension,
-    sections: [@agent_section, @context_section, @tools_section, @plugins_section, @hooks_section],
+    sections: [
+      @agent_section,
+      @context_section,
+      @tools_section,
+      @plugins_section,
+      @hooks_section,
+      @guardrails_section
+    ],
     verifiers: [
       Moto.Agent.Verifiers.VerifyModel,
       Moto.Agent.Verifiers.VerifyContext,
       Moto.Agent.Verifiers.VerifyTools,
       Moto.Agent.Verifiers.VerifyAshResources,
       Moto.Agent.Verifiers.VerifyPlugins,
-      Moto.Agent.Verifiers.VerifyHooks
+      Moto.Agent.Verifiers.VerifyHooks,
+      Moto.Agent.Verifiers.VerifyGuardrails
     ]
 end

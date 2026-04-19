@@ -13,7 +13,7 @@ Today, Moto can:
 
 - define agents with a small Spark DSL via `use Moto.Agent`
 - configure agent `name`, `model`, `system_prompt`, default `context`, `tools`,
-  `plugins`, and `hooks`
+  `plugins`, `hooks`, and `guardrails`
 - resolve models through Moto-owned aliases like `:fast`, direct model strings,
   inline maps, and `%LLMDB.Model{}`
 - support static or dynamic system prompts through strings, module callbacks,
@@ -25,6 +25,8 @@ Today, Moto can:
   agent's visible tool registry
 - define reusable `Moto.Hook` modules and attach them as default turn hooks or
   per-request overrides
+- define reusable `Moto.Guardrail` modules and attach them as default
+  input/output/tool validation stages or per-request overrides
 - start many runtime instances from the same agent module under the shared
   `Moto.Runtime`
 - import constrained agents from JSON or YAML at runtime with explicit
@@ -91,6 +93,7 @@ The DSL currently supports:
 - `tools`
 - `plugins`
 - `hooks`
+- `guardrails`
 
 `model` accepts the same shapes Jido.AI and ReqLLM support:
 
@@ -355,6 +358,73 @@ Generated agents expose:
 - `MyApp.ChatAgent.after_turn_hooks/0`
 - `MyApp.ChatAgent.interrupt_hooks/0`
 
+## Define A Guardrail
+
+```elixir
+defmodule MyApp.Guardrails.SafePrompt do
+  use Moto.Guardrail, name: "safe_prompt"
+
+  @impl true
+  def call(%Moto.Guardrails.Input{message: message}) do
+    if String.contains?(String.downcase(message), "secret") do
+      {:error, :unsafe_prompt}
+    else
+      :ok
+    end
+  end
+end
+```
+
+`Moto.Guardrail` is a thin wrapper for validation-only turn boundaries. A
+guardrail publishes a stable name and exposes a single `call/1` callback.
+
+Moto currently supports three guardrail stages:
+
+- `input`
+- `output`
+- `tool`
+
+Guardrails are non-mutating in v1. They can:
+
+- allow the stage with `:ok`
+- block the turn with `{:error, reason}`
+- interrupt the turn with `{:interrupt, interrupt_like}`
+
+Hooks remain the place for rewrites and enrichment.
+
+## Attach Guardrails To An Agent
+
+```elixir
+defmodule MyApp.ChatAgent do
+  use Moto.Agent
+
+  agent do
+    model :fast
+    system_prompt "You are a concise assistant."
+  end
+
+  guardrails do
+    input MyApp.Guardrails.SafePrompt
+    output {MyApp.Guardrails.SafeReply, :call, [:support]}
+    tool MyApp.Guardrails.ApproveRefundTool
+  end
+end
+```
+
+Multiple guardrails are allowed per stage. Moto runs them in declaration order
+and short-circuits on the first block or interrupt.
+
+Generated agents expose:
+
+- `MyApp.ChatAgent.guardrails/0`
+- `MyApp.ChatAgent.input_guardrails/0`
+- `MyApp.ChatAgent.output_guardrails/0`
+- `MyApp.ChatAgent.tool_guardrails/0`
+
+Tool guardrails run at the model-selected tool-call boundary before execution.
+They validate the proposed tool name, arguments, and runtime context, but they
+do not control tool exposure and do not inspect tool results in v1.
+
 ## Per-Turn Hook Overrides
 
 You can also pass hooks directly to `chat/3`:
@@ -380,6 +450,46 @@ end
 
 `chat/3` hook overrides append to the agent's default DSL hooks for that turn.
 If a hook interrupts the turn, Moto returns:
+
+```elixir
+{:interrupt, %Moto.Interrupt{}}
+```
+
+## Per-Turn Guardrail Overrides
+
+You can also pass guardrails directly to `chat/3`:
+
+```elixir
+runtime_input_guardrail = fn %Moto.Guardrails.Input{} = input ->
+  if Map.get(input.context, :tenant) == "blocked" do
+    {:error, :blocked_tenant}
+  else
+    :ok
+  end
+end
+
+{:ok, pid} = MyApp.ChatAgent.start_link(id: "chat-1")
+
+{:ok, reply} =
+  MyApp.ChatAgent.chat(pid, "Say hello.",
+    guardrails: [
+      input: [
+        MyApp.Guardrails.SafePrompt,
+        {MyApp.Guardrails.TenantGate, :call, [:support]},
+        runtime_input_guardrail
+      ]
+    ]
+  )
+```
+
+`chat/3` guardrail overrides append to the agent's default DSL guardrails for
+that turn. When a guardrail blocks, Moto returns:
+
+```elixir
+{:error, {:guardrail, :input, "safe_prompt", :unsafe_prompt}}
+```
+
+When a guardrail interrupts, Moto returns:
 
 ```elixir
 {:interrupt, %Moto.Interrupt{}}
@@ -442,8 +552,9 @@ mix run scripts/chat_agent.exs
 ```
 
 By default, the script runs one built-in tool-call demo first, then drops into
-interactive mode. You should see the configured default context printed at
-startup and a tool log line like
+interactive mode. It also runs visible input, output, tool, and interrupt demo
+passes first. You should see the configured default context printed at startup
+and a tool log line like
 `[tool:add_numbers tenant=demo channel=cli session=cli] 17 + 25 = 42` when the
 tool executes.
 
@@ -482,6 +593,11 @@ json = ~S"""
   "plugins": ["math_plugin"],
   "hooks": {
     "before_turn": ["reply_with_final_answer"]
+  },
+  "guardrails": {
+    "input": ["safe_prompt"],
+    "output": ["safe_reply"],
+    "tool": ["approve_refund_tool"]
   }
 }
 """
@@ -490,7 +606,12 @@ json = ~S"""
   Moto.import_agent(
     json,
     available_plugins: [MyApp.Plugins.Math],
-    available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer]
+    available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer],
+    available_guardrails: [
+      MyApp.Guardrails.SafePrompt,
+      MyApp.Guardrails.SafeReply,
+      MyApp.Guardrails.ApproveRefundTool
+    ]
   )
 
 {:ok, pid} = Moto.start_agent(agent, id: "json-agent")
@@ -515,12 +636,24 @@ plugins:
 hooks:
   before_turn:
     - "reply_with_final_answer"
+guardrails:
+  input:
+    - "safe_prompt"
+  output:
+    - "safe_reply"
+  tool:
+    - "approve_refund_tool"
 """
 
 {:ok, agent} = Moto.import_agent(yaml,
   format: :yaml,
   available_plugins: [MyApp.Plugins.Math],
-  available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer]
+  available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer],
+  available_guardrails: [
+    MyApp.Guardrails.SafePrompt,
+    MyApp.Guardrails.SafeReply,
+    MyApp.Guardrails.ApproveRefundTool
+  ]
 )
 ```
 
@@ -533,6 +666,7 @@ The dynamic import path is intentionally narrower than the Elixir DSL:
 - only published tool names through `tools`
 - only published plugin names through `plugins`
 - only published hook names through `hooks`
+- only published guardrail names through `guardrails`
 - `model` supports:
   - alias strings like `"fast"`
   - direct model strings like `"anthropic:claude-haiku-4-5"`
@@ -548,6 +682,10 @@ The dynamic import path is intentionally narrower than the Elixir DSL:
   - a stage-keyed map like `%{"before_turn" => ["reply_with_final_answer"]}`
   - multiple names per stage
   - explicit resolution through `available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer]`
+- `guardrails` supports:
+  - a stage-keyed map like `%{"input" => ["safe_prompt"]}`
+  - multiple names per stage
+  - explicit resolution through `available_guardrails: [MyApp.Guardrails.SafePrompt]`
 
 The imported path does not currently support the `ash_resource` shorthand
 directly, because JSON/YAML specs cannot safely encode Elixir resource modules.
@@ -568,7 +706,8 @@ The top-level helpers are:
 - `Moto.Tool` is a thin wrapper over `Jido.Action`, but it restricts tool schemas to Zoi.
 - `Moto.Plugin` is a thin wrapper over `Jido.Plugin` and currently focuses on contributing tools.
 - `Moto.Hook` is a thin wrapper for turn-scoped hook modules and interrupt-aware callbacks.
+- `Moto.Guardrail` is a thin wrapper for input/output/tool validation modules.
 - `Moto.model/1` resolves Moto-owned aliases first, then delegates to Jido.AI.
 - Dynamic imports use a hidden runtime module generated from a validated Zoi spec.
-- Imported tools, plugins, and hooks are constrained to explicit allowlist registries.
+- Imported tools, plugins, hooks, and guardrails are constrained to explicit allowlist registries.
 - The nested runtime module still uses `Jido.AI.Agent` underneath.

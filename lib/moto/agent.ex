@@ -28,6 +28,7 @@ defmodule Moto.Agent do
   - `tools`
   - `plugins`
   - `hooks`
+  - `guardrails`
 
   A nested runtime module is generated automatically and uses `Jido.AI.Agent`
   with the configured tool modules. The `tools` block currently supports
@@ -76,6 +77,20 @@ defmodule Moto.Agent do
   end
 
   @doc false
+  def resolve_guardrails!(owner_module, guardrails) do
+    case Moto.Guardrails.normalize_dsl_guardrails(guardrails) do
+      {:ok, normalized} ->
+        normalized
+
+      {:error, message} ->
+        raise Spark.Error.DslError,
+          message: message,
+          path: [:guardrails],
+          module: owner_module
+    end
+  end
+
+  @doc false
   def resolve_context!(owner_module, entries) when is_list(entries) do
     context =
       Enum.reduce(entries, %{}, fn %Moto.Agent.Dsl.ContextEntry{key: key, value: value}, acc ->
@@ -98,6 +113,7 @@ defmodule Moto.Agent do
   def prepare_chat_opts(opts, nil) when is_list(opts) do
     with :ok <- reject_tool_context(opts),
          {:ok, opts} <- Moto.Hooks.prepare_request_opts(opts),
+         {:ok, opts} <- Moto.Guardrails.prepare_request_opts(opts),
          {:ok, context} <- merge_default_context(opts, %{}) do
       {:ok, Keyword.put(opts, :tool_context, context)}
     end
@@ -109,6 +125,7 @@ defmodule Moto.Agent do
 
     with :ok <- reject_tool_context(opts),
          {:ok, opts} <- Moto.Hooks.prepare_request_opts(opts),
+         {:ok, opts} <- Moto.Guardrails.prepare_request_opts(opts),
          {:ok, context} <- merge_default_context(opts, default_context),
          {:ok, context} <- maybe_prepare_ash_context(context, ash_tool_config) do
       {:ok, Keyword.put(opts, :tool_context, context)}
@@ -116,28 +133,41 @@ defmodule Moto.Agent do
   end
 
   @doc false
-  def hook_runtime_ast(default_hooks, default_context \\ %{}) do
+  def hook_runtime_ast(
+        default_hooks,
+        default_context \\ %{},
+        default_guardrails \\ Moto.Guardrails.default_stage_map()
+      ) do
     quote location: :keep do
       @moto_hook_defaults unquote(Macro.escape(default_hooks))
       @moto_context_defaults unquote(Macro.escape(default_context))
+      @moto_guardrail_defaults unquote(Macro.escape(default_guardrails))
 
       @impl true
       def on_before_cmd(agent, action) do
-        with {:ok, agent, action} <- super(agent, action) do
-          Moto.Hooks.on_before_cmd(
-            __MODULE__,
-            agent,
-            action,
-            @moto_hook_defaults,
-            @moto_context_defaults
-          )
+        with {:ok, agent, action} <- super(agent, action),
+             {:ok, agent, action} <-
+               Moto.Hooks.on_before_cmd(
+                 __MODULE__,
+                 agent,
+                 action,
+                 @moto_hook_defaults,
+                 @moto_context_defaults
+               ),
+             {:ok, agent, action} <-
+               Moto.Guardrails.on_before_cmd(agent, action, @moto_guardrail_defaults) do
+          {:ok, agent, action}
         end
       end
 
       @impl true
       def on_after_cmd(agent, action, directives) do
-        with {:ok, agent, directives} <- super(agent, action, directives) do
-          Moto.Hooks.on_after_cmd(__MODULE__, agent, action, directives, @moto_hook_defaults)
+        with {:ok, agent, directives} <- super(agent, action, directives),
+             {:ok, agent, directives} <-
+               Moto.Hooks.on_after_cmd(__MODULE__, agent, action, directives, @moto_hook_defaults),
+             {:ok, agent, directives} <-
+               Moto.Guardrails.on_after_cmd(agent, action, directives, @moto_guardrail_defaults) do
+          {:ok, agent, directives}
         end
       end
     end
@@ -245,6 +275,15 @@ defmodule Moto.Agent do
             match?(%Moto.Agent.Dsl.InterruptHook{}, &1))
       )
 
+    guardrail_entities =
+      env.module
+      |> Spark.Dsl.Extension.get_entities([:guardrails])
+      |> Enum.filter(
+        &(match?(%Moto.Agent.Dsl.InputGuardrail{}, &1) or
+            match?(%Moto.Agent.Dsl.OutputGuardrail{}, &1) or
+            match?(%Moto.Agent.Dsl.ToolGuardrail{}, &1))
+      )
+
     direct_tool_modules =
       tool_entities
       |> Enum.filter(&match?(%Moto.Agent.Dsl.Tool{}, &1))
@@ -274,6 +313,21 @@ defmodule Moto.Agent do
       end)
 
     configured_hooks = __MODULE__.resolve_hooks!(env.module, configured_hooks)
+
+    configured_guardrails =
+      guardrail_entities
+      |> Enum.reduce(Moto.Guardrails.default_stage_map(), fn
+        %Moto.Agent.Dsl.InputGuardrail{guardrail: guardrail}, acc ->
+          Map.update!(acc, :input, &(&1 ++ [guardrail]))
+
+        %Moto.Agent.Dsl.OutputGuardrail{guardrail: guardrail}, acc ->
+          Map.update!(acc, :output, &(&1 ++ [guardrail]))
+
+        %Moto.Agent.Dsl.ToolGuardrail{guardrail: guardrail}, acc ->
+          Map.update!(acc, :tool, &(&1 ++ [guardrail]))
+      end)
+
+    configured_guardrails = __MODULE__.resolve_guardrails!(env.module, configured_guardrails)
     configured_context = __MODULE__.resolve_context!(env.module, context_entities)
 
     direct_tool_names =
@@ -336,7 +390,7 @@ defmodule Moto.Agent do
             module: env.module
       end
 
-    runtime_plugins = [Moto.Plugins.RuntimeCompat | plugin_modules]
+    runtime_plugins = [Moto.Plugins.RuntimeCompat, Moto.Plugins.Guardrails | plugin_modules]
 
     tool_modules =
       direct_tool_modules ++ ash_resource_info.tool_modules ++ plugin_tool_modules
@@ -428,7 +482,13 @@ defmodule Moto.Agent do
           plugins: unquote(Macro.escape(runtime_plugins)),
           request_transformer: unquote(runtime_request_transformer)
 
-        unquote(__MODULE__.hook_runtime_ast(configured_hooks, configured_context))
+        unquote(
+          __MODULE__.hook_runtime_ast(
+            configured_hooks,
+            configured_context,
+            configured_guardrails
+          )
+        )
       end
 
       @doc """
@@ -546,6 +606,30 @@ defmodule Moto.Agent do
       """
       @spec interrupt_hooks() :: [term()]
       def interrupt_hooks, do: unquote(Macro.escape(configured_hooks.on_interrupt))
+
+      @doc """
+      Returns the configured Moto guardrails by stage.
+      """
+      @spec guardrails() :: Moto.Guardrails.stage_map()
+      def guardrails, do: unquote(Macro.escape(configured_guardrails))
+
+      @doc """
+      Returns the configured input guardrails.
+      """
+      @spec input_guardrails() :: [Moto.Guardrails.guardrail_ref()]
+      def input_guardrails, do: unquote(Macro.escape(configured_guardrails.input))
+
+      @doc """
+      Returns the configured output guardrails.
+      """
+      @spec output_guardrails() :: [Moto.Guardrails.guardrail_ref()]
+      def output_guardrails, do: unquote(Macro.escape(configured_guardrails.output))
+
+      @doc """
+      Returns the configured tool guardrails.
+      """
+      @spec tool_guardrails() :: [Moto.Guardrails.guardrail_ref()]
+      def tool_guardrails, do: unquote(Macro.escape(configured_guardrails.tool))
 
       @doc """
       Returns any Ash resources registered through `ash_resource`.

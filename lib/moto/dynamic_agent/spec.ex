@@ -33,7 +33,14 @@ defmodule Moto.DynamicAgent.Spec do
                     |> Zoi.max(128)
                     |> Zoi.regex(~r/^[a-z][a-z0-9_]*$/)
 
+  @guardrail_name_schema Zoi.string()
+                         |> Zoi.trim()
+                         |> Zoi.min(1)
+                         |> Zoi.max(128)
+                         |> Zoi.regex(~r/^[a-z][a-z0-9_]*$/)
+
   @default_hooks %{before_turn: [], after_turn: [], on_interrupt: []}
+  @default_guardrails %{input: [], output: [], tool: []}
 
   @model_map_schema Zoi.object(
                       %{
@@ -68,6 +75,16 @@ defmodule Moto.DynamicAgent.Spec do
                   unrecognized_keys: :error
                 )
 
+  @guardrails_schema Zoi.object(
+                       %{
+                         input: Zoi.list(@guardrail_name_schema) |> Zoi.default([]),
+                         output: Zoi.list(@guardrail_name_schema) |> Zoi.default([]),
+                         tool: Zoi.list(@guardrail_name_schema) |> Zoi.default([])
+                       },
+                       coerce: true,
+                       unrecognized_keys: :error
+                     )
+
   @schema Zoi.struct(
             __MODULE__,
             %{
@@ -81,7 +98,8 @@ defmodule Moto.DynamicAgent.Spec do
               context: Zoi.map() |> Zoi.default(%{}),
               tools: Zoi.list(@tool_name_schema) |> Zoi.default([]),
               plugins: Zoi.list(@plugin_name_schema) |> Zoi.default([]),
-              hooks: @hooks_schema |> Zoi.default(@default_hooks)
+              hooks: @hooks_schema |> Zoi.default(@default_hooks),
+              guardrails: @guardrails_schema |> Zoi.default(@default_guardrails)
             },
             coerce: true,
             unrecognized_keys: :error
@@ -106,6 +124,11 @@ defmodule Moto.DynamicAgent.Spec do
             before_turn: [String.t()],
             after_turn: [String.t()],
             on_interrupt: [String.t()]
+          },
+          guardrails: %{
+            input: [String.t()],
+            output: [String.t()],
+            tool: [String.t()]
           }
         }
 
@@ -117,7 +140,8 @@ defmodule Moto.DynamicAgent.Spec do
     context: %{},
     tools: [],
     plugins: [],
-    hooks: @default_hooks
+    hooks: @default_hooks,
+    guardrails: @default_guardrails
   ]
 
   @spec schema() :: Zoi.schema()
@@ -127,8 +151,9 @@ defmodule Moto.DynamicAgent.Spec do
   def new(%__MODULE__{} = spec, opts) do
     with :ok <- validate_context(spec.context),
          {:ok, spec} <- validate_tools(spec, Keyword.get(opts, :available_tools, %{})),
-         {:ok, spec} <- validate_plugins(spec, Keyword.get(opts, :available_plugins, %{})) do
-      validate_hooks(spec, Keyword.get(opts, :available_hooks, %{}))
+         {:ok, spec} <- validate_plugins(spec, Keyword.get(opts, :available_plugins, %{})),
+         {:ok, spec} <- validate_hooks(spec, Keyword.get(opts, :available_hooks, %{})) do
+      validate_guardrails(spec, Keyword.get(opts, :available_guardrails, %{}))
     end
   end
 
@@ -151,6 +176,11 @@ defmodule Moto.DynamicAgent.Spec do
            validate_hooks(
              normalized_spec,
              Keyword.get(opts, :available_hooks, %{})
+           ),
+         {:ok, normalized_spec} <-
+           validate_guardrails(
+             normalized_spec,
+             Keyword.get(opts, :available_guardrails, %{})
            ) do
       {:ok, normalized_spec}
     else
@@ -174,7 +204,8 @@ defmodule Moto.DynamicAgent.Spec do
       "context" => spec.context,
       "tools" => spec.tools,
       "plugins" => spec.plugins,
-      "hooks" => spec.hooks
+      "hooks" => spec.hooks,
+      "guardrails" => spec.guardrails
     }
   end
 
@@ -310,6 +341,29 @@ defmodule Moto.DynamicAgent.Spec do
     end
   end
 
+  defp validate_guardrails(%__MODULE__{} = spec, available_guardrails)
+       when is_map(available_guardrails) do
+    cond do
+      not guardrails_unique?(spec.guardrails) ->
+        {:error, "guardrail names must be unique within each stage"}
+
+      guardrails_empty?(spec.guardrails) ->
+        {:ok, spec}
+
+      map_size(available_guardrails) == 0 ->
+        {:error, "guardrails require an available_guardrails registry when importing Moto agents"}
+
+      true ->
+        spec.guardrails
+        |> Enum.reduce_while({:ok, spec}, fn {_stage, guardrail_names}, {:ok, spec_acc} ->
+          case Moto.Guardrail.resolve_guardrail_names(guardrail_names, available_guardrails) do
+            {:ok, _guardrail_modules} -> {:cont, {:ok, spec_acc}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+    end
+  end
+
   defp format_model_error(reason) when is_binary(reason), do: reason
 
   defp format_model_error(%{message: message}) when is_binary(message),
@@ -323,6 +377,16 @@ defmodule Moto.DynamicAgent.Spec do
 
   defp hooks_empty?(hooks) do
     Enum.all?(hooks, fn {_stage, hook_names} -> hook_names == [] end)
+  end
+
+  defp guardrails_unique?(guardrails) do
+    Enum.all?(guardrails, fn {_stage, guardrail_names} ->
+      Enum.uniq(guardrail_names) == guardrail_names
+    end)
+  end
+
+  defp guardrails_empty?(guardrails) do
+    Enum.all?(guardrails, fn {_stage, guardrail_names} -> guardrail_names == [] end)
   end
 
   defp format_zoi_errors(errors) do

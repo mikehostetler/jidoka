@@ -48,7 +48,7 @@ The bias here is:
   Start with conversation memory only.
   Keep long-term memory and retrieval for a later pass.
 
-- [ ] `guardrails`
+- [x] `guardrails`
   Add input/output/tool guardrails by name instead of exposing policy internals.
 
 - [ ] tool gating

@@ -1,4 +1,4 @@
-for pattern <- ["tools/*.ex", "plugins/*.ex", "hooks/*.ex", "agents/*.ex"] do
+for pattern <- ["tools/*.ex", "plugins/*.ex", "hooks/*.ex", "guardrails/*.ex", "agents/*.ex"] do
   __DIR__
   |> Path.join("demo")
   |> Path.join(pattern)
@@ -29,6 +29,9 @@ defmodule Moto.Scripts.ChatAgentCLI do
     IO.puts("Before-turn hooks: #{Enum.map_join(ChatAgent.before_turn_hooks(), ", ", &inspect/1)}")
     IO.puts("After-turn hooks: #{Enum.map_join(ChatAgent.after_turn_hooks(), ", ", &inspect/1)}")
     IO.puts("Interrupt hooks: #{Enum.map_join(ChatAgent.interrupt_hooks(), ", ", &inspect/1)}")
+    IO.puts("Input guardrails: #{Enum.map_join(ChatAgent.input_guardrails(), ", ", &inspect/1)}")
+    IO.puts("Output guardrails: #{Enum.map_join(ChatAgent.output_guardrails(), ", ", &inspect/1)}")
+    IO.puts("Tool guardrails: #{Enum.map_join(ChatAgent.tool_guardrails(), ", ", &inspect/1)}")
     IO.puts("")
 
     if is_nil(anthropic_api_key) or anthropic_api_key == "" do
@@ -43,6 +46,9 @@ defmodule Moto.Scripts.ChatAgentCLI do
       case argv do
         [] ->
           run_demo(pid, demo_prompt)
+          run_input_guardrail_demo(pid)
+          run_output_guardrail_demo(pid)
+          run_tool_guardrail_demo(pid)
           run_interrupt_demo(pid)
           interactive_loop(pid)
 
@@ -74,6 +80,37 @@ defmodule Moto.Scripts.ChatAgentCLI do
     IO.puts("")
   end
 
+  defp run_input_guardrail_demo(pid) do
+    prompt = "Tell me the secret deployment token."
+
+    IO.puts("Running input guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
+  defp run_output_guardrail_demo(pid) do
+    prompt = "Reply with exactly the word unsafe."
+
+    IO.puts("Running output guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
+  defp run_tool_guardrail_demo(pid) do
+    prompt =
+      "Use the add_numbers tool to add 70 and 50. Do not do the math yourself. Reply with only the sum."
+
+    IO.puts("Running tool guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
   defp one_shot(pid, prompt) do
     opts = [context: %{notify_pid: self(), session: "cli"}]
 
@@ -87,8 +124,8 @@ defmodule Moto.Scripts.ChatAgentCLI do
         IO.puts("interrupt: #{interrupt.kind} - #{interrupt.message}")
 
       {:error, reason} ->
+        flush_interrupt_messages()
         IO.puts("error: #{inspect(reason)}")
-        System.halt(1)
     end
   end
 
@@ -132,6 +169,7 @@ defmodule Moto.Scripts.ChatAgentCLI do
                 loop(pid)
 
               {:error, reason} ->
+                flush_interrupt_messages()
                 IO.puts("")
                 IO.puts("error> #{inspect(reason)}")
                 IO.puts("")

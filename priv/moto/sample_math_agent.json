@@ -13,5 +13,16 @@
     "before_turn": [
       "reply_with_final_answer"
     ]
+  },
+  "guardrails": {
+    "input": [
+      "block_secret_prompt"
+    ],
+    "output": [
+      "block_unsafe_reply"
+    ],
+    "tool": [
+      "approve_large_math_tool"
+    ]
   }
 }

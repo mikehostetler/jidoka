@@ -254,6 +254,79 @@ defmodule MotoTest do
     end
   end
 
+  defmodule SafePromptGuardrail do
+    use Moto.Guardrail, name: "safe_prompt"
+
+    @impl true
+    def call(%Moto.Guardrails.Input{message: message}) do
+      if String.contains?(String.downcase(message), "secret") do
+        {:error, :unsafe_prompt}
+      else
+        :ok
+      end
+    end
+  end
+
+  defmodule SafeReplyGuardrail do
+    use Moto.Guardrail, name: "safe_reply"
+
+    @impl true
+    def call(%Moto.Guardrails.Output{outcome: {:ok, result}}) when is_binary(result) do
+      if String.contains?(String.downcase(result), "unsafe") do
+        {:error, :unsafe_reply}
+      else
+        :ok
+      end
+    end
+
+    def call(%Moto.Guardrails.Output{}), do: :ok
+  end
+
+  defmodule ApproveLargeMathToolGuardrail do
+    use Moto.Guardrail, name: "approve_large_math_tool"
+
+    @impl true
+    def call(%Moto.Guardrails.Tool{
+          tool_name: "add_numbers",
+          arguments: arguments,
+          context: context
+        }) do
+      a = Map.get(arguments, :a, Map.get(arguments, "a", 0))
+      b = Map.get(arguments, :b, Map.get(arguments, "b", 0))
+
+      if a + b > 40 do
+        notify_pid = Map.get(context, :notify_pid, Map.get(context, "notify_pid"))
+
+        {:interrupt,
+         %{
+           kind: :approval,
+           message: "Large calculations require approval",
+           data: %{notify_pid: notify_pid, from: :tool_guardrail}
+         }}
+      else
+        :ok
+      end
+    end
+
+    def call(%Moto.Guardrails.Tool{}), do: :ok
+  end
+
+  defmodule GuardrailCallbacks do
+    def input(%Moto.Guardrails.Input{} = input, label) do
+      sequence = Map.get(input.metadata, :sequence, [])
+
+      if String.contains?(input.message, "blocked_by_#{label}") do
+        {:error, {:blocked, label}}
+      else
+        {:error, {:input_callback, sequence ++ [label]}}
+      end
+    end
+
+    def output(%Moto.Guardrails.Output{}, label), do: {:error, {:output_callback, label}}
+
+    def tool(%Moto.Guardrails.Tool{}, label), do: {:error, {:tool_callback, label}}
+  end
+
   defmodule HookedAgent do
     use Moto.Agent
 
@@ -269,6 +342,29 @@ defmodule MotoTest do
       after_turn({HookCallbacks, :after_turn, ["!"]})
       on_interrupt(NotifyOpsHook)
       on_interrupt({HookCallbacks, :notify_interrupt, ["dsl_mfa"]})
+    end
+  end
+
+  defmodule GuardrailedAgent do
+    use Moto.Agent
+
+    agent do
+      model(:fast)
+      system_prompt("You enforce guardrails.")
+    end
+
+    tools do
+      tool(AddNumbers)
+    end
+
+    hooks do
+      on_interrupt(NotifyOpsHook)
+    end
+
+    guardrails do
+      input(SafePromptGuardrail)
+      output(SafeReplyGuardrail)
+      tool(ApproveLargeMathToolGuardrail)
     end
   end
 
@@ -409,6 +505,14 @@ defmodule MotoTest do
              Moto.Hook.hook_names([InjectTenantHook, NormalizeReplyHook])
   end
 
+  test "wraps Moto.Guardrail with published names" do
+    assert Moto.Guardrail.validate_guardrail_module(SafePromptGuardrail) == :ok
+    assert {:ok, "safe_prompt"} = Moto.Guardrail.guardrail_name(SafePromptGuardrail)
+
+    assert {:ok, ["safe_prompt", "safe_reply"]} =
+             Moto.Guardrail.guardrail_names([SafePromptGuardrail, SafeReplyGuardrail])
+  end
+
   test "exposes configured plugin modules and names" do
     assert PluginAgent.plugins() == [MathPlugin]
     assert PluginAgent.plugin_names() == ["math_plugin"]
@@ -434,6 +538,18 @@ defmodule MotoTest do
 
     assert HookedAgent.interrupt_hooks() ==
              [NotifyOpsHook, {HookCallbacks, :notify_interrupt, ["dsl_mfa"]}]
+  end
+
+  test "exposes configured guardrails by stage" do
+    assert GuardrailedAgent.guardrails() == %{
+             input: [SafePromptGuardrail],
+             output: [SafeReplyGuardrail],
+             tool: [ApproveLargeMathToolGuardrail]
+           }
+
+    assert GuardrailedAgent.input_guardrails() == [SafePromptGuardrail]
+    assert GuardrailedAgent.output_guardrails() == [SafeReplyGuardrail]
+    assert GuardrailedAgent.tool_guardrails() == [ApproveLargeMathToolGuardrail]
   end
 
   test "accepts request-scoped module, MFA, and function hooks" do
@@ -467,6 +583,38 @@ defmodule MotoTest do
              ]
            } =
              tool_context[:__moto_hooks__]
+  end
+
+  test "accepts request-scoped module, MFA, and function guardrails" do
+    runtime_fun = fn %Moto.Guardrails.Input{} = input ->
+      {:error, {:runtime_input, input.message}}
+    end
+
+    assert {:ok, opts} =
+             Moto.Agent.prepare_chat_opts(
+               [
+                 context: %{tenant: "runtime"},
+                 guardrails: [
+                   input: [
+                     SafePromptGuardrail,
+                     {GuardrailCallbacks, :input, ["runtime_mfa"]},
+                     runtime_fun
+                   ]
+                 ]
+               ],
+               nil
+             )
+
+    tool_context = Keyword.fetch!(opts, :tool_context)
+
+    assert %{
+             input: [
+               SafePromptGuardrail,
+               {GuardrailCallbacks, :input, ["runtime_mfa"]},
+               ^runtime_fun
+             ]
+           } =
+             tool_context[:__moto_guardrails__]
   end
 
   test "accepts context keyword lists and normalizes them to internal tool_context" do
@@ -608,6 +756,13 @@ defmodule MotoTest do
     end
   end
 
+  test "translates failed interrupt envelopes from tool guardrails" do
+    interrupt = Moto.Interrupt.new(kind: :approval, message: "Need approval")
+
+    assert Moto.Hooks.translate_chat_result({:error, {:failed, :error, {:interrupt, interrupt}}}) ==
+             {:interrupt, interrupt}
+  end
+
   test "translates request-scoped interrupt hooks from Moto.chat and supports runtime functions" do
     assert {:ok, pid} = ChatAgent.start_link(id: "runtime-hook-agent-test")
     test_pid = self()
@@ -634,6 +789,158 @@ defmodule MotoTest do
                )
 
       assert_receive {:runtime_interrupt, :manual_review}
+    after
+      :ok = Moto.stop_agent(pid)
+    end
+  end
+
+  test "runs input guardrails and blocks before the LLM call" do
+    runtime = GuardrailedAgent.runtime_module()
+    agent = new_runtime_agent(runtime)
+
+    assert {:ok, updated_agent, Jido.Actions.Control.Noop} =
+             runtime.on_before_cmd(
+               agent,
+               {:ai_react_start, %{query: "Tell me the secret", request_id: "req-guard-1"}}
+             )
+
+    assert Jido.AI.Request.get_result(updated_agent, "req-guard-1") ==
+             {:error, {:guardrail, :input, "safe_prompt", :unsafe_prompt}}
+  end
+
+  test "runs output guardrails after hooks and blocks the final result" do
+    runtime = GuardrailedAgent.runtime_module()
+    agent = new_runtime_agent(runtime)
+
+    {:ok, agent, _action} =
+      runtime.on_before_cmd(
+        agent,
+        {:ai_react_start, %{query: "hello", request_id: "req-guard-2"}}
+      )
+
+    agent = Jido.AI.Request.complete_request(agent, "req-guard-2", "unsafe output")
+
+    assert {:ok, updated_agent, []} =
+             runtime.on_after_cmd(agent, {:ai_react_start, %{request_id: "req-guard-2"}}, [])
+
+    assert Jido.AI.Request.get_result(updated_agent, "req-guard-2") ==
+             {:error, {:guardrail, :output, "safe_reply", :unsafe_reply}}
+  end
+
+  test "tool guardrail plugin interrupts tool calls before execution" do
+    runtime = GuardrailedAgent.runtime_module()
+    agent = new_runtime_agent(runtime)
+
+    {:ok, agent, _action} =
+      runtime.on_before_cmd(
+        agent,
+        {:ai_react_start,
+         %{query: "calculate", request_id: "req-guard-3", tool_context: %{notify_pid: self()}}}
+      )
+
+    signal =
+      Jido.AI.Signal.LLMResponse.new!(%{
+        call_id: "call-guard-1",
+        result:
+          {:ok,
+           %{
+             type: :tool_calls,
+             text: "",
+             tool_calls: [
+               %{id: "tc_1", name: "add_numbers", arguments: %{a: 17, b: 25}}
+             ]
+           }, []},
+        metadata: %{request_id: "req-guard-3"}
+      })
+
+    assert {:ok,
+            {:override,
+             {Moto.Actions.Guardrails.RejectToolCall,
+              %{
+                request_id: "req-guard-3",
+                guardrail_label: "approve_large_math_tool",
+                interrupt: %Moto.Interrupt{
+                  kind: :approval,
+                  message: "Large calculations require approval"
+                }
+              }}}} =
+             Moto.Plugins.Guardrails.handle_signal(signal, %{agent: agent})
+  end
+
+  test "tool guardrails attach a runtime callback that interrupts before tool execution" do
+    runtime = GuardrailedAgent.runtime_module()
+    agent = new_runtime_agent(runtime)
+    test_pid = self()
+
+    assert {:ok, _agent, {:ai_react_start, params}} =
+             runtime.on_before_cmd(
+               agent,
+               {:ai_react_start,
+                %{
+                  query: "calculate",
+                  request_id: "req-guard-callback",
+                  tool_context: %{notify_pid: test_pid}
+                }}
+             )
+
+    tool_context = Map.fetch!(params, :tool_context)
+
+    assert {:interrupt,
+            %Moto.Interrupt{kind: :approval, message: "Large calculations require approval"}} =
+             Moto.Guardrails.maybe_run_tool_guardrails(
+               %{
+                 tool_name: "add_numbers",
+                 tool_call_id: "tc-large",
+                 arguments: %{a: 70, b: 50},
+                 context: tool_context
+               },
+               tool_context
+             )
+
+    assert_receive {:hook_interrupt, :approval, :tool_guardrail}
+  end
+
+  test "tool guardrails ignore text-only responses" do
+    runtime = GuardrailedAgent.runtime_module()
+    agent = new_runtime_agent(runtime)
+
+    {:ok, agent, _action} =
+      runtime.on_before_cmd(
+        agent,
+        {:ai_react_start, %{query: "hello", request_id: "req-guard-4"}}
+      )
+
+    signal =
+      Jido.AI.Signal.LLMResponse.new!(%{
+        call_id: "call-guard-2",
+        result: {:ok, %{type: :final_answer, text: "done", tool_calls: []}, []},
+        metadata: %{request_id: "req-guard-4"}
+      })
+
+    assert {:ok, :continue} = Moto.Plugins.Guardrails.handle_signal(signal, %{agent: agent})
+  end
+
+  test "translates input guardrail interrupts from Moto.chat and runs interrupt hooks" do
+    assert {:ok, pid} = GuardrailedAgent.start_link(id: "guardrailed-agent-test")
+    test_pid = self()
+
+    try do
+      assert {:interrupt, %Moto.Interrupt{kind: :approval}} =
+               Moto.chat(pid, "hello",
+                 context: %{notify_pid: test_pid},
+                 guardrails: [
+                   input: fn _input ->
+                     {:interrupt,
+                      %{
+                        kind: :approval,
+                        message: "Need approval",
+                        data: %{notify_pid: test_pid}
+                      }}
+                   end
+                 ]
+               )
+
+      assert_receive {:hook_interrupt, :approval, nil}
     after
       :ok = Moto.stop_agent(pid)
     end
@@ -731,6 +1038,26 @@ defmodule MotoTest do
     end
   end
 
+  test "rejects anonymous functions in DSL guardrails at compile time" do
+    assert_raise Spark.Error.DslError,
+                 ~r/DSL guardrails do not support anonymous functions/,
+                 fn ->
+                   Code.compile_string("""
+                   defmodule MotoTest.InvalidGuardrailFnAgent do
+                     use Moto.Agent
+
+                     agent do
+                       system_prompt "This should fail."
+                     end
+
+                     guardrails do
+                       input fn _input -> :ok end
+                     end
+                   end
+                   """)
+                 end
+  end
+
   test "rejects invalid hook modules at compile time" do
     assert_raise Spark.Error.DslError, ~r/not a valid Moto hook/, fn ->
       Code.compile_string("""
@@ -743,6 +1070,24 @@ defmodule MotoTest do
 
         hooks do
           before_turn String
+        end
+      end
+      """)
+    end
+  end
+
+  test "rejects invalid guardrail modules at compile time" do
+    assert_raise Spark.Error.DslError, ~r/not a valid Moto guardrail/, fn ->
+      Code.compile_string("""
+      defmodule MotoTest.InvalidGuardrailAgent do
+        use Moto.Agent
+
+        agent do
+          system_prompt "This should fail."
+        end
+
+        guardrails do
+          input String
         end
       end
       """)
@@ -892,6 +1237,11 @@ defmodule MotoTest do
         "before_turn": ["inject_tenant", "restrict_refunds"],
         "after_turn": ["normalize_reply"],
         "on_interrupt": ["notify_ops"]
+      },
+      "guardrails": {
+        "input": ["safe_prompt"],
+        "output": ["safe_reply"],
+        "tool": ["approve_large_math_tool"]
       }
     }
     """
@@ -906,6 +1256,11 @@ defmodule MotoTest do
                  RestrictRefundsHook,
                  NormalizeReplyHook,
                  NotifyOpsHook
+               ],
+               available_guardrails: [
+                 SafePromptGuardrail,
+                 SafeReplyGuardrail,
+                 ApproveLargeMathToolGuardrail
                ]
              )
 
@@ -916,12 +1271,16 @@ defmodule MotoTest do
     assert encoded =~ "\"tools\": ["
     assert encoded =~ "\"plugins\": ["
     assert encoded =~ "\"hooks\""
+    assert encoded =~ "\"guardrails\""
     assert agent.spec.context == %{"tenant" => "json", "channel" => "imported"}
     assert agent.tool_modules == [AddNumbers, MultiplyNumbers]
     assert agent.plugin_modules == [MathPlugin]
     assert agent.hook_modules.before_turn == [InjectTenantHook, RestrictRefundsHook]
     assert agent.hook_modules.after_turn == [NormalizeReplyHook]
     assert agent.hook_modules.on_interrupt == [NotifyOpsHook]
+    assert agent.guardrail_modules.input == [SafePromptGuardrail]
+    assert agent.guardrail_modules.output == [SafeReplyGuardrail]
+    assert agent.guardrail_modules.tool == [ApproveLargeMathToolGuardrail]
   end
 
   test "imports a constrained dynamic agent from YAML" do
@@ -947,6 +1306,13 @@ defmodule MotoTest do
         - "normalize_reply"
       on_interrupt:
         - "notify_ops"
+    guardrails:
+      input:
+        - "safe_prompt"
+      output:
+        - "safe_reply"
+      tool:
+        - "approve_large_math_tool"
     """
 
     assert {:ok, %DynamicAgent{} = agent} =
@@ -960,6 +1326,11 @@ defmodule MotoTest do
                  RestrictRefundsHook,
                  NormalizeReplyHook,
                  NotifyOpsHook
+               ],
+               available_guardrails: [
+                 SafePromptGuardrail,
+                 SafeReplyGuardrail,
+                 ApproveLargeMathToolGuardrail
                ]
              )
 
@@ -972,9 +1343,11 @@ defmodule MotoTest do
     assert encoded =~ "- \"math_plugin\""
     assert encoded =~ "hooks:"
     assert encoded =~ "- \"notify_ops\""
+    assert encoded =~ "guardrails:"
     assert agent.tool_modules == [AddNumbers, MultiplyNumbers]
     assert agent.spec.context == %{"tenant" => "yaml", "channel" => "imported"}
     assert agent.hook_modules.before_turn == [InjectTenantHook, RestrictRefundsHook]
+    assert agent.guardrail_modules.tool == [ApproveLargeMathToolGuardrail]
   end
 
   test "imports a constrained dynamic agent from file" do
@@ -984,7 +1357,7 @@ defmodule MotoTest do
 
     File.write!(
       path,
-      ~s({"name":"file_agent","model":"fast","system_prompt":"You are concise.","context":{"tenant":"file","channel":"imported"},"tools":["add_numbers"],"plugins":["math_plugin"],"hooks":{"before_turn":["inject_tenant"],"after_turn":["normalize_reply"],"on_interrupt":["notify_ops"]}})
+      ~s({"name":"file_agent","model":"fast","system_prompt":"You are concise.","context":{"tenant":"file","channel":"imported"},"tools":["add_numbers"],"plugins":["math_plugin"],"hooks":{"before_turn":["inject_tenant"],"after_turn":["normalize_reply"],"on_interrupt":["notify_ops"]},"guardrails":{"input":["safe_prompt"],"output":["safe_reply"],"tool":["approve_large_math_tool"]}})
     )
 
     assert {:ok, %DynamicAgent{} = agent} =
@@ -992,13 +1365,19 @@ defmodule MotoTest do
                path,
                available_tools: [AddNumbers],
                available_plugins: [MathPlugin],
-               available_hooks: [InjectTenantHook, NormalizeReplyHook, NotifyOpsHook]
+               available_hooks: [InjectTenantHook, NormalizeReplyHook, NotifyOpsHook],
+               available_guardrails: [
+                 SafePromptGuardrail,
+                 SafeReplyGuardrail,
+                 ApproveLargeMathToolGuardrail
+               ]
              )
 
     assert agent.tool_modules == [AddNumbers, MultiplyNumbers]
     assert agent.plugin_modules == [MathPlugin]
     assert agent.spec.context == %{"tenant" => "file", "channel" => "imported"}
     assert agent.hook_modules.before_turn == [InjectTenantHook]
+    assert agent.guardrail_modules.input == [SafePromptGuardrail]
   end
 
   test "starts an imported dynamic agent under the shared runtime" do
@@ -1021,7 +1400,8 @@ defmodule MotoTest do
                json,
                available_tools: [AddNumbers],
                available_plugins: [MathPlugin],
-               available_hooks: [InterruptBeforeHook, NotifyOpsHook]
+               available_hooks: [InterruptBeforeHook, NotifyOpsHook],
+               available_guardrails: [SafePromptGuardrail]
              )
 
     assert {:ok, pid} = Moto.start_agent(agent, id: "dynamic-agent-test")
@@ -1164,6 +1544,21 @@ defmodule MotoTest do
     assert reason =~ "hook names must be unique"
   end
 
+  test "rejects duplicate guardrail names within a stage in imported dynamic agent specs" do
+    assert {:error, reason} =
+             Moto.import_agent(
+               %{
+                 "name" => "duplicate_guardrail_agent",
+                 "model" => "fast",
+                 "system_prompt" => "You are concise.",
+                 "guardrails" => %{"input" => ["safe_prompt", "safe_prompt"]}
+               },
+               available_guardrails: [SafePromptGuardrail]
+             )
+
+    assert reason =~ "guardrail names must be unique"
+  end
+
   test "rejects unknown hook names in imported dynamic agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
@@ -1179,6 +1574,21 @@ defmodule MotoTest do
     assert reason =~ "unknown hook"
   end
 
+  test "rejects unknown guardrail names in imported dynamic agent specs" do
+    assert {:error, reason} =
+             Moto.import_agent(
+               %{
+                 "name" => "bad_guardrail_agent",
+                 "model" => "fast",
+                 "system_prompt" => "You are concise.",
+                 "guardrails" => %{"input" => ["does_not_exist"]}
+               },
+               available_guardrails: [SafePromptGuardrail]
+             )
+
+    assert reason =~ "unknown guardrail"
+  end
+
   test "rejects importing hooks without an available registry" do
     assert {:error, reason} =
              Moto.import_agent(%{
@@ -1191,6 +1601,18 @@ defmodule MotoTest do
     assert reason =~ "available_hooks registry"
   end
 
+  test "rejects importing guardrails without an available registry" do
+    assert {:error, reason} =
+             Moto.import_agent(%{
+               "name" => "missing_guardrail_registry_agent",
+               "model" => "fast",
+               "system_prompt" => "You are concise.",
+               "guardrails" => %{"input" => ["safe_prompt"]}
+             })
+
+    assert reason =~ "available_guardrails registry"
+  end
+
   test "rejects invalid request hook stages" do
     assert {:error, {:invalid_hook_stage, :bogus}} =
              Moto.Agent.prepare_chat_opts([hooks: [bogus: InjectTenantHook]], nil)
@@ -1201,6 +1623,18 @@ defmodule MotoTest do
              Moto.Agent.prepare_chat_opts([hooks: [before_turn: String]], nil)
 
     assert message =~ "not a valid Moto hook"
+  end
+
+  test "rejects invalid request guardrail stages" do
+    assert {:error, {:invalid_guardrail_stage, :bogus}} =
+             Moto.Agent.prepare_chat_opts([guardrails: [bogus: SafePromptGuardrail]], nil)
+  end
+
+  test "rejects invalid request guardrail refs" do
+    assert {:error, {:invalid_guardrail, :input, message}} =
+             Moto.Agent.prepare_chat_opts([guardrails: [input: String]], nil)
+
+    assert message =~ "not a valid Moto guardrail"
   end
 
   test "rejects importing plugins without an available registry" do

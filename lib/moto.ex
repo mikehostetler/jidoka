@@ -67,11 +67,12 @@ defmodule Moto do
   The imported format currently supports `name`, `model`, `system_prompt`,
   default `context`,
   published tool names via `tools`, published plugin names via `plugins`,
-  and published hook names via `hooks`.
+  published hook names via `hooks`, and published guardrail names via
+  `guardrails`.
 
   Imported tools and plugins must be resolved through the explicit
-  `:available_tools`, `:available_plugins`, and `:available_hooks` registries
-  passed in `opts`.
+  `:available_tools`, `:available_plugins`, `:available_hooks`, and
+  `:available_guardrails` registries passed in `opts`.
   """
   @spec import_agent(map() | binary(), keyword()) :: {:ok, DynamicAgent.t()} | {:error, term()}
   def import_agent(source, opts \\ []), do: DynamicAgent.import(source, opts)
@@ -169,6 +170,12 @@ defmodule Moto do
     case Jido.AgentServer.state(server) do
       {:ok, %{agent: agent}} ->
         case Request.get_request(agent, request_id) do
+          %{meta: %{moto_guardrails: %{interrupt: interrupt}}} ->
+            {:error, {:interrupt, interrupt}}
+
+          %{meta: %{moto_guardrails: %{error: error}}} ->
+            {:error, error}
+
           %{meta: %{moto_hooks: %{interrupt: interrupt}}} ->
             {:error, {:interrupt, interrupt}}
 

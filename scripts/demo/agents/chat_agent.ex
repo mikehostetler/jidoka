@@ -28,4 +28,10 @@ defmodule Moto.Scripts.Demo.Agents.ChatAgent do
     after_turn Moto.Scripts.Demo.Hooks.RequireApprovalForRefunds
     on_interrupt Moto.Scripts.Demo.Hooks.NotifyInterrupt
   end
+
+  guardrails do
+    input Moto.Scripts.Demo.Guardrails.BlockSecretPrompt
+    output Moto.Scripts.Demo.Guardrails.BlockUnsafeReply
+    tool Moto.Scripts.Demo.Guardrails.ApproveLargeMathTool
+  end
 end

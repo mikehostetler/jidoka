@@ -3,15 +3,30 @@ defmodule Moto.DynamicAgent do
 
   alias Moto.DynamicAgent.Spec
 
-  @enforce_keys [:spec, :runtime_module, :tool_modules, :plugin_modules, :hook_modules]
-  defstruct [:spec, :runtime_module, :tool_modules, :plugin_modules, :hook_modules]
+  @enforce_keys [
+    :spec,
+    :runtime_module,
+    :tool_modules,
+    :plugin_modules,
+    :hook_modules,
+    :guardrail_modules
+  ]
+  defstruct [
+    :spec,
+    :runtime_module,
+    :tool_modules,
+    :plugin_modules,
+    :hook_modules,
+    :guardrail_modules
+  ]
 
   @type t :: %__MODULE__{
           spec: Spec.t(),
           runtime_module: module(),
           tool_modules: [module()],
           plugin_modules: [module()],
-          hook_modules: Moto.Hooks.stage_map()
+          hook_modules: Moto.Hooks.stage_map(),
+          guardrail_modules: Moto.Guardrails.stage_map()
         }
 
   @spec import(map() | binary() | Spec.t(), keyword()) :: {:ok, t()} | {:error, term()}
@@ -21,13 +36,15 @@ defmodule Moto.DynamicAgent do
     with {:ok, tool_registry} <- available_tool_registry(opts),
          {:ok, plugin_registry} <- available_plugin_registry(opts),
          {:ok, hook_registry} <- available_hook_registry(opts),
+         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
          {:ok, validated_spec} <-
            Spec.new(spec,
              available_tools: tool_registry,
              available_plugins: plugin_registry,
-             available_hooks: hook_registry
+             available_hooks: hook_registry,
+             available_guardrails: guardrail_registry
            ) do
-      build(validated_spec, tool_registry, plugin_registry, hook_registry)
+      build(validated_spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
     end
   end
 
@@ -35,13 +52,15 @@ defmodule Moto.DynamicAgent do
     with {:ok, tool_registry} <- available_tool_registry(opts),
          {:ok, plugin_registry} <- available_plugin_registry(opts),
          {:ok, hook_registry} <- available_hook_registry(opts),
+         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
          {:ok, spec} <-
            Spec.new(source,
              available_tools: tool_registry,
              available_plugins: plugin_registry,
-             available_hooks: hook_registry
+             available_hooks: hook_registry,
+             available_guardrails: guardrail_registry
            ) do
-      build(spec, tool_registry, plugin_registry, hook_registry)
+      build(spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
     end
   end
 
@@ -50,13 +69,15 @@ defmodule Moto.DynamicAgent do
          {:ok, tool_registry} <- available_tool_registry(opts),
          {:ok, plugin_registry} <- available_plugin_registry(opts),
          {:ok, hook_registry} <- available_hook_registry(opts),
+         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
          {:ok, spec} <-
            Spec.new(attrs,
              available_tools: tool_registry,
              available_plugins: plugin_registry,
-             available_hooks: hook_registry
+             available_hooks: hook_registry,
+             available_guardrails: guardrail_registry
            ) do
-      build(spec, tool_registry, plugin_registry, hook_registry)
+      build(spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
     end
   end
 
@@ -102,22 +123,31 @@ defmodule Moto.DynamicAgent do
   def format_error(%{message: message}) when is_binary(message), do: message
   def format_error(reason), do: inspect(reason)
 
-  defp build(%Spec{} = spec, tool_registry, plugin_registry, hook_registry) do
+  defp build(%Spec{} = spec, tool_registry, plugin_registry, hook_registry, guardrail_registry) do
     with {:ok, direct_tool_modules} <- Moto.Tool.resolve_tool_names(spec.tools, tool_registry),
          {:ok, plugin_modules} <- Moto.Plugin.resolve_plugin_names(spec.plugins, plugin_registry),
          {:ok, plugin_tool_modules} <- Moto.Plugin.plugin_actions(plugin_modules),
          {:ok, hook_modules} <- resolve_imported_hooks(spec.hooks, hook_registry),
+         {:ok, guardrail_modules} <-
+           resolve_imported_guardrails(spec.guardrails, guardrail_registry),
          tool_modules = direct_tool_modules ++ plugin_tool_modules,
          {:ok, _tool_names} <- Moto.Tool.action_names(tool_modules),
          {:ok, runtime_module} <-
-           ensure_runtime_module(spec, tool_modules, plugin_modules, hook_modules) do
+           ensure_runtime_module(
+             spec,
+             tool_modules,
+             plugin_modules,
+             hook_modules,
+             guardrail_modules
+           ) do
       {:ok,
        %__MODULE__{
          spec: spec,
          runtime_module: runtime_module,
          tool_modules: tool_modules,
          plugin_modules: plugin_modules,
-         hook_modules: hook_modules
+         hook_modules: hook_modules,
+         guardrail_modules: guardrail_modules
        }}
     end
   end
@@ -186,18 +216,39 @@ defmodule Moto.DynamicAgent do
   defp detect_file_format(_path, other),
     do: {:error, "unsupported format #{inspect(other)}; expected :json or :yaml"}
 
-  defp ensure_runtime_module(%Spec{} = spec, tool_modules, plugin_modules, hook_modules) do
+  defp ensure_runtime_module(
+         %Spec{} = spec,
+         tool_modules,
+         plugin_modules,
+         hook_modules,
+         guardrail_modules
+       ) do
     runtime_plugins = runtime_plugins(plugin_modules)
-    runtime_module = generated_module(spec, tool_modules, runtime_plugins, hook_modules)
+
+    runtime_module =
+      generated_module(spec, tool_modules, runtime_plugins, hook_modules, guardrail_modules)
 
     if Code.ensure_loaded?(runtime_module) do
       {:ok, runtime_module}
     else
-      create_runtime_module(runtime_module, spec, tool_modules, runtime_plugins, hook_modules)
+      create_runtime_module(
+        runtime_module,
+        spec,
+        tool_modules,
+        runtime_plugins,
+        hook_modules,
+        guardrail_modules
+      )
     end
   end
 
-  defp generated_module(%Spec{} = spec, tool_modules, runtime_plugins, hook_modules) do
+  defp generated_module(
+         %Spec{} = spec,
+         tool_modules,
+         runtime_plugins,
+         hook_modules,
+         guardrail_modules
+       ) do
     suffix =
       %{
         spec: Spec.to_external_map(spec),
@@ -205,6 +256,10 @@ defmodule Moto.DynamicAgent do
         plugins: Enum.map(runtime_plugins, &inspect/1),
         hooks:
           Enum.into(hook_modules, %{}, fn {stage, modules} ->
+            {stage, Enum.map(modules, &inspect/1)}
+          end),
+        guardrails:
+          Enum.into(guardrail_modules, %{}, fn {stage, modules} ->
             {stage, Enum.map(modules, &inspect/1)}
           end)
       }
@@ -222,7 +277,8 @@ defmodule Moto.DynamicAgent do
          %Spec{} = spec,
          tool_modules,
          runtime_plugins,
-         hook_modules
+         hook_modules,
+         guardrail_modules
        ) do
     quoted =
       quote location: :keep do
@@ -233,7 +289,7 @@ defmodule Moto.DynamicAgent do
           tools: unquote(Macro.escape(tool_modules)),
           plugins: unquote(Macro.escape(runtime_plugins))
 
-        unquote(Moto.Agent.hook_runtime_ast(hook_modules, spec.context))
+        unquote(Moto.Agent.hook_runtime_ast(hook_modules, spec.context, guardrail_modules))
       end
 
     case Module.create(runtime_module, quoted, Macro.Env.location(__ENV__)) do
@@ -270,6 +326,12 @@ defmodule Moto.DynamicAgent do
     |> Moto.Hook.normalize_available_hooks()
   end
 
+  defp available_guardrail_registry(opts) do
+    opts
+    |> Keyword.get(:available_guardrails, [])
+    |> Moto.Guardrail.normalize_available_guardrails()
+  end
+
   defp resolve_imported_hooks(hooks, hook_registry) do
     hooks
     |> Enum.reduce_while({:ok, Moto.Hooks.default_stage_map()}, fn {stage, hook_names},
@@ -281,7 +343,19 @@ defmodule Moto.DynamicAgent do
     end)
   end
 
-  defp runtime_plugins(plugin_modules), do: [Moto.Plugins.RuntimeCompat | plugin_modules]
+  defp resolve_imported_guardrails(guardrails, guardrail_registry) do
+    guardrails
+    |> Enum.reduce_while({:ok, Moto.Guardrails.default_stage_map()}, fn {stage, guardrail_names},
+                                                                        {:ok, acc} ->
+      case Moto.Guardrail.resolve_guardrail_names(guardrail_names, guardrail_registry) do
+        {:ok, modules} -> {:cont, {:ok, Map.put(acc, stage, modules)}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp runtime_plugins(plugin_modules),
+    do: [Moto.Plugins.RuntimeCompat, Moto.Plugins.Guardrails | plugin_modules]
 
   defp encode_yaml(%Spec{} = spec) do
     model_yaml =
@@ -314,7 +388,9 @@ defmodule Moto.DynamicAgent do
       "plugins:",
       encode_yaml_plugins(spec.plugins),
       "hooks:",
-      encode_yaml_hooks(spec.hooks)
+      encode_yaml_hooks(spec.hooks),
+      "guardrails:",
+      encode_yaml_guardrails(spec.guardrails)
     ]
     |> Enum.join("\n")
     |> Kernel.<>("\n")
@@ -346,6 +422,20 @@ defmodule Moto.DynamicAgent do
         )
       ]
       |> Enum.join("\n")
+    end)
+  end
+
+  defp encode_yaml_guardrails(guardrails) do
+    Enum.map_join([:input, :output, :tool], "\n", fn stage ->
+      guardrail_names = Map.get(guardrails, stage, [])
+
+      case guardrail_names do
+        [] ->
+          "  #{stage}: []"
+
+        names ->
+          ["  #{stage}:" | Enum.map(names, &"    - #{Jason.encode!(&1)}")] |> Enum.join("\n")
+      end
     end)
   end
 

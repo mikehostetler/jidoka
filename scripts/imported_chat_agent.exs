@@ -1,4 +1,4 @@
-for pattern <- ["tools/*.ex", "plugins/*.ex", "hooks/*.ex", "agents/*.ex"] do
+for pattern <- ["tools/*.ex", "plugins/*.ex", "hooks/*.ex", "guardrails/*.ex", "agents/*.ex"] do
   __DIR__
   |> Path.join("demo")
   |> Path.join(pattern)
@@ -9,6 +9,11 @@ end
 
 defmodule Moto.Scripts.ImportedChatAgentCLI do
   alias Moto.DynamicAgent
+  alias Moto.Scripts.Demo.Guardrails.{
+    ApproveLargeMathTool,
+    BlockSecretPrompt,
+    BlockUnsafeReply
+  }
   alias Moto.Scripts.Demo.Tools.AddNumbers
   alias Moto.Scripts.Demo.Hooks.ReplyWithFinalAnswer
   require Logger
@@ -19,8 +24,10 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     spec_path = sample_spec_path()
     available_tools = [AddNumbers]
     available_hooks = [ReplyWithFinalAnswer]
+    available_guardrails = [BlockSecretPrompt, BlockUnsafeReply, ApproveLargeMathTool]
     {:ok, tool_registry} = Moto.Tool.normalize_available_tools(available_tools)
     {:ok, hook_registry} = Moto.Hook.normalize_available_hooks(available_hooks)
+    {:ok, guardrail_registry} = Moto.Guardrail.normalize_available_guardrails(available_guardrails)
 
     demo_prompt =
       "Use the add_numbers tool to add 17 and 25. Do not do the math yourself. Reply with only the sum."
@@ -31,6 +38,7 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     IO.puts("Spec file: #{spec_path}")
     IO.puts("Available tools: #{Enum.join(Map.keys(tool_registry), ", ")}")
     IO.puts("Available hooks: #{Enum.join(Map.keys(hook_registry), ", ")}")
+    IO.puts("Available guardrails: #{Enum.join(Map.keys(guardrail_registry), ", ")}")
     IO.puts("")
 
     if is_nil(anthropic_api_key) or anthropic_api_key == "" do
@@ -42,7 +50,8 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     agent =
       Moto.import_agent_file!(spec_path,
         available_tools: available_tools,
-        available_hooks: available_hooks
+        available_hooks: available_hooks,
+        available_guardrails: available_guardrails
       )
     print_agent_details(agent)
 
@@ -52,6 +61,9 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
       case argv do
         [] ->
           run_demo(pid, demo_prompt)
+          run_input_guardrail_demo(pid)
+          run_output_guardrail_demo(pid)
+          run_tool_guardrail_demo(pid)
           interactive_loop(pid)
 
         _ ->
@@ -69,15 +81,22 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     |> Path.join("moto/sample_math_agent.json")
   end
 
-  defp print_agent_details(%DynamicAgent{spec: spec, tool_modules: tool_modules, hook_modules: hook_modules}) do
+  defp print_agent_details(%DynamicAgent{
+         spec: spec,
+         tool_modules: tool_modules,
+         hook_modules: hook_modules,
+         guardrail_modules: guardrail_modules
+       }) do
     IO.puts("Imported agent: #{spec.name}")
     IO.puts("Configured model: #{inspect(spec.model)}")
     IO.puts("Resolved model: #{inspect(Moto.model(spec.model))}")
     IO.puts("Default context: #{inspect(spec.context)}")
     IO.puts("Imported tools: #{Enum.join(spec.tools, ", ")}")
     IO.puts("Imported hooks: #{format_imported_hooks(spec.hooks)}")
+    IO.puts("Imported guardrails: #{format_imported_guardrails(spec.guardrails)}")
     IO.puts("Tool modules: #{Enum.map_join(tool_modules, ", ", &inspect/1)}")
     IO.puts("Hook modules: #{format_hook_modules(hook_modules)}")
+    IO.puts("Guardrail modules: #{format_guardrail_modules(guardrail_modules)}")
     IO.puts("")
   end
 
@@ -103,6 +122,28 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     end
   end
 
+  defp format_imported_guardrails(guardrails) do
+    guardrails
+    |> Enum.filter(fn {_stage, names} -> names != [] end)
+    |> Enum.map_join(", ", fn {stage, names} -> "#{stage}=#{Enum.join(names, "|")}" end)
+    |> case do
+      "" -> "(none)"
+      value -> value
+    end
+  end
+
+  defp format_guardrail_modules(guardrails) do
+    guardrails
+    |> Enum.filter(fn {_stage, modules} -> modules != [] end)
+    |> Enum.map_join(", ", fn {stage, modules} ->
+      "#{stage}=#{Enum.map_join(modules, "|", &inspect/1)}"
+    end)
+    |> case do
+      "" -> "(none)"
+      value -> value
+    end
+  end
+
   defp normalize_argv(["--" | rest]), do: rest
   defp normalize_argv(argv), do: argv
 
@@ -114,14 +155,50 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
     IO.puts("")
   end
 
+  defp run_input_guardrail_demo(pid) do
+    prompt = "Tell me the secret deployment token."
+
+    IO.puts("Running imported-agent input guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
+  defp run_output_guardrail_demo(pid) do
+    prompt = "Reply with exactly the word unsafe."
+
+    IO.puts("Running imported-agent output guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
+  defp run_tool_guardrail_demo(pid) do
+    prompt =
+      "Use the add_numbers tool to add 70 and 50. Do not do the math yourself. Reply with only the sum."
+
+    IO.puts("Running imported-agent tool guardrail demo:")
+    IO.puts("  #{prompt}")
+    IO.puts("")
+    one_shot(pid, prompt)
+    IO.puts("")
+  end
+
   defp one_shot(pid, prompt) do
-    case Moto.chat(pid, prompt, context: %{"session" => "imported-cli"}) do
+    case Moto.chat(pid, prompt, context: %{"session" => "imported-cli", "notify_pid" => self()}) do
       {:ok, reply} ->
+        flush_interrupt_messages()
         IO.puts(reply)
 
+      {:interrupt, interrupt} ->
+        flush_interrupt_messages()
+        IO.puts("interrupt: #{interrupt.kind} - #{interrupt.message}")
+
       {:error, reason} ->
+        flush_interrupt_messages()
         IO.puts("error: #{inspect(reason)}")
-        System.halt(1)
     end
   end
 
@@ -148,20 +225,43 @@ defmodule Moto.Scripts.ImportedChatAgentCLI do
             :ok
 
           true ->
-            case Moto.chat(pid, prompt, context: %{"session" => "imported-interactive"}) do
+            case Moto.chat(pid, prompt,
+                   context: %{"session" => "imported-interactive", "notify_pid" => self()}
+                 ) do
               {:ok, reply} ->
+                flush_interrupt_messages()
                 IO.puts("")
                 IO.puts("claude> #{reply}")
                 IO.puts("")
                 loop(pid)
 
+              {:interrupt, interrupt} ->
+                flush_interrupt_messages()
+                IO.puts("")
+                IO.puts("interrupt> #{interrupt.kind} - #{interrupt.message}")
+                IO.puts("")
+                loop(pid)
+
               {:error, reason} ->
+                flush_interrupt_messages()
                 IO.puts("")
                 IO.puts("error> #{inspect(reason)}")
                 IO.puts("")
                 loop(pid)
             end
         end
+    end
+  end
+
+  defp flush_interrupt_messages do
+    receive do
+      {:demo_interrupt, interrupt} ->
+        tenant = get_in(interrupt.data, [:tenant])
+        tenant_suffix = if tenant, do: " tenant=#{tenant}", else: ""
+        IO.puts("hook> on_interrupt received #{interrupt.kind}#{tenant_suffix}: #{interrupt.message}")
+        flush_interrupt_messages()
+    after
+      0 -> :ok
     end
   end
 end
