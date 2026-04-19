@@ -6,12 +6,14 @@
 
 # The directory Mix downloads your dependencies sources to.
 /deps/
+dev/*/deps/
 
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/
 
 # Temporary files, for example, from tests.
 /tmp/
+dev/*/_build/
 
 # If the VM crashes, it generates a dump, let's ignore it too.
 erl_crash.dump
