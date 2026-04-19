@@ -1,7 +1,11 @@
 defmodule Moto.Context do
   @moduledoc false
 
-  @request_hooks_key "__moto_hooks__"
+  @reserved_keys [
+    "__moto_hooks__",
+    "__moto_guardrails__",
+    "__tool_guardrail_callback__"
+  ]
 
   @type t :: map()
 
@@ -51,9 +55,8 @@ defmodule Moto.Context do
   defp validate_key(other),
     do: {:error, "context keys must be atoms or strings, got: #{inspect(other)}"}
 
-  defp validate_reserved_key(@request_hooks_key) do
-    {:error, "context key #{@request_hooks_key} is reserved for Moto internals"}
-  end
+  defp validate_reserved_key(key) when key in @reserved_keys,
+    do: {:error, "context key #{key} is reserved for Moto internals"}
 
   defp validate_reserved_key(_key), do: :ok
 

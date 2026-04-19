@@ -112,10 +112,9 @@ defmodule Moto.Agent do
   @doc false
   def prepare_chat_opts(opts, nil) when is_list(opts) do
     with :ok <- reject_tool_context(opts),
-         {:ok, opts} <- Moto.Hooks.prepare_request_opts(opts),
-         {:ok, opts} <- Moto.Guardrails.prepare_request_opts(opts),
-         {:ok, context} <- merge_default_context(opts, %{}) do
-      {:ok, Keyword.put(opts, :tool_context, context)}
+         {:ok, context} <- normalize_request_context(opts, %{}),
+         {:ok, context} <- attach_runtime_extensions(opts, context) do
+      {:ok, finalize_chat_opts(opts, context)}
     end
   end
 
@@ -124,11 +123,10 @@ defmodule Moto.Agent do
     ash_tool_config = ash_tool_config(config)
 
     with :ok <- reject_tool_context(opts),
-         {:ok, opts} <- Moto.Hooks.prepare_request_opts(opts),
-         {:ok, opts} <- Moto.Guardrails.prepare_request_opts(opts),
-         {:ok, context} <- merge_default_context(opts, default_context),
+         {:ok, context} <- normalize_request_context(opts, default_context),
+         {:ok, context} <- attach_runtime_extensions(opts, context),
          {:ok, context} <- maybe_prepare_ash_context(context, ash_tool_config) do
-      {:ok, Keyword.put(opts, :tool_context, context)}
+      {:ok, finalize_chat_opts(opts, context)}
     end
   end
 
@@ -181,12 +179,27 @@ defmodule Moto.Agent do
     end
   end
 
-  defp normalize_context(context), do: Moto.Context.normalize(context)
-
-  defp merge_default_context(opts, default_context) do
-    with {:ok, runtime_context} <- normalize_context(Keyword.get(opts, :tool_context, %{})) do
+  defp normalize_request_context(opts, default_context) do
+    with {:ok, runtime_context} <- Moto.Context.normalize(Keyword.get(opts, :context, %{})) do
       {:ok, Moto.Context.merge(default_context, runtime_context)}
     end
+  end
+
+  defp attach_runtime_extensions(opts, context) do
+    with {:ok, hooks} <- Moto.Hooks.normalize_request_hooks(Keyword.get(opts, :hooks, nil)),
+         {:ok, guardrails} <-
+           Moto.Guardrails.normalize_request_guardrails(Keyword.get(opts, :guardrails, nil)) do
+      {:ok,
+       context
+       |> Moto.Hooks.attach_request_hooks(hooks)
+       |> Moto.Guardrails.attach_request_guardrails(guardrails)}
+    end
+  end
+
+  defp finalize_chat_opts(opts, context) do
+    opts
+    |> Keyword.drop([:context, :hooks, :guardrails])
+    |> Keyword.put(:tool_context, context)
   end
 
   defp maybe_prepare_ash_context(context, nil), do: {:ok, context}
@@ -390,7 +403,7 @@ defmodule Moto.Agent do
             module: env.module
       end
 
-    runtime_plugins = [Moto.Plugins.RuntimeCompat, Moto.Plugins.Guardrails | plugin_modules]
+    runtime_plugins = [Moto.Plugins.RuntimeCompat | plugin_modules]
 
     tool_modules =
       direct_tool_modules ++ ash_resource_info.tool_modules ++ plugin_tool_modules

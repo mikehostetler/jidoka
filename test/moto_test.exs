@@ -827,46 +827,6 @@ defmodule MotoTest do
              {:error, {:guardrail, :output, "safe_reply", :unsafe_reply}}
   end
 
-  test "tool guardrail plugin interrupts tool calls before execution" do
-    runtime = GuardrailedAgent.runtime_module()
-    agent = new_runtime_agent(runtime)
-
-    {:ok, agent, _action} =
-      runtime.on_before_cmd(
-        agent,
-        {:ai_react_start,
-         %{query: "calculate", request_id: "req-guard-3", tool_context: %{notify_pid: self()}}}
-      )
-
-    signal =
-      Jido.AI.Signal.LLMResponse.new!(%{
-        call_id: "call-guard-1",
-        result:
-          {:ok,
-           %{
-             type: :tool_calls,
-             text: "",
-             tool_calls: [
-               %{id: "tc_1", name: "add_numbers", arguments: %{a: 17, b: 25}}
-             ]
-           }, []},
-        metadata: %{request_id: "req-guard-3"}
-      })
-
-    assert {:ok,
-            {:override,
-             {Moto.Actions.Guardrails.RejectToolCall,
-              %{
-                request_id: "req-guard-3",
-                guardrail_label: "approve_large_math_tool",
-                interrupt: %Moto.Interrupt{
-                  kind: :approval,
-                  message: "Large calculations require approval"
-                }
-              }}}} =
-             Moto.Plugins.Guardrails.handle_signal(signal, %{agent: agent})
-  end
-
   test "tool guardrails attach a runtime callback that interrupts before tool execution" do
     runtime = GuardrailedAgent.runtime_module()
     agent = new_runtime_agent(runtime)
@@ -884,40 +844,18 @@ defmodule MotoTest do
              )
 
     tool_context = Map.fetch!(params, :tool_context)
+    callback = Map.fetch!(tool_context, :__tool_guardrail_callback__)
 
     assert {:interrupt,
             %Moto.Interrupt{kind: :approval, message: "Large calculations require approval"}} =
-             Moto.Guardrails.maybe_run_tool_guardrails(
-               %{
-                 tool_name: "add_numbers",
-                 tool_call_id: "tc-large",
-                 arguments: %{a: 70, b: 50},
-                 context: tool_context
-               },
-               tool_context
-             )
+             callback.(%{
+               tool_name: "add_numbers",
+               tool_call_id: "tc-large",
+               arguments: %{a: 70, b: 50},
+               context: tool_context
+             })
 
     assert_receive {:hook_interrupt, :approval, :tool_guardrail}
-  end
-
-  test "tool guardrails ignore text-only responses" do
-    runtime = GuardrailedAgent.runtime_module()
-    agent = new_runtime_agent(runtime)
-
-    {:ok, agent, _action} =
-      runtime.on_before_cmd(
-        agent,
-        {:ai_react_start, %{query: "hello", request_id: "req-guard-4"}}
-      )
-
-    signal =
-      Jido.AI.Signal.LLMResponse.new!(%{
-        call_id: "call-guard-2",
-        result: {:ok, %{type: :final_answer, text: "done", tool_calls: []}, []},
-        metadata: %{request_id: "req-guard-4"}
-      })
-
-    assert {:ok, :continue} = Moto.Plugins.Guardrails.handle_signal(signal, %{agent: agent})
   end
 
   test "translates input guardrail interrupts from Moto.chat and runs interrupt hooks" do

@@ -33,51 +33,22 @@ defmodule Moto.DynamicAgent do
   def import(source, opts \\ [])
 
   def import(%Spec{} = spec, opts) do
-    with {:ok, tool_registry} <- available_tool_registry(opts),
-         {:ok, plugin_registry} <- available_plugin_registry(opts),
-         {:ok, hook_registry} <- available_hook_registry(opts),
-         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
-         {:ok, validated_spec} <-
-           Spec.new(spec,
-             available_tools: tool_registry,
-             available_plugins: plugin_registry,
-             available_hooks: hook_registry,
-             available_guardrails: guardrail_registry
-           ) do
-      build(validated_spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
-    end
+    with_registries(opts, fn registries ->
+      build_from_source(spec, registries)
+    end)
   end
 
   def import(source, opts) when is_map(source) do
-    with {:ok, tool_registry} <- available_tool_registry(opts),
-         {:ok, plugin_registry} <- available_plugin_registry(opts),
-         {:ok, hook_registry} <- available_hook_registry(opts),
-         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
-         {:ok, spec} <-
-           Spec.new(source,
-             available_tools: tool_registry,
-             available_plugins: plugin_registry,
-             available_hooks: hook_registry,
-             available_guardrails: guardrail_registry
-           ) do
-      build(spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
-    end
+    with_registries(opts, fn registries ->
+      build_from_source(source, registries)
+    end)
   end
 
   def import(source, opts) when is_binary(source) do
-    with {:ok, attrs} <- decode(source, Keyword.get(opts, :format, :auto)),
-         {:ok, tool_registry} <- available_tool_registry(opts),
-         {:ok, plugin_registry} <- available_plugin_registry(opts),
-         {:ok, hook_registry} <- available_hook_registry(opts),
-         {:ok, guardrail_registry} <- available_guardrail_registry(opts),
-         {:ok, spec} <-
-           Spec.new(attrs,
-             available_tools: tool_registry,
-             available_plugins: plugin_registry,
-             available_hooks: hook_registry,
-             available_guardrails: guardrail_registry
-           ) do
-      build(spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
+    with {:ok, attrs} <- decode(source, Keyword.get(opts, :format, :auto)) do
+      with_registries(opts, fn registries ->
+        build_from_source(attrs, registries)
+      end)
     end
   end
 
@@ -354,8 +325,38 @@ defmodule Moto.DynamicAgent do
     end)
   end
 
-  defp runtime_plugins(plugin_modules),
-    do: [Moto.Plugins.RuntimeCompat, Moto.Plugins.Guardrails | plugin_modules]
+  defp runtime_plugins(plugin_modules), do: [Moto.Plugins.RuntimeCompat | plugin_modules]
+
+  defp with_registries(opts, fun) when is_list(opts) and is_function(fun, 1) do
+    with {:ok, tool_registry} <- available_tool_registry(opts),
+         {:ok, plugin_registry} <- available_plugin_registry(opts),
+         {:ok, hook_registry} <- available_hook_registry(opts),
+         {:ok, guardrail_registry} <- available_guardrail_registry(opts) do
+      fun.(%{
+        tools: tool_registry,
+        plugins: plugin_registry,
+        hooks: hook_registry,
+        guardrails: guardrail_registry
+      })
+    end
+  end
+
+  defp build_from_source(source, %{
+         tools: tool_registry,
+         plugins: plugin_registry,
+         hooks: hook_registry,
+         guardrails: guardrail_registry
+       }) do
+    with {:ok, spec} <-
+           Spec.new(source,
+             available_tools: tool_registry,
+             available_plugins: plugin_registry,
+             available_hooks: hook_registry,
+             available_guardrails: guardrail_registry
+           ) do
+      build(spec, tool_registry, plugin_registry, hook_registry, guardrail_registry)
+    end
+  end
 
   defp encode_yaml(%Spec{} = spec) do
     model_yaml =

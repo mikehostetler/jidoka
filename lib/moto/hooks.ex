@@ -133,25 +133,6 @@ defmodule Moto.Hooks do
 
   def notify_interrupt(_agent, _request_id, _interrupt), do: :ok
 
-  @spec prepare_request_opts(keyword()) :: {:ok, keyword()} | {:error, term()}
-  def prepare_request_opts(opts) when is_list(opts) do
-    context =
-      opts
-      |> Keyword.get(:context, %{})
-      |> Moto.Context.normalize()
-
-    with {:ok, context} <- context,
-         {:ok, hooks} <- normalize_request_hooks(Keyword.get(opts, :hooks, nil)) do
-      opts =
-        opts
-        |> Keyword.delete(:hooks)
-        |> Keyword.delete(:context)
-        |> Keyword.put(:tool_context, maybe_attach_request_hooks(context, hooks))
-
-      {:ok, opts}
-    end
-  end
-
   @spec normalize_dsl_hooks(stage_map()) :: {:ok, stage_map()} | {:error, String.t()}
   def normalize_dsl_hooks(hooks) when is_map(hooks) do
     Enum.reduce_while(@stages, {:ok, default_stage_map()}, fn stage, {:ok, acc} ->
@@ -182,6 +163,11 @@ defmodule Moto.Hooks do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @spec attach_request_hooks(map(), stage_map()) :: map()
+  def attach_request_hooks(context, hooks) when is_map(context) and is_map(hooks) do
+    maybe_attach_request_hooks(context, hooks)
   end
 
   @spec on_before_cmd(module(), Jido.Agent.t(), term(), stage_map(), map()) ::
@@ -335,10 +321,14 @@ defmodule Moto.Hooks do
 
     Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, acc} ->
       case normalize_stage_ref(ref, stage, mode) do
-        {:ok, normalized} -> {:cont, {:ok, acc ++ [normalized]}}
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
         {:error, reason} -> {:halt, {:error, wrap_invalid_ref(stage, reason)}}
       end
     end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
   end
 
   defp normalize_stage_ref(module, _stage, _mode) when is_atom(module) do

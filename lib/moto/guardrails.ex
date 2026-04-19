@@ -2,7 +2,6 @@ defmodule Moto.Guardrails do
   @moduledoc false
 
   alias Jido.AI.Request
-  alias Jido.AI.Signal.LLMResponse
   alias Moto.Interrupt
 
   @request_guardrails_key :__moto_guardrails__
@@ -105,20 +104,6 @@ defmodule Moto.Guardrails do
     %{input: [], output: [], tool: []}
   end
 
-  @spec prepare_request_opts(keyword()) :: {:ok, keyword()} | {:error, term()}
-  def prepare_request_opts(opts) when is_list(opts) do
-    with {:ok, guardrails} <- normalize_request_guardrails(Keyword.get(opts, :guardrails, nil)) do
-      context = Keyword.get(opts, :tool_context, %{}) || %{}
-
-      opts =
-        opts
-        |> Keyword.delete(:guardrails)
-        |> Keyword.put(:tool_context, maybe_attach_request_guardrails(context, guardrails))
-
-      {:ok, opts}
-    end
-  end
-
   @spec normalize_dsl_guardrails(stage_map()) :: {:ok, stage_map()} | {:error, String.t()}
   def normalize_dsl_guardrails(guardrails) when is_map(guardrails) do
     Enum.reduce_while(@stages, {:ok, default_stage_map()}, fn stage, {:ok, acc} ->
@@ -150,6 +135,12 @@ defmodule Moto.Guardrails do
       {:ok, _} -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  @spec attach_request_guardrails(map(), stage_map()) :: map()
+  def attach_request_guardrails(context, guardrails)
+      when is_map(context) and is_map(guardrails) do
+    maybe_attach_request_guardrails(context, guardrails)
   end
 
   @spec on_before_cmd(Jido.Agent.t(), term(), stage_map()) :: {:ok, Jido.Agent.t(), term()}
@@ -240,101 +231,6 @@ defmodule Moto.Guardrails do
     }
   end
 
-  @spec tool_signal_override(Jido.Signal.t(), Jido.Agent.t()) ::
-          :continue
-          | {:override,
-             %{
-               request_id: String.t(),
-               guardrail_label: String.t(),
-               reason: term(),
-               message: String.t(),
-               interrupt: Interrupt.t() | nil
-             }}
-  def tool_signal_override(signal, agent) do
-    request_id = signal_request_id(signal)
-    tool_calls = LLMResponse.extract_tool_calls(signal)
-
-    with true <- is_binary(request_id) and request_id != "",
-         [_ | _] <- tool_calls,
-         %{} = meta <- get_request_guardrail_meta(agent, request_id),
-         [_ | _] = tool_guardrails <- get_in(meta, [:guardrails, :tool]) do
-      Enum.reduce_while(tool_calls, :continue, fn tool_call, _acc ->
-        input = %Tool{
-          agent: agent,
-          server: self(),
-          request_id: request_id,
-          tool_name: tool_call_name(tool_call),
-          tool_call_id: tool_call_id(tool_call),
-          arguments: tool_call_arguments(tool_call),
-          context: meta[:context] || %{},
-          metadata: meta[:metadata] || %{},
-          request_opts: meta[:request_opts] || %{}
-        }
-
-        case run_tool(tool_guardrails, input) do
-          :ok ->
-            {:cont, :continue}
-
-          {:error, label, reason} ->
-            {:halt,
-             {:override,
-              %{
-                request_id: request_id,
-                guardrail_label: label,
-                reason: reason,
-                message:
-                  "Tool call #{inspect(input.tool_name)} blocked by guardrail #{inspect(label)}",
-                interrupt: nil
-              }}}
-
-          {:interrupt, label, %Interrupt{} = interrupt} ->
-            {:halt,
-             {:override,
-              %{
-                request_id: request_id,
-                guardrail_label: label,
-                reason: :interrupt,
-                message:
-                  "Tool call #{inspect(input.tool_name)} interrupted by guardrail #{inspect(label)}",
-                interrupt: interrupt
-              }}}
-        end
-      end)
-    else
-      _ -> :continue
-    end
-  end
-
-  @spec maybe_run_tool_guardrails(map(), map()) ::
-          :ok | {:error, term()} | {:interrupt, Interrupt.t()}
-  def maybe_run_tool_guardrails(
-        %{tool_name: _tool_name, arguments: _arguments} = tool_call,
-        context
-      )
-      when is_map(context) do
-    callback =
-      Map.get(context, @tool_guardrail_callback_key) ||
-        Map.get(context, Atom.to_string(@tool_guardrail_callback_key))
-
-    case callback do
-      fun when is_function(fun, 1) ->
-        case fun.(tool_call) do
-          :ok -> :ok
-          {:error, reason} -> {:error, reason}
-          {:interrupt, %Interrupt{} = interrupt} -> {:interrupt, interrupt}
-          other -> {:error, {:invalid_tool_guardrail_result, other}}
-        end
-
-      _ ->
-        :ok
-    end
-  rescue
-    error ->
-      {:error, {:tool_guardrail_callback_failed, Exception.message(error)}}
-  end
-
-  def maybe_run_tool_guardrails(_tool_call, _context), do: :ok
-
   defp normalize_stage_map(guardrails, mode) do
     Enum.reduce_while(Map.to_list(guardrails), {:ok, default_stage_map()}, fn {key, value},
                                                                               {:ok, acc} ->
@@ -373,10 +269,14 @@ defmodule Moto.Guardrails do
 
     Enum.reduce_while(refs, {:ok, []}, fn ref, {:ok, acc} ->
       case normalize_stage_ref(ref, stage, mode) do
-        {:ok, normalized} -> {:cont, {:ok, acc ++ [normalized]}}
+        {:ok, normalized} -> {:cont, {:ok, [normalized | acc]}}
         {:error, reason} -> {:halt, {:error, wrap_invalid_ref(stage, reason)}}
       end
     end)
+    |> case do
+      {:ok, normalized} -> {:ok, Enum.reverse(normalized)}
+      error -> error
+    end
   end
 
   defp normalize_stage_ref(module, _stage, _mode) when is_atom(module) do
@@ -457,7 +357,7 @@ defmodule Moto.Guardrails do
         request_opts: %{}
       }
 
-      case run_tool(tool_guardrails, input) do
+      case run_guardrails(tool_guardrails, input) do
         :ok ->
           :ok
 
@@ -477,42 +377,14 @@ defmodule Moto.Guardrails do
     do: context
 
   defp run_input(guardrails, %Input{} = input) do
-    Enum.reduce_while(guardrails, :ok, fn guardrail, :ok ->
-      case invoke_guardrail(guardrail, input) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, reason} ->
-          {:halt, {:error, guardrail_label(guardrail), reason}}
-
-        {:interrupt, interrupt} ->
-          {:halt, {:interrupt, guardrail_label(guardrail), normalize_interrupt(interrupt)}}
-
-        other ->
-          {:halt, {:error, guardrail_label(guardrail), invalid_result_message(other)}}
-      end
-    end)
+    run_guardrails(guardrails, input)
   end
 
   defp run_output(guardrails, %Output{} = input) do
-    Enum.reduce_while(guardrails, :ok, fn guardrail, :ok ->
-      case invoke_guardrail(guardrail, input) do
-        :ok ->
-          {:cont, :ok}
-
-        {:error, reason} ->
-          {:halt, {:error, guardrail_label(guardrail), reason}}
-
-        {:interrupt, interrupt} ->
-          {:halt, {:interrupt, guardrail_label(guardrail), normalize_interrupt(interrupt)}}
-
-        other ->
-          {:halt, {:error, guardrail_label(guardrail), invalid_result_message(other)}}
-      end
-    end)
+    run_guardrails(guardrails, input)
   end
 
-  defp run_tool(guardrails, %Tool{} = input) do
+  defp run_guardrails(guardrails, input) do
     Enum.reduce_while(guardrails, :ok, fn guardrail, :ok ->
       case invoke_guardrail(guardrail, input) do
         :ok ->
@@ -680,24 +552,6 @@ defmodule Moto.Guardrails do
       _ -> nil
     end
   end
-
-  defp signal_request_id(%{data: %{metadata: metadata}}) when is_map(metadata) do
-    Map.get(metadata, :request_id) || Map.get(metadata, "request_id")
-  end
-
-  defp signal_request_id(_signal), do: nil
-
-  defp tool_call_name(%{name: name}) when is_binary(name), do: name
-  defp tool_call_name(%{"name" => name}) when is_binary(name), do: name
-  defp tool_call_name(_tool_call), do: "unknown_tool"
-
-  defp tool_call_id(%{id: id}) when is_binary(id), do: id
-  defp tool_call_id(%{"id" => id}) when is_binary(id), do: id
-  defp tool_call_id(_tool_call), do: nil
-
-  defp tool_call_arguments(%{arguments: arguments}) when is_map(arguments), do: arguments
-  defp tool_call_arguments(%{"arguments" => arguments}) when is_map(arguments), do: arguments
-  defp tool_call_arguments(_tool_call), do: %{}
 
   defp normalize_interrupt(%Interrupt{} = interrupt), do: interrupt
   defp normalize_interrupt(interrupt), do: Interrupt.new(interrupt)
