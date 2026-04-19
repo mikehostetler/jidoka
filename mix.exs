@@ -1,0 +1,33 @@
+defmodule Moto.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :moto,
+      version: "0.1.0",
+      elixir: "~> 1.19",
+      elixirc_paths: elixirc_paths(Mix.env()),
+      start_permanent: Mix.env() == :prod,
+      deps: deps()
+    ]
+  end
+
+  def application do
+    [
+      extra_applications: [:logger],
+      mod: {Moto.Application, []}
+    ]
+  end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
+
+  defp deps do
+    [
+      {:dotenvy, "~> 1.1"},
+      {:jido, path: "../jido", override: true},
+      {:jido_ai, path: "../jido_ai"},
+      {:spark, "~> 2.6"}
+    ]
+  end
+end
