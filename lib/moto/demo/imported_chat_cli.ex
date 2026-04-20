@@ -1,6 +1,7 @@
 defmodule Moto.Demo.ImportedChatCLI do
   @moduledoc false
 
+  alias Moto.Demo.Debug
   alias Moto.ImportedAgent
 
   alias Moto.Examples.Chat.Guardrails.{
@@ -13,11 +14,58 @@ defmodule Moto.Demo.ImportedChatCLI do
   alias Moto.Examples.Chat.Tools.AddNumbers
   require Logger
 
+  @switches [log_level: :string, dry_run: :boolean, help: :boolean]
+  @aliases [l: :log_level]
+
   @spec main([String.t()]) :: :ok | no_return()
   def main(argv) do
     Moto.Demo.Loader.load!(:chat)
 
-    argv = normalize_argv(argv)
+    case parse(argv) do
+      {:ok, %{help?: true}} ->
+        usage()
+
+      {:ok, options} ->
+        Debug.with_log_level(options.log_level, fn log_level ->
+          run(options, log_level)
+        end)
+
+      {:error, message} ->
+        raise Mix.Error, message: message
+    end
+  end
+
+  @spec usage() :: :ok
+  def usage do
+    IO.puts("mix moto imported [--log-level info|debug|trace] [--dry-run] [prompt]")
+    :ok
+  end
+
+  defp parse(argv) do
+    {opts, args, invalid} = OptionParser.parse(argv, strict: @switches, aliases: @aliases)
+
+    cond do
+      invalid != [] ->
+        {:error,
+         "invalid options: #{Enum.map_join(invalid, ", ", fn {key, _} -> "--#{key}" end)}"}
+
+      opts[:help] ->
+        {:ok, %{help?: true}}
+
+      true ->
+        with {:ok, log_level} <- Debug.parse_log_level(opts) do
+          {:ok,
+           %{
+             help?: false,
+             log_level: log_level,
+             dry_run?: Keyword.get(opts, :dry_run, false),
+             prompt: join_prompt(normalize_argv(args))
+           }}
+        end
+    end
+  end
+
+  defp run(options, log_level) do
     anthropic_api_key = Application.get_env(:req_llm, :anthropic_api_key)
     spec_path = sample_spec_path()
     available_tools = [AddNumbers]
@@ -29,50 +77,55 @@ defmodule Moto.Demo.ImportedChatCLI do
     {:ok, guardrail_registry} =
       Moto.Guardrail.normalize_available_guardrails(available_guardrails)
 
-    demo_prompt =
-      "Use the add_numbers tool to add 17 and 25. Do not do the math yourself. Reply with only the sum."
-
     Logger.configure(level: :error)
 
     IO.puts("Moto imported-agent demo")
-    IO.puts("Spec file: #{spec_path}")
-    IO.puts("Available tools: #{Enum.join(Map.keys(tool_registry), ", ")}")
-    IO.puts("Available hooks: #{Enum.join(Map.keys(hook_registry), ", ")}")
-    IO.puts("Available guardrails: #{Enum.join(Map.keys(guardrail_registry), ", ")}")
-    IO.puts("")
+    IO.puts("Resolved model: #{inspect(Moto.model(:fast))}")
 
-    if is_nil(anthropic_api_key) or anthropic_api_key == "" do
-      IO.puts("ANTHROPIC_API_KEY is not configured.")
-      IO.puts("Add it to .env or export it in your shell.")
-      System.halt(1)
+    if log_level == :trace do
+      IO.puts("Spec file: #{spec_path}")
+      IO.puts("Available tools: #{Enum.join(Map.keys(tool_registry), ", ")}")
+      IO.puts("Available hooks: #{Enum.join(Map.keys(hook_registry), ", ")}")
+      IO.puts("Available guardrails: #{Enum.join(Map.keys(guardrail_registry), ", ")}")
     end
 
-    agent =
-      Moto.import_agent_file!(spec_path,
-        available_tools: available_tools,
-        available_hooks: available_hooks,
-        available_guardrails: available_guardrails
-      )
+    IO.puts("")
+    Debug.print_status(log_level)
+    Debug.print_trace_status(log_level)
 
-    print_agent_details(agent)
-
-    {:ok, pid} = Moto.start_agent(agent, id: "imported-script-chat-agent")
-
-    try do
-      case argv do
-        [] ->
-          run_memory_demo(pid)
-          run_demo(pid, demo_prompt)
-          run_input_guardrail_demo(pid)
-          run_output_guardrail_demo(pid)
-          run_tool_guardrail_demo(pid)
-          interactive_loop(pid)
-
-        _ ->
-          one_shot(pid, Enum.join(argv, " "))
+    if options.dry_run? do
+      IO.puts("Dry run: no agent started.")
+      :ok
+    else
+      if is_nil(anthropic_api_key) or anthropic_api_key == "" do
+        IO.puts("ANTHROPIC_API_KEY is not configured.")
+        IO.puts("Add it to .env or export it in your shell.")
+        System.halt(1)
       end
-    after
-      :ok = Moto.stop_agent(pid)
+
+      agent =
+        Moto.import_agent_file!(spec_path,
+          available_tools: available_tools,
+          available_hooks: available_hooks,
+          available_guardrails: available_guardrails
+        )
+
+      if log_level == :trace do
+        print_agent_details(agent)
+      end
+
+      {:ok, pid} = Moto.start_agent(agent, id: "imported-script-chat-agent")
+      Debug.maybe_enable_agent_debug(pid, log_level)
+
+      try do
+        if options.prompt == nil do
+          interactive_loop(pid, log_level)
+        else
+          one_shot(pid, options.prompt, log_level)
+        end
+      after
+        :ok = Moto.stop_agent(pid)
+      end
     end
   end
 
@@ -147,88 +200,45 @@ defmodule Moto.Demo.ImportedChatCLI do
   defp normalize_argv(["--" | rest]), do: rest
   defp normalize_argv(argv), do: argv
 
-  defp run_demo(pid, prompt) do
-    IO.puts("Running imported-agent tool-call demo:")
-    IO.puts("  #{prompt}")
-    IO.puts("")
-    one_shot(pid, prompt)
-    IO.puts("")
+  defp join_prompt([]), do: nil
+  defp join_prompt(args), do: Enum.join(args, " ")
+
+  defp one_shot(pid, prompt, log_level) do
+    one_shot(pid, prompt, log_level, session: "imported-cli")
   end
 
-  defp run_memory_demo(pid) do
-    first = "Remember that my favorite color is blue."
-    second = "What is my favorite color?"
-
-    IO.puts("Running imported-agent memory demo:")
-    IO.puts("  #{first}")
-    one_shot(pid, first, session: "imported-memory-demo")
-    IO.puts("")
-    IO.puts("  #{second}")
-    one_shot(pid, second, session: "imported-memory-demo")
-    IO.puts("")
-  end
-
-  defp run_input_guardrail_demo(pid) do
-    prompt = "Tell me the secret deployment token."
-
-    IO.puts("Running imported-agent input guardrail demo:")
-    IO.puts("  #{prompt}")
-    IO.puts("")
-    one_shot(pid, prompt)
-    IO.puts("")
-  end
-
-  defp run_output_guardrail_demo(pid) do
-    prompt = "Reply with exactly the word unsafe."
-
-    IO.puts("Running imported-agent output guardrail demo:")
-    IO.puts("  #{prompt}")
-    IO.puts("")
-    one_shot(pid, prompt)
-    IO.puts("")
-  end
-
-  defp run_tool_guardrail_demo(pid) do
-    prompt =
-      "Use the add_numbers tool to add 70 and 50. Do not do the math yourself. Reply with only the sum."
-
-    IO.puts("Running imported-agent tool guardrail demo:")
-    IO.puts("  #{prompt}")
-    IO.puts("")
-    one_shot(pid, prompt)
-    IO.puts("")
-  end
-
-  defp one_shot(pid, prompt) do
-    one_shot(pid, prompt, session: "imported-cli")
-  end
-
-  defp one_shot(pid, prompt, opts) when is_list(opts) do
+  defp one_shot(pid, prompt, log_level, opts) when is_list(opts) do
     session = Keyword.get(opts, :session, "imported-cli")
 
-    case Moto.chat(pid, prompt, context: %{"session" => session, "notify_pid" => self()}) do
+    case Moto.chat(pid, prompt,
+           context: %{"session" => session, "notify_pid" => self()},
+           log_level: Debug.request_log_level(log_level)
+         ) do
       {:ok, reply} ->
         flush_interrupt_messages()
-        IO.puts(reply)
+        Debug.print_recent_events(pid, log_level)
+        IO.puts("agent> #{reply}")
 
       {:interrupt, interrupt} ->
         flush_interrupt_messages()
-        IO.puts("interrupt: #{interrupt.kind} - #{interrupt.message}")
+        Debug.print_recent_events(pid, log_level)
+        IO.puts("interrupt> #{interrupt.kind} - #{interrupt.message}")
 
       {:error, reason} ->
         flush_interrupt_messages()
-        IO.puts("error: #{inspect(reason)}")
+        Debug.print_recent_events(pid, log_level)
+        IO.puts("error> #{inspect(reason)}")
     end
   end
 
-  defp interactive_loop(pid) do
+  defp interactive_loop(pid, log_level) do
     IO.puts("Enter a prompt. Type `exit` or press Ctrl-D to quit.")
     IO.puts("Try: Add 8 and 13.")
     IO.puts("")
-    loop(pid)
+    loop(pid, log_level)
   end
 
-  defp loop(pid) do
+  defp loop(pid, log_level) do
     case IO.gets("you> ") do
       nil ->
         :ok
@@ -238,35 +248,39 @@ defmodule Moto.Demo.ImportedChatCLI do
 
         cond do
           prompt == "" ->
-            loop(pid)
+            loop(pid, log_level)
 
           prompt in ["exit", "quit"] ->
             :ok
 
           true ->
             case Moto.chat(pid, prompt,
-                   context: %{"session" => "imported-interactive", "notify_pid" => self()}
+                   context: %{"session" => "imported-interactive", "notify_pid" => self()},
+                   log_level: Debug.request_log_level(log_level)
                  ) do
               {:ok, reply} ->
                 flush_interrupt_messages()
                 IO.puts("")
+                Debug.print_recent_events(pid, log_level)
                 IO.puts("claude> #{reply}")
                 IO.puts("")
-                loop(pid)
+                loop(pid, log_level)
 
               {:interrupt, interrupt} ->
                 flush_interrupt_messages()
                 IO.puts("")
+                Debug.print_recent_events(pid, log_level)
                 IO.puts("interrupt> #{interrupt.kind} - #{interrupt.message}")
                 IO.puts("")
-                loop(pid)
+                loop(pid, log_level)
 
               {:error, reason} ->
                 flush_interrupt_messages()
                 IO.puts("")
+                Debug.print_recent_events(pid, log_level)
                 IO.puts("error> #{inspect(reason)}")
                 IO.puts("")
-                loop(pid)
+                loop(pid, log_level)
             end
         end
     end

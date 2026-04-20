@@ -30,6 +30,20 @@ defmodule MotoTest.MixTaskTest do
     assert Moto.Runtime.debug() == :off
   end
 
+  test "imported demo mix task uses log-level in dry-run mode" do
+    output =
+      capture_io(fn ->
+        Mix.Tasks.Moto.run(["imported", "--log-level", "debug", "--dry-run"])
+      end)
+
+    assert output =~ "Moto imported-agent demo"
+    assert output =~ "Resolved model:"
+    assert output =~ "Log level: debug"
+    assert output =~ "Dry run: no agent started."
+    refute output =~ "Spec file:"
+    assert Moto.Runtime.debug() == :off
+  end
+
   test "orchestrator demo mix task prints trace details in dry-run mode" do
     output =
       capture_io(fn ->

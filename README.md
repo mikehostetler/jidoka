@@ -623,21 +623,12 @@ mix moto chat --log-level debug -- "Remember that my favorite color is blue."
 mix moto chat --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
 ```
 
-The script entrypoint delegates to the same CLI:
-
-```bash
-mix run scripts/chat_agent.exs
-mix run scripts/chat_agent.exs -- --log-level debug
-```
-
-The example source modules live under `examples/`. The `scripts/` directory is
-just a set of thin launchers for those examples.
-
 Imported JSON agent:
 
 ```bash
-mix run scripts/imported_chat_agent.exs
-mix run scripts/imported_chat_agent.exs -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix moto imported
+mix moto imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix moto imported --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
 ```
 
 The sample imported agent spec lives at `examples/chat/imported/sample_math_agent.json`.
@@ -648,8 +639,10 @@ Orchestrator demo:
 mix moto orchestrator
 mix moto orchestrator -- "Use the research_agent specialist to explain vector databases."
 mix moto orchestrator --log-level trace -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now."
-mix run scripts/orchestrator_agent.exs
 ```
+
+The example source modules live under `examples/`. `mix moto` is the canonical
+entrypoint for running them.
 
 ## Imported Agents
 

@@ -7,6 +7,7 @@ defmodule Mix.Tasks.Moto do
   Runs Moto demo agents through a Mix task.
 
       mix moto chat --dry-run
+      mix moto imported -- "Add 17 and 25"
       mix moto chat --log-level debug -- "Add 17 and 25"
       mix moto orchestrator --log-level trace -- "Use the research_agent specialist ..."
   """
@@ -22,6 +23,9 @@ defmodule Mix.Tasks.Moto do
       ["chat" | rest] ->
         Moto.Demo.ChatCLI.main(rest)
 
+      ["imported" | rest] ->
+        Moto.Demo.ImportedChatCLI.main(rest)
+
       ["orchestrator" | rest] ->
         Moto.Demo.OrchestratorCLI.main(rest)
 
@@ -33,13 +37,14 @@ defmodule Mix.Tasks.Moto do
 
       [other | _rest] ->
         raise Mix.Error,
-          message: "unknown demo #{inspect(other)}. Expected `chat` or `orchestrator`."
+          message:
+            "unknown demo #{inspect(other)}. Expected `chat`, `imported`, or `orchestrator`."
     end
   end
 
   defp usage do
     Mix.shell().info(
-      "mix moto <chat|orchestrator> [--log-level info|debug|trace] [--dry-run] [prompt]"
+      "mix moto <chat|imported|orchestrator> [--log-level info|debug|trace] [--dry-run] [prompt]"
     )
   end
 end

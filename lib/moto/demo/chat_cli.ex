@@ -27,11 +27,6 @@ defmodule Moto.Demo.ChatCLI do
   @spec usage() :: :ok
   def usage do
     IO.puts("mix moto chat [--log-level info|debug|trace] [--dry-run] [prompt]")
-
-    IO.puts(
-      "mix run scripts/chat_agent.exs -- [--log-level info|debug|trace] [--dry-run] [prompt]"
-    )
-
     :ok
   end
 

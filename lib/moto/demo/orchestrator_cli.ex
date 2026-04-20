@@ -27,11 +27,6 @@ defmodule Moto.Demo.OrchestratorCLI do
   @spec usage() :: :ok
   def usage do
     IO.puts("mix moto orchestrator [--log-level info|debug|trace] [--dry-run] [prompt]")
-
-    IO.puts(
-      "mix run scripts/orchestrator_agent.exs -- [--log-level info|debug|trace] [--dry-run] [prompt]"
-    )
-
     :ok
   end
 
