@@ -273,7 +273,12 @@ defmodule MotoTest.ImportedAgentTest do
                  "model" => "fast",
                  "system_prompt" => "You can delegate.",
                  "subagents" => [
-                   %{"agent" => "research_agent"},
+                   %{
+                     "agent" => "research_agent",
+                     "timeout_ms" => 12_345,
+                     "forward_context" => %{"mode" => "only", "keys" => ["tenant"]},
+                     "result" => "structured"
+                   },
                    %{
                      "agent" => "review_agent",
                      "as" => "review_specialist",
@@ -288,6 +293,9 @@ defmodule MotoTest.ImportedAgentTest do
 
     assert Enum.map(agent.subagents, & &1.name) == ["research_agent", "review_specialist"]
 
+    assert [%{timeout: 12_345, forward_context: {:only, ["tenant"]}, result: :structured}, _] =
+             agent.subagents
+
     assert Enum.sort(Enum.map(agent.tool_modules, & &1.name())) == [
              "research_agent",
              "review_specialist"
@@ -296,15 +304,48 @@ defmodule MotoTest.ImportedAgentTest do
     research_tool =
       Enum.find(agent.tool_modules, fn tool_module -> tool_module.name() == "research_agent" end)
 
-    assert {:ok, %{result: "research:Imported task:tenant=imported:depth=1"}} =
+    assert {:ok, %{result: "research:Imported task:tenant=imported:depth=1", subagent: metadata}} =
              research_tool.run(%{task: "Imported task"}, %{tenant: "imported"})
+
+    assert metadata.name == "research_agent"
+    assert metadata.context_keys == ["tenant"]
 
     assert {:ok, encoded_json} = Moto.encode_agent(agent, format: :json)
     assert encoded_json =~ "\"subagents\""
+    assert encoded_json =~ "\"timeout_ms\": 12345"
+    assert encoded_json =~ "\"result\": \"structured\""
 
     assert {:ok, encoded_yaml} = Moto.encode_agent(agent, format: :yaml)
     assert encoded_yaml =~ "subagents:"
     assert encoded_yaml =~ "agent: \"research_agent\""
+    assert encoded_yaml =~ "timeout_ms: 12345"
+    assert encoded_yaml =~ "result: \"structured\""
+  end
+
+  test "imports constrained subagent runtime options from YAML" do
+    yaml = """
+    name: "subagent_yaml_agent"
+    model: "fast"
+    system_prompt: "You can delegate."
+    subagents:
+      - agent: "research_agent"
+        target: "ephemeral"
+        timeout_ms: 45000
+        forward_context:
+          mode: "except"
+          keys:
+            - "secret"
+        result: "structured"
+    """
+
+    assert {:ok, %ImportedAgent{} = agent} =
+             Moto.import_agent(yaml,
+               format: :yaml,
+               available_subagents: [ResearchSpecialist]
+             )
+
+    assert [%{timeout: 45_000, forward_context: {:except, ["secret"]}, result: :structured}] =
+             agent.subagents
   end
 
   test "starts an imported agent under the shared runtime" do
@@ -693,6 +734,60 @@ defmodule MotoTest.ImportedAgentTest do
              )
 
     assert reason =~ "subagent target must be"
+  end
+
+  test "rejects imported subagents with invalid timeout" do
+    assert {:error, reason} =
+             Moto.import_agent(
+               %{
+                 "name" => "invalid_subagent_timeout_import",
+                 "model" => "fast",
+                 "system_prompt" => "You can delegate.",
+                 "subagents" => [
+                   %{"agent" => "research_agent", "timeout_ms" => 0}
+                 ]
+               },
+               available_subagents: [ResearchSpecialist]
+             )
+
+    assert reason =~ "subagent timeout must be a positive integer"
+  end
+
+  test "rejects imported subagents with invalid forward_context" do
+    assert {:error, reason} =
+             Moto.import_agent(
+               %{
+                 "name" => "invalid_subagent_forward_context_import",
+                 "model" => "fast",
+                 "system_prompt" => "You can delegate.",
+                 "subagents" => [
+                   %{
+                     "agent" => "research_agent",
+                     "forward_context" => %{"mode" => "only"}
+                   }
+                 ]
+               },
+               available_subagents: [ResearchSpecialist]
+             )
+
+    assert reason =~ "subagent forward_context keys must be a list"
+  end
+
+  test "rejects imported subagents with invalid result mode" do
+    assert {:error, reason} =
+             Moto.import_agent(
+               %{
+                 "name" => "invalid_subagent_result_import",
+                 "model" => "fast",
+                 "system_prompt" => "You can delegate.",
+                 "subagents" => [
+                   %{"agent" => "research_agent", "result" => "json"}
+                 ]
+               },
+               available_subagents: [ResearchSpecialist]
+             )
+
+    assert reason =~ "subagent result must be :text or :structured"
   end
 
   test "rejects importing plugins without an available registry" do

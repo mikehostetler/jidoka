@@ -89,6 +89,7 @@ defmodule Moto.Demo.OrchestratorCLI do
       IO.puts("Configured model: #{inspect(manager_agent.configured_model())}")
       IO.puts("Default context: #{inspect(manager_agent.context())}")
       IO.puts("Subagents: #{Enum.join(manager_agent.subagent_names(), ", ")}")
+      print_subagent_config(manager_agent.subagents())
       IO.puts("Tools: #{Enum.join(manager_agent.tool_names(), ", ")}")
     end
 
@@ -171,14 +172,33 @@ defmodule Moto.Demo.OrchestratorCLI do
         Enum.each(entries, fn entry ->
           mode = entry.mode
           child_id = entry.child_id || "ephemeral"
-          child_status = get_in(entry, [:child_result_meta, :status]) || "unknown"
+          status = subagent_status(entry)
           duration = entry[:duration_ms] || 0
+          result = entry[:result_preview]
 
-          IO.puts(
-            "delegation> #{entry.name} mode=#{mode} child=#{child_id} child_status=#{child_status} duration_ms=#{duration}"
-          )
+          line =
+            "delegation> #{entry.name} mode=#{mode} child=#{child_id} status=#{status} duration_ms=#{duration}"
+
+          if is_binary(result) and result != "" do
+            IO.puts(line <> " result=#{inspect(result)}")
+          else
+            IO.puts(line)
+          end
         end)
     end
+  end
+
+  defp subagent_status(%{outcome: :ok}), do: "ok"
+  defp subagent_status(%{outcome: {:interrupt, _interrupt}}), do: "interrupt"
+  defp subagent_status(%{outcome: {:error, reason}}), do: "error:#{inspect(reason)}"
+  defp subagent_status(entry), do: get_in(entry, [:child_result_meta, :status]) || "unknown"
+
+  defp print_subagent_config(subagents) do
+    Enum.each(subagents, fn subagent ->
+      IO.puts(
+        "Subagent #{subagent.name}: target=#{inspect(subagent.target)} timeout=#{subagent.timeout} forward_context=#{inspect(subagent.forward_context)} result=#{subagent.result}"
+      )
+    end)
   end
 
   defp join_prompt([]), do: nil

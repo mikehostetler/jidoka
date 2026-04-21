@@ -3,17 +3,23 @@ defmodule Moto.Subagent do
 
   alias Jido.AI.Request
 
-  @enforce_keys [:agent, :name, :description, :target]
-  defstruct [:agent, :name, :description, :target]
+  @enforce_keys [:agent, :name, :description, :target, :timeout, :forward_context, :result]
+  defstruct [:agent, :name, :description, :target, :timeout, :forward_context, :result]
 
   @type name :: String.t()
   @type target :: :ephemeral | {:peer, String.t()} | {:peer, {:context, atom() | String.t()}}
+  @type forward_context ::
+          :public | :none | {:only, [atom() | String.t()]} | {:except, [atom() | String.t()]}
+  @type result_mode :: :text | :structured
   @type registry :: %{required(name()) => module()}
   @type t :: %__MODULE__{
           agent: module(),
           name: name(),
           description: String.t(),
-          target: target()
+          target: target(),
+          timeout: pos_integer(),
+          forward_context: forward_context(),
+          result: result_mode()
         }
 
   @required_functions [
@@ -26,12 +32,20 @@ defmodule Moto.Subagent do
   @request_id_key :__moto_request_id__
   @server_key :__moto_server__
   @depth_key :__moto_subagent_depth__
-  @meta_table :moto_subagent_calls
   @request_meta_key :moto_subagents
   @task_schema Zoi.object(%{task: Zoi.string()})
+  @text_output_schema Zoi.object(%{result: Zoi.string()})
+  @structured_output_schema Zoi.object(%{result: Zoi.string(), subagent: Zoi.map()})
+  @default_timeout 30_000
+  @default_forward_context :public
+  @default_result :text
 
   @spec task_schema() :: Zoi.schema()
   def task_schema, do: @task_schema
+
+  @spec output_schema(t()) :: Zoi.schema()
+  def output_schema(%__MODULE__{result: :structured}), do: @structured_output_schema
+  def output_schema(%__MODULE__{}), do: @text_output_schema
 
   @spec request_id_key() :: atom()
   def request_id_key, do: @request_id_key
@@ -105,13 +119,22 @@ defmodule Moto.Subagent do
              Keyword.get(opts, :description) ||
                "Ask #{normalized_name} to handle a specialist task."
            ),
-         {:ok, target} <- normalize_target(Keyword.get(opts, :target) || :ephemeral) do
+         {:ok, target} <- normalize_target(Keyword.get(opts, :target) || :ephemeral),
+         {:ok, timeout} <- normalize_timeout(Keyword.get(opts, :timeout, @default_timeout)),
+         {:ok, forward_context} <-
+           normalize_forward_context(
+             Keyword.get(opts, :forward_context, @default_forward_context)
+           ),
+         {:ok, result} <- normalize_result(Keyword.get(opts, :result, @default_result)) do
       {:ok,
        %__MODULE__{
          agent: agent_module,
          name: normalized_name,
          description: description,
-         target: target
+         target: target,
+         timeout: timeout,
+         forward_context: forward_context,
+         result: result
        }}
     end
   end
@@ -184,16 +207,13 @@ defmodule Moto.Subagent do
           name: unquote(subagent.name),
           description: unquote(subagent.description),
           schema: unquote(Macro.escape(Moto.Subagent.task_schema())),
-          output_schema: unquote(Macro.escape(Zoi.object(%{result: Zoi.string()})))
+          output_schema: unquote(Macro.escape(Moto.Subagent.output_schema(subagent)))
 
         @subagent unquote(Macro.escape(subagent))
 
         @impl true
         def run(params, context) do
-          case Moto.Subagent.run_subagent(@subagent, params, context) do
-            {:ok, result} -> {:ok, %{result: result}}
-            other -> other
-          end
+          Moto.Subagent.run_subagent_tool(@subagent, params, context)
         end
       end
     end
@@ -229,34 +249,31 @@ defmodule Moto.Subagent do
 
   def on_after_cmd(agent, _action, directives), do: {:ok, agent, directives}
 
+  @spec run_subagent_tool(t(), map(), map()) :: {:ok, map()} | {:error, term()}
+  def run_subagent_tool(%__MODULE__{} = subagent, params, context)
+      when is_map(params) and is_map(context) do
+    case execute_subagent(subagent, params, context) do
+      {:ok, result, metadata} ->
+        maybe_record_metadata(context, metadata)
+        {:ok, visible_result(subagent, result, metadata)}
+
+      {:error, reason, metadata} ->
+        maybe_record_metadata(context, metadata)
+        {:error, {:subagent_failed, subagent.name, reason}}
+    end
+  end
+
   @spec run_subagent(t(), map(), map()) :: {:ok, String.t()} | {:error, term()}
   def run_subagent(%__MODULE__{} = subagent, params, context)
       when is_map(params) and is_map(context) do
-    with {:ok, task} <- fetch_task(params),
-         :ok <- ensure_depth_allowed(context) do
-      forwarded_context = forwarded_context(context)
+    case execute_subagent(subagent, params, context) do
+      {:ok, result, metadata} ->
+        maybe_record_metadata(context, metadata)
+        {:ok, result}
 
-      case delegate(subagent, task, forwarded_context) do
-        {:ok, result, metadata} ->
-          maybe_record_metadata(context, metadata)
-          {:ok, result}
-
-        {:error, reason, metadata} ->
-          maybe_record_metadata(context, metadata)
-          {:error, reason}
-
-        {:interrupt, interrupt, metadata} ->
-          maybe_record_metadata(context, metadata)
-          {:error, {:subagent_interrupt, subagent.name, interrupt}}
-
-        {:error, reason} ->
-          maybe_record_metadata(context, error_metadata(subagent, reason))
-          {:error, {:subagent_failed, subagent.name, reason}}
-      end
-    else
-      {:error, reason} ->
-        maybe_record_metadata(context, error_metadata(subagent, reason))
-        {:error, reason}
+      {:error, reason, metadata} ->
+        maybe_record_metadata(context, metadata)
+        {:error, {:subagent_failed, subagent.name, reason}}
     end
   end
 
@@ -302,145 +319,330 @@ defmodule Moto.Subagent do
     end
   end
 
-  defp delegate(%__MODULE__{target: :ephemeral} = subagent, task, context) do
-    child_id = "moto-subagent-#{System.unique_integer([:positive])}"
+  defp visible_result(%__MODULE__{result: :structured}, result, metadata) do
+    %{result: result, subagent: visible_metadata(metadata)}
+  end
+
+  defp visible_result(%__MODULE__{}, result, _metadata), do: %{result: result}
+
+  defp visible_metadata(metadata) when is_map(metadata) do
+    %{
+      name: Map.get(metadata, :name),
+      agent: metadata |> Map.get(:agent) |> inspect(),
+      mode: Map.get(metadata, :mode),
+      target: metadata |> Map.get(:target) |> inspect(),
+      child_id: Map.get(metadata, :child_id),
+      child_request_id: Map.get(metadata, :child_request_id),
+      duration_ms: Map.get(metadata, :duration_ms, 0),
+      outcome: visible_outcome(Map.get(metadata, :outcome)),
+      task_preview: Map.get(metadata, :task_preview),
+      result_preview: Map.get(metadata, :result_preview),
+      context_keys: Map.get(metadata, :context_keys, [])
+    }
+  end
+
+  defp visible_outcome(:ok), do: :ok
+  defp visible_outcome({:interrupt, _interrupt}), do: :interrupt
+  defp visible_outcome({:error, reason}), do: {:error, inspect(reason)}
+  defp visible_outcome(other), do: other
+
+  defp start_child(agent_module, child_id) do
+    agent_module.start_link(id: child_id)
+    |> normalize_start_result()
+  rescue
+    error -> {:error, {error.__struct__, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, reason}
+  end
+
+  defp normalize_start_result({:ok, pid}) when is_pid(pid), do: {:ok, pid}
+  defp normalize_start_result({:ok, pid, _info}) when is_pid(pid), do: {:ok, pid}
+  defp normalize_start_result({:error, reason}), do: {:error, reason}
+  defp normalize_start_result(:ignore), do: {:error, :ignore}
+  defp normalize_start_result(other), do: {:error, {:invalid_start_return, other}}
+
+  defp generated_child_id(%__MODULE__{name: name}) do
+    unique = System.unique_integer([:positive])
+    "moto-subagent-#{name}-#{unique}"
+  end
+
+  defp execute_subagent(%__MODULE__{} = subagent, params, context) do
     started_at = System.monotonic_time(:millisecond)
 
-    with {:ok, pid} <- subagent.agent.start_link(id: child_id) do
-      try do
-        case ask_child(subagent.agent, pid, task, context) do
-          {:ok, result, child_request_id, child_result_meta} ->
-            {:ok, result,
-             call_metadata(
-               subagent,
-               :ephemeral,
-               task,
-               child_id,
-               child_request_id,
-               child_result_meta,
-               started_at,
-               :ok
-             )}
-
-          {:error, reason, child_request_id, child_result_meta} ->
-            {:error, {:subagent_failed, subagent.name, reason},
-             call_metadata(
-               subagent,
-               :ephemeral,
-               task,
-               child_id,
-               child_request_id,
-               child_result_meta,
-               started_at,
-               {:error, reason}
-             )}
-
-          {:interrupt, interrupt, child_request_id, child_result_meta} ->
-            {:interrupt, interrupt,
-             call_metadata(
-               subagent,
-               :ephemeral,
-               task,
-               child_id,
-               child_request_id,
-               child_result_meta,
-               started_at,
-               {:interrupt, interrupt}
-             )}
-        end
-      after
-        _ = Moto.stop_agent(pid)
-      end
+    with {:ok, task} <- fetch_task(params),
+         :ok <- ensure_depth_allowed(context) do
+      child_context = forwarded_context(context, subagent.forward_context)
+      delegate(subagent, task, context, child_context, started_at)
+    else
+      {:error, reason} ->
+        {:error, reason, error_metadata(subagent, reason, context, nil, started_at)}
     end
   end
 
-  defp delegate(%__MODULE__{target: {:peer, peer_ref}} = subagent, task, context) do
-    started_at = System.monotonic_time(:millisecond)
+  defp delegate(
+         %__MODULE__{target: :ephemeral} = subagent,
+         task,
+         _parent_context,
+         child_context,
+         started_at
+       ) do
+    child_id = generated_child_id(subagent)
 
-    with {:ok, peer_id} <- resolve_peer_id(peer_ref, context),
+    case start_child(subagent.agent, child_id) do
+      {:ok, pid} ->
+        try do
+          subagent.agent
+          |> ask_child(pid, task, child_context, subagent.timeout)
+          |> delegate_result(subagent, :ephemeral, task, child_id, child_context, started_at)
+        after
+          _ = Moto.stop_agent(pid)
+        end
+
+      {:error, reason} ->
+        reason = {:start_failed, reason}
+
+        {:error, reason,
+         error_metadata(subagent, reason, child_context, task, started_at, child_id)}
+    end
+  end
+
+  defp delegate(
+         %__MODULE__{target: {:peer, peer_ref}} = subagent,
+         task,
+         parent_context,
+         child_context,
+         started_at
+       ) do
+    with {:ok, peer_id} <- resolve_peer_id(peer_ref, parent_context),
          {:ok, pid} <- resolve_peer_pid(peer_id),
          :ok <- verify_peer_runtime(subagent.agent, pid) do
-      case ask_child(subagent.agent, pid, task, context) do
-        {:ok, result, child_request_id, child_result_meta} ->
-          {:ok, result,
-           call_metadata(
-             subagent,
-             :peer,
-             task,
-             peer_id,
-             child_request_id,
-             child_result_meta,
-             started_at,
-             :ok
-           )}
+      subagent.agent
+      |> ask_child(pid, task, child_context, subagent.timeout)
+      |> delegate_result(subagent, :peer, task, peer_id, child_context, started_at)
+    else
+      {:error, reason} ->
+        child_id = peer_ref |> peer_ref_preview(parent_context)
 
-        {:error, reason, child_request_id, child_result_meta} ->
-          {:error, {:subagent_failed, subagent.name, reason},
-           call_metadata(
-             subagent,
-             :peer,
-             task,
-             peer_id,
-             child_request_id,
-             child_result_meta,
-             started_at,
-             {:error, reason}
-           )}
-
-        {:interrupt, interrupt, child_request_id, child_result_meta} ->
-          {:interrupt, interrupt,
-           call_metadata(
-             subagent,
-             :peer,
-             task,
-             peer_id,
-             child_request_id,
-             child_result_meta,
-             started_at,
-             {:interrupt, interrupt}
-           )}
-      end
+        {:error, reason,
+         error_metadata(subagent, reason, child_context, task, started_at, child_id)}
     end
   end
 
-  defp ask_child(agent_module, pid, task, context) do
+  defp ask_child(agent_module, pid, task, context, timeout) do
     if moto_agent_module?(agent_module) do
-      child_opts = [context: context]
-
-      with {:ok, prepared_opts} <-
-             Moto.Agent.prepare_chat_opts(child_opts, child_chat_config(agent_module)),
-           timeout <- Keyword.get(prepared_opts, :timeout, 30_000),
-           request_opts <-
-             Keyword.merge(
-               prepared_opts,
-               signal_type: "ai.react.query",
-               source: "/moto/subagent"
-             ),
-           {:ok, request} <- Request.create_and_send(pid, task, request_opts),
-           await_result <- Request.await(request, timeout: timeout) do
-        case Moto.finalize_chat_request(pid, request.id, await_result)
-             |> Moto.Hooks.translate_chat_result() do
-          {:ok, result} when is_binary(result) ->
-            {:ok, result, request.id, child_request_meta(pid, request.id)}
-
-          {:ok, other} ->
-            {:error, {:invalid_subagent_result, other}, request.id,
-             child_request_meta(pid, request.id)}
-
-          {:interrupt, interrupt} ->
-            {:interrupt, interrupt, request.id, child_request_meta(pid, request.id)}
-
-          {:error, reason} ->
-            {:error, reason, request.id, child_request_meta(pid, request.id)}
-        end
-      end
+      ask_moto_child(agent_module, pid, task, context, timeout)
     else
-      case agent_module.chat(pid, task, context: context) do
-        {:ok, result} when is_binary(result) -> {:ok, result, nil, %{}}
-        {:ok, other} -> {:error, {:invalid_subagent_result, other}, nil, %{}}
-        {:interrupt, interrupt} -> {:interrupt, interrupt, nil, %{}}
-        {:error, reason} -> {:error, reason, nil, %{}}
-      end
+      ask_compatible_child(agent_module, pid, task, context, timeout)
+    end
+  end
+
+  defp ask_moto_child(agent_module, pid, task, context, timeout) do
+    child_opts = [context: context, timeout: timeout]
+
+    with {:ok, prepared_opts} <-
+           Moto.Agent.prepare_chat_opts(child_opts, child_chat_config(agent_module)),
+         request_opts <-
+           Keyword.merge(
+             prepared_opts,
+             signal_type: "ai.react.query",
+             source: "/moto/subagent"
+           ),
+         {:ok, request} <- Request.create_and_send(pid, task, request_opts) do
+      request
+      |> await_child_request(agent_module, pid, timeout)
+      |> normalize_moto_child_result(pid, request.id, timeout)
+    else
+      {:error, reason} -> {:error, {:child_error, reason}, nil, %{}}
+    end
+  end
+
+  defp await_child_request(request, agent_module, pid, timeout) do
+    case Request.await(request, timeout: timeout) do
+      {:error, :timeout} = result ->
+        cancel_child_request(agent_module, pid, request.id)
+        result
+
+      result ->
+        result
+    end
+  end
+
+  defp cancel_child_request(agent_module, pid, request_id) when is_binary(request_id) do
+    cond do
+      function_exported?(agent_module, :runtime_module, 0) ->
+        agent_module.runtime_module()
+        |> maybe_cancel_child_request(pid, request_id)
+
+      true ->
+        maybe_cancel_child_request(agent_module, pid, request_id)
+    end
+  end
+
+  defp cancel_child_request(_agent_module, _pid, _request_id), do: :ok
+
+  defp maybe_cancel_child_request(module, pid, request_id) when is_atom(module) do
+    if function_exported?(module, :cancel, 2) do
+      _ = module.cancel(pid, request_id: request_id, reason: :subagent_timeout)
+    end
+
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  defp ask_compatible_child(agent_module, pid, task, context, timeout) do
+    task_ref = Task.async(fn -> agent_module.chat(pid, task, context: context) end)
+
+    case Task.yield(task_ref, timeout) do
+      {:ok, result} ->
+        normalize_direct_child_result(result)
+
+      {:exit, reason} ->
+        {:error, {:child_error, reason}, nil, %{}}
+
+      nil ->
+        Task.shutdown(task_ref, :brutal_kill)
+        {:error, {:timeout, timeout}, nil, %{}}
+    end
+  end
+
+  defp normalize_moto_child_result({:error, :timeout}, pid, request_id, timeout) do
+    {:error, {:timeout, timeout}, request_id, child_request_meta(pid, request_id)}
+  end
+
+  defp normalize_moto_child_result(await_result, pid, request_id, _timeout) do
+    result =
+      pid
+      |> Moto.finalize_chat_request(request_id, await_result)
+      |> Moto.Hooks.translate_chat_result()
+
+    case result do
+      {:ok, child_result} when is_binary(child_result) ->
+        {:ok, child_result, request_id, child_request_meta(pid, request_id)}
+
+      {:ok, other} ->
+        {:error, {:invalid_result, other}, request_id, child_request_meta(pid, request_id)}
+
+      {:interrupt, interrupt} ->
+        {:interrupt, interrupt, request_id, child_request_meta(pid, request_id)}
+
+      {:error, reason} ->
+        {:error, {:child_error, reason}, request_id, child_request_meta(pid, request_id)}
+    end
+  end
+
+  defp normalize_direct_child_result({:ok, result}) when is_binary(result),
+    do: {:ok, result, nil, %{}}
+
+  defp normalize_direct_child_result({:ok, other}),
+    do: {:error, {:invalid_result, other}, nil, %{}}
+
+  defp normalize_direct_child_result({:interrupt, interrupt}) do
+    case normalize_interrupt(interrupt) do
+      {:ok, normalized} -> {:interrupt, normalized, nil, %{}}
+      {:error, reason} -> {:error, reason, nil, %{}}
+    end
+  end
+
+  defp normalize_direct_child_result({:error, reason}),
+    do: {:error, {:child_error, reason}, nil, %{}}
+
+  defp normalize_direct_child_result(other),
+    do: {:error, {:child_error, other}, nil, %{}}
+
+  defp normalize_interrupt(interrupt) do
+    {:ok, Moto.Interrupt.new(interrupt)}
+  rescue
+    _error -> {:error, {:invalid_result, {:interrupt, interrupt}}}
+  end
+
+  defp delegate_result(
+         {:ok, result, child_request_id, child_result_meta},
+         subagent,
+         mode,
+         task,
+         child_id,
+         context,
+         started_at
+       ) do
+    {:ok, result,
+     call_metadata(
+       subagent,
+       mode,
+       task,
+       child_id,
+       child_request_id,
+       child_result_meta,
+       started_at,
+       :ok,
+       context,
+       result
+     )}
+  end
+
+  defp delegate_result(
+         {:error, reason, child_request_id, child_result_meta},
+         subagent,
+         mode,
+         task,
+         child_id,
+         context,
+         started_at
+       ) do
+    {:error, reason,
+     call_metadata(
+       subagent,
+       mode,
+       task,
+       child_id,
+       child_request_id,
+       child_result_meta,
+       started_at,
+       {:error, reason},
+       context,
+       nil
+     )}
+  end
+
+  defp delegate_result(
+         {:interrupt, interrupt, child_request_id, child_result_meta},
+         subagent,
+         mode,
+         task,
+         child_id,
+         context,
+         started_at
+       ) do
+    case normalize_interrupt(interrupt) do
+      {:ok, interrupt} ->
+        reason = {:child_interrupt, interrupt}
+
+        {:error, reason,
+         call_metadata(
+           subagent,
+           mode,
+           task,
+           child_id,
+           child_request_id,
+           child_result_meta,
+           started_at,
+           {:interrupt, interrupt},
+           context,
+           nil
+         )}
+
+      {:error, reason} ->
+        delegate_result(
+          {:error, reason, child_request_id, child_result_meta},
+          subagent,
+          mode,
+          task,
+          child_id,
+          context,
+          started_at
+        )
     end
   end
 
@@ -493,16 +695,15 @@ defmodule Moto.Subagent do
   defp resolve_peer_id(peer_id, _context) when is_binary(peer_id), do: {:ok, peer_id}
 
   defp resolve_peer_id({:context, key}, context) when is_atom(key) or is_binary(key) do
-    case Map.get(context, key, Map.get(context, Atom.to_string(key))) do
+    case context_value(context, key) do
       peer_id when is_binary(peer_id) and peer_id != "" -> {:ok, peer_id}
-      nil -> {:error, {:missing_context, key}}
-      other -> {:error, {:invalid_context, {key, other}}}
+      _ -> {:error, {:peer_not_found, {:context, key}}}
     end
   end
 
   defp resolve_peer_pid(peer_id) when is_binary(peer_id) do
     case Moto.whereis(peer_id) do
-      nil -> {:error, {:subagent_peer_not_found, peer_id}}
+      nil -> {:error, {:peer_not_found, peer_id}}
       pid -> {:ok, pid}
     end
   end
@@ -515,28 +716,41 @@ defmodule Moto.Subagent do
         :ok
 
       {:ok, %{agent_module: other}} ->
-        {:error, {:subagent_peer_mismatch, expected_runtime, other}}
+        {:error, {:peer_mismatch, expected_runtime, other}}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, {:peer_mismatch, expected_runtime, reason}}
     end
   end
 
-  defp fetch_task(%{task: task}) when is_binary(task) and task != "", do: {:ok, task}
-  defp fetch_task(%{"task" => task}) when is_binary(task) and task != "", do: {:ok, task}
-  defp fetch_task(_params), do: {:error, {:invalid_subagent_task, :expected_non_empty_string}}
+  defp fetch_task(%{task: task}) when is_binary(task) do
+    case String.trim(task) do
+      "" -> {:error, {:invalid_task, :expected_non_empty_string}}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp fetch_task(%{"task" => task}) when is_binary(task) do
+    case String.trim(task) do
+      "" -> {:error, {:invalid_task, :expected_non_empty_string}}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp fetch_task(_params), do: {:error, {:invalid_task, :expected_non_empty_string}}
 
   defp ensure_depth_allowed(context) do
     if current_depth(context) >= 1 do
-      {:error, {:subagent_recursion_limit, 1}}
+      {:error, {:recursion_limit, 1}}
     else
       :ok
     end
   end
 
-  defp forwarded_context(context) do
+  defp forwarded_context(context, policy) do
     context
     |> Moto.Context.sanitize_for_subagent()
+    |> apply_forward_context_policy(policy)
     |> Map.put(@depth_key, current_depth(context) + 1)
   end
 
@@ -552,8 +766,7 @@ defmodule Moto.Subagent do
     request_id = Map.get(context, @request_id_key)
 
     if is_pid(parent_server) and is_binary(request_id) do
-      ensure_meta_table()
-      :ets.insert(@meta_table, {{parent_server, request_id}, metadata})
+      Moto.Subagent.Metadata.insert(parent_server, request_id, metadata)
     end
 
     :ok
@@ -562,21 +775,13 @@ defmodule Moto.Subagent do
   defp maybe_record_metadata(_context, _metadata), do: :ok
 
   defp drain_request_meta(server, request_id) when is_pid(server) and is_binary(request_id) do
-    ensure_meta_table()
-
-    @meta_table
-    |> :ets.take({server, request_id})
-    |> Enum.map(fn {{^server, ^request_id}, metadata} -> metadata end)
+    Moto.Subagent.Metadata.drain(server, request_id)
   end
 
   defp drain_request_meta(_server, _request_id), do: []
 
   defp lookup_request_meta(server, request_id) when is_pid(server) and is_binary(request_id) do
-    ensure_meta_table()
-
-    @meta_table
-    |> :ets.lookup({server, request_id})
-    |> Enum.map(fn {{^server, ^request_id}, metadata} -> metadata end)
+    Moto.Subagent.Metadata.lookup(server, request_id)
   end
 
   defp lookup_request_meta(_server, _request_id), do: []
@@ -611,34 +816,50 @@ defmodule Moto.Subagent do
          child_request_id,
          child_result_meta,
          started_at,
-         outcome
+         outcome,
+         context,
+         result
        ) do
     %{
       sequence: next_sequence(),
       name: subagent.name,
       agent: subagent.agent,
       mode: mode,
+      target: subagent.target,
       task_preview: task_preview(task),
       child_id: child_id,
       child_request_id: child_request_id,
       duration_ms: System.monotonic_time(:millisecond) - started_at,
       outcome: outcome,
+      result_preview: result_preview(result),
+      context_keys: context_keys(context),
       child_result_meta: child_result_meta
     }
   end
 
-  defp error_metadata(subagent, reason) do
+  defp error_metadata(
+         subagent,
+         reason,
+         context,
+         task,
+         started_at,
+         child_id \\ nil,
+         child_result_meta \\ %{}
+       ) do
     %{
       sequence: next_sequence(),
       name: subagent.name,
       agent: subagent.agent,
       mode: target_mode(subagent.target),
-      task_preview: nil,
-      child_id: nil,
+      target: subagent.target,
+      task_preview: task_preview(task),
+      child_id: child_id,
       child_request_id: nil,
-      duration_ms: 0,
+      duration_ms: System.monotonic_time(:millisecond) - started_at,
       outcome: {:error, reason},
-      child_result_meta: %{}
+      result_preview: nil,
+      context_keys: context_keys(context),
+      child_result_meta: child_result_meta
     }
   end
 
@@ -653,6 +874,27 @@ defmodule Moto.Subagent do
   end
 
   defp task_preview(_task), do: nil
+
+  defp result_preview(result) when is_binary(result) do
+    result
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+    |> String.slice(0, 140)
+  end
+
+  defp result_preview(_result), do: nil
+
+  defp context_keys(context) when is_map(context) do
+    context
+    |> Map.drop([@request_id_key, @server_key, @depth_key])
+    |> Map.keys()
+    |> Enum.map(&key_to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp context_keys(_context), do: []
 
   defp request_call_identity(%{sequence: sequence}) when is_integer(sequence),
     do: {:sequence, sequence}
@@ -693,6 +935,53 @@ defmodule Moto.Subagent do
   end
 
   defp pending_request_calls(_server_or_agent, _request_id), do: []
+
+  defp apply_forward_context_policy(context, :public), do: context
+  defp apply_forward_context_policy(_context, :none), do: %{}
+
+  defp apply_forward_context_policy(context, {:only, keys}) when is_list(keys) do
+    Enum.reduce(keys, %{}, fn key, acc ->
+      case fetch_equivalent_key(context, key) do
+        {:ok, actual_key, value} -> Map.put(acc, actual_key, value)
+        :error -> acc
+      end
+    end)
+  end
+
+  defp apply_forward_context_policy(context, {:except, keys}) when is_list(keys) do
+    Enum.reduce(keys, context, fn key, acc ->
+      case fetch_equivalent_key(acc, key) do
+        {:ok, actual_key, _value} -> Map.delete(acc, actual_key)
+        :error -> acc
+      end
+    end)
+  end
+
+  defp context_value(context, key) when is_map(context) do
+    case fetch_equivalent_key(context, key) do
+      {:ok, _actual_key, value} -> value
+      :error -> nil
+    end
+  end
+
+  defp fetch_equivalent_key(context, key) when is_map(context) do
+    Enum.find_value(context, :error, fn {existing_key, value} ->
+      if equivalent_key?(existing_key, key) do
+        {:ok, existing_key, value}
+      end
+    end)
+  end
+
+  defp equivalent_key?(left, right), do: key_to_string(left) == key_to_string(right)
+
+  defp peer_ref_preview({:context, key}, context) do
+    case context_value(context, key) do
+      peer_id when is_binary(peer_id) and peer_id != "" -> peer_id
+      _ -> inspect({:context, key})
+    end
+  end
+
+  defp peer_ref_preview(peer_id, _context) when is_binary(peer_id), do: peer_id
 
   defp normalize_subagent_name(name) when is_binary(name) do
     trimmed = String.trim(name)
@@ -741,6 +1030,108 @@ defmodule Moto.Subagent do
     {:error,
      "subagent target must be :ephemeral, {:peer, \"id\"}, or {:peer, {:context, key}}, got: #{inspect(other)}"}
   end
+
+  @spec normalize_timeout(term()) :: {:ok, pos_integer()} | {:error, String.t()}
+  def normalize_timeout(timeout) when is_integer(timeout) and timeout > 0, do: {:ok, timeout}
+
+  def normalize_timeout(other),
+    do:
+      {:error,
+       "subagent timeout must be a positive integer in milliseconds, got: #{inspect(other)}"}
+
+  @spec normalize_forward_context(term()) :: {:ok, forward_context()} | {:error, String.t()}
+  def normalize_forward_context(:public), do: {:ok, :public}
+  def normalize_forward_context("public"), do: {:ok, :public}
+  def normalize_forward_context(:none), do: {:ok, :none}
+  def normalize_forward_context("none"), do: {:ok, :none}
+
+  def normalize_forward_context({mode, keys}) when mode in [:only, :except] do
+    normalize_forward_context_keys(mode, keys)
+  end
+
+  def normalize_forward_context(%{mode: mode, keys: keys}) do
+    mode
+    |> normalize_forward_context_mode()
+    |> case do
+      {:ok, :only} -> normalize_forward_context_keys(:only, keys)
+      {:ok, :except} -> normalize_forward_context_keys(:except, keys)
+      {:ok, mode} -> {:ok, mode}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def normalize_forward_context(%{"mode" => mode, "keys" => keys}) do
+    normalize_forward_context(%{mode: mode, keys: keys})
+  end
+
+  def normalize_forward_context(%{mode: mode}) do
+    case normalize_forward_context_mode(mode) do
+      {:ok, mode} when mode in [:public, :none] -> {:ok, mode}
+      {:ok, mode} -> normalize_forward_context_keys(mode, nil)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def normalize_forward_context(%{"mode" => mode}) do
+    normalize_forward_context(%{mode: mode})
+  end
+
+  def normalize_forward_context(other),
+    do:
+      {:error,
+       "subagent forward_context must be :public, :none, {:only, keys}, or {:except, keys}, got: #{inspect(other)}"}
+
+  @spec normalize_result(term()) :: {:ok, result_mode()} | {:error, String.t()}
+  def normalize_result(:text), do: {:ok, :text}
+  def normalize_result("text"), do: {:ok, :text}
+  def normalize_result(:structured), do: {:ok, :structured}
+  def normalize_result("structured"), do: {:ok, :structured}
+
+  def normalize_result(other),
+    do: {:error, "subagent result must be :text or :structured, got: #{inspect(other)}"}
+
+  defp normalize_forward_context_mode(:public), do: {:ok, :public}
+  defp normalize_forward_context_mode("public"), do: {:ok, :public}
+  defp normalize_forward_context_mode(:none), do: {:ok, :none}
+  defp normalize_forward_context_mode("none"), do: {:ok, :none}
+  defp normalize_forward_context_mode(:only), do: {:ok, :only}
+  defp normalize_forward_context_mode("only"), do: {:ok, :only}
+  defp normalize_forward_context_mode(:except), do: {:ok, :except}
+  defp normalize_forward_context_mode("except"), do: {:ok, :except}
+
+  defp normalize_forward_context_mode(other),
+    do:
+      {:error,
+       "subagent forward_context mode must be public, none, only, or except, got: #{inspect(other)}"}
+
+  defp normalize_forward_context_keys(mode, keys) when is_list(keys) do
+    keys
+    |> Enum.reduce_while({:ok, []}, fn key, {:ok, acc} ->
+      case normalize_forward_context_key(key) do
+        {:ok, normalized_key} -> {:cont, {:ok, acc ++ [normalized_key]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, normalized_keys} -> {:ok, {mode, normalized_keys}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp normalize_forward_context_keys(_mode, other),
+    do: {:error, "subagent forward_context keys must be a list, got: #{inspect(other)}"}
+
+  defp normalize_forward_context_key(key) when is_atom(key), do: {:ok, key}
+
+  defp normalize_forward_context_key(key) when is_binary(key) do
+    case String.trim(key) do
+      "" -> {:error, "subagent forward_context keys must not be empty"}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp normalize_forward_context_key(other),
+    do: {:error, "subagent forward_context keys must be atoms or strings, got: #{inspect(other)}"}
 
   defp validate_published_name("", _kind),
     do: {:error, "subagent names must not be empty"}
@@ -795,15 +1186,7 @@ defmodule Moto.Subagent do
     end
   end
 
-  defp ensure_meta_table do
-    case :ets.whereis(@meta_table) do
-      :undefined ->
-        :ets.new(@meta_table, [:bag, :public, :named_table, read_concurrency: true])
-
-      _ ->
-        @meta_table
-    end
-  rescue
-    ArgumentError -> @meta_table
-  end
+  defp key_to_string(key) when is_atom(key), do: Atom.to_string(key)
+  defp key_to_string(key) when is_binary(key), do: key
+  defp key_to_string(key), do: inspect(key)
 end

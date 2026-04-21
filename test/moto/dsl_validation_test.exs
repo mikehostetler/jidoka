@@ -299,6 +299,60 @@ defmodule MotoTest.DslValidationTest do
     end
   end
 
+  test "rejects invalid subagent timeouts at compile time" do
+    assert_raise Spark.Error.DslError, ~r/subagent timeout must be a positive integer/, fn ->
+      Code.compile_string("""
+      defmodule MotoTest.InvalidSubagentTimeoutAgent do
+        use Moto.Agent
+
+        agent do
+          system_prompt "This should fail."
+        end
+
+        subagents do
+          subagent MotoTest.ResearchSpecialist, timeout: 0
+        end
+      end
+      """)
+    end
+  end
+
+  test "rejects invalid subagent context forwarding policies at compile time" do
+    assert_raise Spark.Error.DslError, ~r/subagent forward_context must be/, fn ->
+      Code.compile_string("""
+      defmodule MotoTest.InvalidSubagentForwardContextAgent do
+        use Moto.Agent
+
+        agent do
+          system_prompt "This should fail."
+        end
+
+        subagents do
+          subagent MotoTest.ResearchSpecialist, forward_context: :everything
+        end
+      end
+      """)
+    end
+  end
+
+  test "rejects invalid subagent result modes at compile time" do
+    assert_raise Spark.Error.DslError, ~r/subagent result must be :text or :structured/, fn ->
+      Code.compile_string("""
+      defmodule MotoTest.InvalidSubagentResultAgent do
+        use Moto.Agent
+
+        agent do
+          system_prompt "This should fail."
+        end
+
+        subagents do
+          subagent MotoTest.ResearchSpecialist, result: :json
+        end
+      end
+      """)
+    end
+  end
+
   test "rejects NimbleOptions schemas in Moto.Tool" do
     assert_raise CompileError, ~r/must use a Zoi schema for schema\/0/, fn ->
       Code.compile_string("""

@@ -124,7 +124,10 @@ defmodule Moto.Agent.Build do
              entry.agent,
              as: entry.as,
              description: entry.description,
-             target: entry.target
+             target: entry.target,
+             timeout: entry.timeout,
+             forward_context: entry.forward_context,
+             result: entry.result
            ) do
         {:ok, subagent} ->
           {:cont, {:ok, acc ++ [subagent]}}

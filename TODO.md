@@ -43,7 +43,11 @@ The package now has a real first-pass shape:
 - [ ] runtime polish
   Tighten the package around the current feature set before broadening it again.
   Specifically:
-  - switch back from vendored `jido_ai` to an upstream release once the preflight callback patch lands
+  - keep `jido` and `jido_ai` on Hex releases and avoid drifting back to local
+    vendored dependencies
+  - keep `ash_jido` pointed at GitHub until a Hex package exists
+  - upstream or remove Moto-owned compatibility shims where they belong in
+    `jido_mcp` / `jido_memory`
   - keep the boundaries sharp between plugins, hooks, and guardrails in docs and code
   - continue hardening subagent and memory edge cases as they show up
 

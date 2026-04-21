@@ -39,6 +39,28 @@ defmodule Moto.ImportedAgent.Spec do
                              |> Zoi.max(128)
                              |> Zoi.regex(~r/^[a-z][a-z0-9_]*$/)
 
+  @subagent_forward_context_key_schema Zoi.union([
+                                         Zoi.string() |> Zoi.trim() |> Zoi.min(1),
+                                         Zoi.atom()
+                                       ])
+
+  @subagent_forward_context_schema Zoi.union([
+                                     Zoi.string() |> Zoi.trim() |> Zoi.min(1),
+                                     Zoi.object(
+                                       %{
+                                         mode:
+                                           Zoi.string()
+                                           |> Zoi.trim()
+                                           |> Zoi.min(1),
+                                         keys:
+                                           Zoi.list(@subagent_forward_context_key_schema)
+                                           |> Zoi.optional()
+                                       },
+                                       coerce: true,
+                                       unrecognized_keys: :error
+                                     )
+                                   ])
+
   @hook_name_schema Zoi.string()
                     |> Zoi.trim()
                     |> Zoi.min(1)
@@ -130,6 +152,13 @@ defmodule Moto.ImportedAgent.Spec do
                          |> Zoi.optional(),
                        peer_id_context_key:
                          Zoi.union([Zoi.string() |> Zoi.trim() |> Zoi.min(1), Zoi.atom()])
+                         |> Zoi.optional(),
+                       timeout_ms: Zoi.integer() |> Zoi.optional(),
+                       forward_context: @subagent_forward_context_schema |> Zoi.optional(),
+                       result:
+                         Zoi.string()
+                         |> Zoi.trim()
+                         |> Zoi.min(1)
                          |> Zoi.optional()
                      },
                      coerce: true,
@@ -564,7 +593,10 @@ defmodule Moto.ImportedAgent.Spec do
                    agent_module,
                    as: Map.get(subagent, :as),
                    description: Map.get(subagent, :description),
-                   target: imported_subagent_target(subagent)
+                   target: imported_subagent_target(subagent),
+                   timeout: Map.get(subagent, :timeout_ms, 30_000),
+                   forward_context: Map.get(subagent, :forward_context, :public),
+                   result: Map.get(subagent, :result, :text)
                  ) do
             {:cont, {:ok, spec_acc}}
           else

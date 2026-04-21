@@ -134,6 +134,22 @@ defmodule MotoTest.ContextPeerOrchestratorAgent do
   end
 end
 
+defmodule MotoTest.ContextPeerNoForwardOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to a context-derived peer without forwarding context.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist,
+      target: {:peer, {:context, :research_peer_id}},
+      forward_context: :none
+    )
+  end
+end
+
 defmodule MotoTest.WrongPeerOrchestratorAgent do
   use Moto.Agent
 
@@ -144,5 +160,265 @@ defmodule MotoTest.WrongPeerOrchestratorAgent do
 
   subagents do
     subagent(MotoTest.ResearchSpecialist, target: {:peer, "wrong-peer-test"})
+  end
+end
+
+defmodule MotoTest.ForwardNoneOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate without public context.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist, forward_context: :none)
+  end
+end
+
+defmodule MotoTest.ForwardOnlyOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate with selected context.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist, forward_context: {:only, [:tenant, "notify_pid"]})
+  end
+end
+
+defmodule MotoTest.ForwardExceptOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate with excluded context.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist, forward_context: {:except, ["secret"]})
+  end
+end
+
+defmodule MotoTest.StructuredOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate with structured metadata.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist, result: :structured)
+  end
+end
+
+defmodule MotoTest.MissingPeerOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You expect an existing peer.")
+  end
+
+  subagents do
+    subagent(MotoTest.ResearchSpecialist, target: {:peer, "missing-peer-test"})
+  end
+end
+
+defmodule MotoTest.SlowSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "slow_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "slow_agent"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Moto.start_agent(Runtime, opts)
+
+  def chat(_pid, message, _opts \\ []) do
+    Process.sleep(100)
+    {:ok, "slow:#{message}"}
+  end
+end
+
+defmodule MotoTest.TimeoutOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to a slow specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.SlowSpecialist, timeout: 20)
+  end
+end
+
+defmodule MotoTest.InvalidResultSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "invalid_result_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "invalid_result_agent"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Moto.start_agent(Runtime, opts)
+  def chat(_pid, _message, _opts \\ []), do: {:ok, %{not: "text"}}
+end
+
+defmodule MotoTest.InvalidResultOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to an invalid specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.InvalidResultSpecialist)
+  end
+end
+
+defmodule MotoTest.InterruptSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "interrupt_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "interrupt_agent"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Moto.start_agent(Runtime, opts)
+
+  def chat(_pid, _message, _opts \\ []) do
+    {:interrupt, Moto.Interrupt.new(kind: :approval, message: "Need approval")}
+  end
+end
+
+defmodule MotoTest.InterruptOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to an interrupting specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.InterruptSpecialist)
+  end
+end
+
+defmodule MotoTest.InvalidInterruptSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "invalid_interrupt_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "invalid_interrupt_agent"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Moto.start_agent(Runtime, opts)
+  def chat(_pid, _message, _opts \\ []), do: {:interrupt, :not_an_interrupt}
+end
+
+defmodule MotoTest.InvalidInterruptOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to an invalid interrupt specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.InvalidInterruptSpecialist)
+  end
+end
+
+defmodule MotoTest.StartFailureSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "start_failure_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "start_failure_agent"
+  def runtime_module, do: Runtime
+  def start_link(_opts \\ []), do: {:error, :boom}
+  def chat(_pid, _message, _opts \\ []), do: {:ok, "unreachable"}
+end
+
+defmodule MotoTest.StartFailureOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to a failing specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.StartFailureSpecialist)
+  end
+end
+
+defmodule MotoTest.StartIgnoreSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "start_ignore_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "start_ignore_agent"
+  def runtime_module, do: Runtime
+  def start_link(_opts \\ []), do: :ignore
+  def chat(_pid, _message, _opts \\ []), do: {:ok, "unreachable"}
+end
+
+defmodule MotoTest.StartIgnoreOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to an ignored specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.StartIgnoreSpecialist)
+  end
+end
+
+defmodule MotoTest.StartTripleSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "start_triple_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "start_triple_agent"
+  def runtime_module, do: Runtime
+
+  def start_link(opts \\ []) do
+    with {:ok, pid} <- Moto.start_agent(Runtime, opts) do
+      {:ok, pid, %{mode: :triple}}
+    end
+  end
+
+  def chat(_pid, message, _opts \\ []), do: {:ok, "triple:#{message}"}
+end
+
+defmodule MotoTest.StartTripleOrchestratorAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can delegate to a triple-start specialist.")
+  end
+
+  subagents do
+    subagent(MotoTest.StartTripleSpecialist)
   end
 end

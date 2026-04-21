@@ -215,13 +215,27 @@ defmodule Moto.Demo.Debug do
     Enum.each(calls, fn call ->
       child = call[:child_id] || "ephemeral"
       duration = call[:duration_ms] || 0
-      child_status = get_in(call, [:child_result_meta, :status]) || "unknown"
+      status = subagent_status(call)
 
       summary =
-        "debug> delegated to #{call.name} mode=#{call.mode} child=#{child} child_status=#{child_status} duration_ms=#{duration}"
+        "debug> delegated to #{call.name} mode=#{call.mode} child=#{child} status=#{status} duration_ms=#{duration}"
 
-      if level == :trace and is_binary(call[:task_preview]) and call.task_preview != "" do
-        IO.puts(summary <> " task=" <> inspect(preview(call.task_preview, level)))
+      if level == :trace do
+        details =
+          [
+            trace_field("target", call[:target]),
+            trace_field("context_keys", call[:context_keys]),
+            trace_field("task", call[:task_preview]),
+            trace_field("result", call[:result_preview])
+          ]
+          |> Enum.reject(&is_nil/1)
+          |> Enum.join(" ")
+
+        if details == "" do
+          IO.puts(summary)
+        else
+          IO.puts(summary <> " " <> details)
+        end
       else
         IO.puts(summary)
       end
@@ -306,6 +320,19 @@ defmodule Moto.Demo.Debug do
 
   defp format_tool_signal(message, "unknown"), do: message
   defp format_tool_signal(message, tool_name), do: "#{message} name=#{tool_name}"
+
+  defp subagent_status(%{outcome: :ok}), do: "ok"
+  defp subagent_status(%{outcome: {:interrupt, _interrupt}}), do: "interrupt"
+  defp subagent_status(%{outcome: {:error, reason}}), do: "error:#{inspect(reason)}"
+  defp subagent_status(call), do: get_in(call, [:child_result_meta, :status]) || "unknown"
+
+  defp trace_field(_label, nil), do: nil
+  defp trace_field(_label, []), do: nil
+
+  defp trace_field(label, value) when is_binary(value) and value != "",
+    do: "#{label}=#{inspect(value)}"
+
+  defp trace_field(label, value), do: "#{label}=#{inspect(value)}"
 
   defp maybe_print_raw_events(events, :trace) do
     interesting =

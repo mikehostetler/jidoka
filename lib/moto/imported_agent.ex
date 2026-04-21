@@ -560,7 +560,10 @@ defmodule Moto.ImportedAgent do
                agent_module,
                as: Map.get(subagent_spec, :as),
                description: Map.get(subagent_spec, :description),
-               target: imported_subagent_target(subagent_spec)
+               target: imported_subagent_target(subagent_spec),
+               timeout: Map.get(subagent_spec, :timeout_ms, 30_000),
+               forward_context: Map.get(subagent_spec, :forward_context, :public),
+               result: Map.get(subagent_spec, :result, :text)
              ) do
         {:cont, {:ok, acc ++ [subagent]}}
       else
@@ -800,6 +803,9 @@ defmodule Moto.ImportedAgent do
           maybe_yaml_line("as", subagent["as"] || subagent[:as]) ++
           maybe_yaml_line("description", subagent["description"] || subagent[:description]) ++
           ["    target: #{Jason.encode!(subagent["target"] || subagent[:target])}"] ++
+          maybe_yaml_line("timeout_ms", subagent["timeout_ms"] || subagent[:timeout_ms], "    ") ++
+          maybe_yaml_line("result", subagent["result"] || subagent[:result], "    ") ++
+          maybe_yaml_forward_context(subagent["forward_context"] || subagent[:forward_context]) ++
           maybe_yaml_line("peer_id", subagent["peer_id"] || subagent[:peer_id], "    ") ++
           maybe_yaml_line(
             "peer_id_context_key",
@@ -810,6 +816,23 @@ defmodule Moto.ImportedAgent do
       Enum.join(lines, "\n")
     end)
   end
+
+  defp maybe_yaml_forward_context(nil), do: []
+  defp maybe_yaml_forward_context("public"), do: ["    forward_context: \"public\""]
+  defp maybe_yaml_forward_context("none"), do: ["    forward_context: \"none\""]
+
+  defp maybe_yaml_forward_context(%{} = forward_context) do
+    mode = forward_context["mode"] || forward_context[:mode]
+    keys = forward_context["keys"] || forward_context[:keys]
+
+    ["    forward_context:", "      mode: #{Jason.encode!(mode)}"] ++
+      case keys do
+        nil -> []
+        keys -> ["      keys: #{Jason.encode!(keys)}"]
+      end
+  end
+
+  defp maybe_yaml_forward_context(other), do: ["    forward_context: #{Jason.encode!(other)}"]
 
   defp encode_yaml_context(context) when context == %{}, do: "  {}"
 

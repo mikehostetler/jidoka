@@ -667,6 +667,45 @@ Or use the shared runtime facade directly:
 {:ok, reply} = MyApp.ChatAgent.chat(pid, "Say hello.")
 ```
 
+## Subagents
+
+Subagents use the manager pattern: the parent agent sees each specialist as a
+tool-like capability and stays in control of the conversation.
+
+```elixir
+subagents do
+  subagent MyApp.ResearchAgent,
+    as: "research_agent",
+    description: "Ask the research specialist",
+    target: :ephemeral,
+    timeout: 30_000,
+    forward_context: :public,
+    result: :text
+end
+```
+
+`target` can be `:ephemeral`, `{:peer, "running-agent-id"}`, or
+`{:peer, {:context, :agent_id_key}}`. Persistent peers must already be running;
+Moto does not auto-start them.
+
+`forward_context` controls what public runtime context reaches the child:
+`:public`, `:none`, `{:only, keys}`, or `{:except, keys}`. Moto internal keys
+and `memory` are never forwarded.
+
+`result: :text` returns `%{result: child_text}` to the parent model.
+`result: :structured` returns `%{result: child_text, subagent: metadata}` with
+bounded execution metadata. Child output is still text in v1.
+
+The runnable orchestrator example shows:
+
+- a compiled manager agent
+- a compiled `research_agent` subagent using `timeout`, `forward_context`, and `result: :structured`
+- an imported JSON `writer_specialist` subagent using `Moto.ImportedSubagent`
+
+The imported manager reference spec at
+`examples/orchestrator/imported/sample_manager_agent.json` shows the equivalent
+JSON `subagents` shape.
+
 ## Demo CLI
 
 Interactive:
@@ -704,6 +743,8 @@ mix moto orchestrator
 mix moto orchestrator -- "Use the research_agent specialist to explain vector databases."
 mix moto orchestrator --log-level trace -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now."
 ```
+
+Use `--log-level trace` to see subagent config and delegation metadata.
 
 The example source modules live under `examples/`. `mix moto` is the canonical
 entrypoint for running them.

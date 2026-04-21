@@ -36,7 +36,9 @@ defmodule Moto.Agent do
   with the configured tool modules. The `tools` block currently supports
   explicit `Moto.Tool` modules and `ash_resource` expansion via `AshJido`.
   The `subagents` block compiles specialist agents into tool-like delegation
-  capabilities while keeping the parent agent in control.
+  capabilities while keeping the parent agent in control. Subagent entries can
+  tune child `timeout`, public `forward_context`, and parent-visible `result`
+  shape without introducing handoffs or workflow graphs.
   The `plugins` block accepts `Moto.Plugin` modules and merges their declared
   action-backed tools into the same LLM-visible tool registry.
   """

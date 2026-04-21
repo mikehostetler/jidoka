@@ -40,7 +40,16 @@ defmodule Moto.Agent.Dsl do
   defmodule Subagent do
     @moduledoc false
 
-    defstruct [:agent, :as, :description, :target, :__spark_metadata__]
+    defstruct [
+      :agent,
+      :as,
+      :description,
+      :target,
+      :timeout,
+      :forward_context,
+      :result,
+      :__spark_metadata__
+    ]
   end
 
   defmodule ContextEntry do
@@ -314,6 +323,24 @@ defmodule Moto.Agent.Dsl do
         Delegation mode for this subagent. Supports :ephemeral,
         {:peer, "id"}, and {:peer, {:context, key}}.
         """
+      ],
+      timeout: [
+        type: :any,
+        required: false,
+        default: 30_000,
+        doc: "Child delegation timeout in milliseconds."
+      ],
+      forward_context: [
+        type: :any,
+        required: false,
+        default: :public,
+        doc: "Context forwarding policy: :public, :none, {:only, keys}, or {:except, keys}."
+      ],
+      result: [
+        type: :any,
+        required: false,
+        default: :text,
+        doc: "Parent-visible result shape: :text or :structured."
       ]
     ]
   }

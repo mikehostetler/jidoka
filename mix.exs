@@ -24,15 +24,13 @@ defmodule Moto.MixProject do
 
   defp deps do
     [
-      {:ash_jido, path: "../ash_jido"},
+      {:ash_jido, git: "https://github.com/agentjido/ash_jido.git", branch: "main"},
       {:dotenvy, "~> 1.1"},
       {:jason, "~> 1.4"},
-      {:jido, path: "../jido", override: true},
-      {:jido_ai, path: "../jido_ai", override: true},
-      {:jido_mcp,
-       git: "https://github.com/agentjido/jido_mcp.git", branch: "main", override: true},
-      {:jido_memory,
-       git: "https://github.com/agentjido/jido_memory.git", branch: "main", override: true},
+      {:jido, "~> 2.2", override: true},
+      {:jido_ai, "~> 2.1", override: true},
+      {:jido_mcp, git: "https://github.com/agentjido/jido_mcp.git", branch: "main"},
+      {:jido_memory, git: "https://github.com/agentjido/jido_memory.git", branch: "main"},
       {:plug, "~> 1.18"},
       {:spark, "~> 2.6"},
       {:yaml_elixir, "~> 2.12"},
