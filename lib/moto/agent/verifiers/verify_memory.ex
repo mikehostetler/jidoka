@@ -6,7 +6,7 @@ defmodule Moto.Agent.Verifiers.VerifyMemory do
   @impl true
   def verify(dsl_state) do
     dsl_state
-    |> Spark.Dsl.Verifier.get_entities([:memory])
+    |> Spark.Dsl.Verifier.get_entities([:lifecycle, :memory])
     |> Enum.reduce_while(:ok, fn entry, :ok ->
       case Moto.Memory.validate_dsl_entry(entry) do
         :ok ->
@@ -17,7 +17,7 @@ defmodule Moto.Agent.Verifiers.VerifyMemory do
            {:error,
             Spark.Error.DslError.exception(
               message: message,
-              path: [:memory, entry_name(entry)],
+              path: [:lifecycle, :memory, entry_name(entry)],
               module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
               location: Spark.Dsl.Entity.anno(entry)
             )}}

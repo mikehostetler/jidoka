@@ -1,15 +1,15 @@
 defmodule Moto.ImportedAgent.Spec do
   @moduledoc false
 
-  @name_schema [
+  @id_schema [
     Zoi.string()
     |> Zoi.trim()
     |> Zoi.min(1)
     |> Zoi.max(64)
-    |> Zoi.regex(~r/^[A-Za-z0-9][A-Za-z0-9_-]*$/)
+    |> Zoi.regex(~r/^[a-z][a-z0-9_]*$/)
   ]
 
-  @prompt_schema [
+  @instructions_schema [
     Zoi.string()
     |> Zoi.min(1)
     |> Zoi.max(50_000)
@@ -227,32 +227,70 @@ defmodule Moto.ImportedAgent.Spec do
                        Zoi.string()
                        |> Zoi.trim()
                        |> Zoi.min(1)
-                       |> Zoi.default("system_prompt")
+                       |> Zoi.default("instructions")
                    },
                    coerce: true,
                    unrecognized_keys: :error
                  )
 
-  @schema Zoi.struct(
-            __MODULE__,
-            %{
-              name: hd(@name_schema),
-              system_prompt: hd(@prompt_schema),
-              model:
-                Zoi.union([
+  @model_schema Zoi.union([
                   Zoi.string() |> Zoi.trim() |> Zoi.min(1) |> Zoi.max(256),
                   @model_map_schema
-                ]),
-              context: Zoi.map() |> Zoi.default(%{}),
-              memory: Zoi.union([@memory_schema, Zoi.literal(nil)]) |> Zoi.default(nil),
-              tools: Zoi.list(@tool_name_schema) |> Zoi.default([]),
-              skills: Zoi.list(@skill_name_schema) |> Zoi.default(@default_skills),
-              skill_paths: Zoi.list(@skill_path_schema) |> Zoi.default(@default_skill_paths),
-              mcp_tools: Zoi.list(@mcp_tool_schema) |> Zoi.default(@default_mcp_tools),
-              subagents: Zoi.list(@subagent_schema) |> Zoi.default(@default_subagents),
-              plugins: Zoi.list(@plugin_name_schema) |> Zoi.default([]),
-              hooks: @hooks_schema |> Zoi.default(@default_hooks),
-              guardrails: @guardrails_schema |> Zoi.default(@default_guardrails)
+                ])
+
+  @agent_schema Zoi.object(
+                  %{
+                    id: hd(@id_schema),
+                    description:
+                      Zoi.string()
+                      |> Zoi.trim()
+                      |> Zoi.min(1)
+                      |> Zoi.max(1_000)
+                      |> Zoi.optional(),
+                    context: Zoi.map() |> Zoi.default(%{})
+                  },
+                  coerce: true,
+                  unrecognized_keys: :error
+                )
+
+  @defaults_schema Zoi.object(
+                     %{
+                       model: @model_schema |> Zoi.default("fast"),
+                       instructions: hd(@instructions_schema)
+                     },
+                     coerce: true,
+                     unrecognized_keys: :error
+                   )
+
+  @capabilities_schema Zoi.object(
+                         %{
+                           tools: Zoi.list(@tool_name_schema) |> Zoi.default([]),
+                           skills: Zoi.list(@skill_name_schema) |> Zoi.default(@default_skills),
+                           skill_paths: Zoi.list(@skill_path_schema) |> Zoi.default(@default_skill_paths),
+                           mcp_tools: Zoi.list(@mcp_tool_schema) |> Zoi.default(@default_mcp_tools),
+                           subagents: Zoi.list(@subagent_schema) |> Zoi.default(@default_subagents),
+                           plugins: Zoi.list(@plugin_name_schema) |> Zoi.default([])
+                         },
+                         coerce: true,
+                         unrecognized_keys: :error
+                       )
+
+  @lifecycle_schema Zoi.object(
+                      %{
+                        memory: Zoi.union([@memory_schema, Zoi.literal(nil)]) |> Zoi.default(nil),
+                        hooks: @hooks_schema |> Zoi.default(@default_hooks),
+                        guardrails: @guardrails_schema |> Zoi.default(@default_guardrails)
+                      },
+                      coerce: true,
+                      unrecognized_keys: :error
+                    )
+
+  @schema Zoi.object(
+            %{
+              agent: @agent_schema,
+              defaults: @defaults_schema,
+              capabilities: @capabilities_schema |> Zoi.default(%{}),
+              lifecycle: @lifecycle_schema |> Zoi.default(%{})
             },
             coerce: true,
             unrecognized_keys: :error
@@ -267,8 +305,9 @@ defmodule Moto.ImportedAgent.Spec do
               optional(:base_url) => String.t()
             }
   @type t :: %__MODULE__{
-          name: String.t(),
-          system_prompt: String.t(),
+          id: String.t(),
+          description: String.t() | nil,
+          instructions: String.t(),
           model: model_input(),
           context: map(),
           memory: Moto.Memory.config() | nil,
@@ -290,10 +329,11 @@ defmodule Moto.ImportedAgent.Spec do
           }
         }
 
-  @enforce_keys [:name, :system_prompt, :model]
+  @enforce_keys [:id, :instructions, :model]
   defstruct [
-    :name,
-    :system_prompt,
+    :id,
+    :description,
+    :instructions,
     :model,
     context: %{},
     memory: @default_memory,
@@ -335,7 +375,8 @@ defmodule Moto.ImportedAgent.Spec do
   end
 
   def new(attrs, opts) when is_map(attrs) do
-    with {:ok, spec} <- Zoi.parse(@schema, attrs),
+    with {:ok, parsed} <- Zoi.parse(@schema, attrs),
+         spec <- from_external(parsed),
          {:ok, normalized_model} <- normalize_model(spec.model),
          :ok <- validate_model(normalized_model),
          :ok <- validate_context(spec.context),
@@ -395,19 +436,31 @@ defmodule Moto.ImportedAgent.Spec do
   @spec to_external_map(t()) :: map()
   def to_external_map(%__MODULE__{} = spec) do
     %{
-      "name" => spec.name,
-      "model" => externalize_model(spec.model),
-      "system_prompt" => spec.system_prompt,
-      "context" => spec.context,
-      "memory" => externalize_memory(spec.memory),
-      "tools" => spec.tools,
-      "skills" => spec.skills,
-      "skill_paths" => spec.skill_paths,
-      "mcp_tools" => spec.mcp_tools,
-      "subagents" => spec.subagents,
-      "plugins" => spec.plugins,
-      "hooks" => spec.hooks,
-      "guardrails" => spec.guardrails
+      "agent" =>
+        %{
+          "id" => spec.id,
+          "description" => spec.description,
+          "context" => spec.context
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new(),
+      "defaults" => %{
+        "model" => externalize_model(spec.model),
+        "instructions" => spec.instructions
+      },
+      "capabilities" => %{
+        "tools" => spec.tools,
+        "skills" => spec.skills,
+        "skill_paths" => spec.skill_paths,
+        "mcp_tools" => spec.mcp_tools,
+        "subagents" => spec.subagents,
+        "plugins" => spec.plugins
+      },
+      "lifecycle" => %{
+        "memory" => externalize_memory(spec.memory),
+        "hooks" => spec.hooks,
+        "guardrails" => spec.guardrails
+      }
     }
   end
 
@@ -418,6 +471,30 @@ defmodule Moto.ImportedAgent.Spec do
     |> Jason.encode!()
     |> then(&:crypto.hash(:sha256, &1))
     |> Base.encode16(case: :lower)
+  end
+
+  defp from_external(%{} = attrs) do
+    agent = Map.fetch!(attrs, :agent)
+    defaults = Map.fetch!(attrs, :defaults)
+    capabilities = Map.get(attrs, :capabilities, %{})
+    lifecycle = Map.get(attrs, :lifecycle, %{})
+
+    %__MODULE__{
+      id: Map.fetch!(agent, :id),
+      description: Map.get(agent, :description),
+      instructions: Map.fetch!(defaults, :instructions),
+      model: Map.get(defaults, :model, "fast"),
+      context: Map.get(agent, :context, %{}),
+      memory: Map.get(lifecycle, :memory),
+      tools: Map.get(capabilities, :tools, []),
+      skills: Map.get(capabilities, :skills, @default_skills),
+      skill_paths: Map.get(capabilities, :skill_paths, @default_skill_paths),
+      mcp_tools: Map.get(capabilities, :mcp_tools, @default_mcp_tools),
+      subagents: Map.get(capabilities, :subagents, @default_subagents),
+      plugins: Map.get(capabilities, :plugins, []),
+      hooks: Map.get(lifecycle, :hooks, @default_hooks),
+      guardrails: Map.get(lifecycle, :guardrails, @default_guardrails)
+    }
   end
 
   defp normalize_model(model) when is_binary(model) do

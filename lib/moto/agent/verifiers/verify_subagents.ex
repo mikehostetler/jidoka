@@ -6,7 +6,7 @@ defmodule Moto.Agent.Verifiers.VerifySubagents do
   @impl true
   def verify(dsl_state) do
     dsl_state
-    |> Spark.Dsl.Verifier.get_entities([:subagents])
+    |> Spark.Dsl.Verifier.get_entities([:capabilities])
     |> Enum.filter(&match?(%Moto.Agent.Dsl.Subagent{}, &1))
     |> Enum.reduce_while({:ok, MapSet.new()}, fn subagent_ref, {:ok, seen_names} ->
       with {:ok, subagent} <-
@@ -35,7 +35,7 @@ defmodule Moto.Agent.Verifiers.VerifySubagents do
   defp duplicate_subagent_error(dsl_state, subagent_ref, name) do
     Spark.Error.DslError.exception(
       message: "subagent #{inspect(name)} is defined more than once",
-      path: [:subagents, :subagent],
+      path: [:capabilities, :subagent],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(subagent_ref)
     )
@@ -44,7 +44,7 @@ defmodule Moto.Agent.Verifiers.VerifySubagents do
   defp subagent_error(dsl_state, subagent_ref, message) do
     Spark.Error.DslError.exception(
       message: message,
-      path: [:subagents, :subagent],
+      path: [:capabilities, :subagent],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(subagent_ref)
     )

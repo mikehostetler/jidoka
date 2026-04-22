@@ -2,8 +2,7 @@ defmodule Moto.Examples.Orchestrator.Agents.ManagerAgent do
   use Moto.Agent
 
   agent do
-    name("script_manager_agent")
-    model(:fast)
+    id(:script_manager_agent)
 
     schema(
       Zoi.object(%{
@@ -12,8 +11,12 @@ defmodule Moto.Examples.Orchestrator.Agents.ManagerAgent do
         session: Zoi.string() |> Zoi.optional()
       })
     )
+  end
 
-    system_prompt("""
+  defaults do
+    model(:fast)
+
+    instructions("""
     You are an orchestration manager.
     Use the research_agent specialist for research, explanation, and analysis tasks.
     Use the writer_specialist specialist for rewriting, drafting, and polishing tasks.
@@ -23,7 +26,7 @@ defmodule Moto.Examples.Orchestrator.Agents.ManagerAgent do
     """)
   end
 
-  subagents do
+  capabilities do
     subagent(Moto.Examples.Orchestrator.Agents.ResearchAgent,
       timeout: 30_000,
       forward_context: {:only, [:tenant, :channel, :session]},

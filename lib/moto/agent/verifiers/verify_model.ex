@@ -5,7 +5,7 @@ defmodule Moto.Agent.Verifiers.VerifyModel do
 
   @impl true
   def verify(dsl_state) do
-    model = Spark.Dsl.Verifier.get_option(dsl_state, [:agent], :model, :fast)
+    model = Spark.Dsl.Verifier.get_option(dsl_state, [:defaults], :model, :fast)
 
     case validate_model(model) do
       :ok ->
@@ -15,7 +15,7 @@ defmodule Moto.Agent.Verifiers.VerifyModel do
         {:error,
          Spark.Error.DslError.exception(
            message: message,
-           path: [:agent, :model],
+           path: [:defaults, :model],
            module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module)
          )}
     end

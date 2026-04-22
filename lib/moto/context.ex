@@ -69,6 +69,17 @@ defmodule Moto.Context do
     end
   end
 
+  @spec schema_has_key?(schema(), atom() | String.t()) :: boolean()
+  def schema_has_key?(nil, _key), do: false
+
+  def schema_has_key?(%Zoi.Types.Map{fields: fields}, key) when is_list(fields) do
+    Enum.any?(fields, fn {field, _schema} ->
+      field == key or equivalent_keys?(field, key)
+    end)
+  end
+
+  def schema_has_key?(_schema, _key), do: false
+
   @spec coerce_map(term()) :: {:ok, t()} | :error
   def coerce_map(context) when is_map(context), do: {:ok, context}
 

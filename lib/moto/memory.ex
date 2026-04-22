@@ -12,12 +12,12 @@ defmodule Moto.Memory do
     namespace: :per_agent,
     capture: :conversation,
     retrieve: %{limit: @default_retrieve_limit},
-    inject: :system_prompt
+    inject: :instructions
   }
 
   @type namespace_mode :: :per_agent | {:shared, String.t()} | {:context, atom() | String.t()}
   @type capture_mode :: :conversation | :off
-  @type inject_mode :: :system_prompt | :context
+  @type inject_mode :: :instructions | :context
   @type config :: %{
           mode: :conversation,
           namespace: namespace_mode(),
@@ -37,7 +37,7 @@ defmodule Moto.Memory do
   def enabled?(%{}), do: true
 
   @spec requires_request_transformer?(config() | nil) :: boolean()
-  def requires_request_transformer?(%{inject: :system_prompt}), do: true
+  def requires_request_transformer?(%{inject: :instructions}), do: true
   def requires_request_transformer?(_), do: false
 
   @spec prompt_text(map()) :: String.t() | nil
@@ -300,7 +300,11 @@ defmodule Moto.Memory do
     {:error, "memory namespace must be :per_agent, :shared, or {:context, key}, got: #{inspect(other)}"}
   end
 
-  defp validate_namespace(:per_agent, _shared_namespace), do: {:ok, :per_agent}
+  defp validate_namespace(:per_agent, nil), do: {:ok, :per_agent}
+
+  defp validate_namespace(:per_agent, shared_namespace) do
+    {:error, "memory shared_namespace is only valid when namespace is :shared, got: #{inspect(shared_namespace)}"}
+  end
 
   defp validate_namespace(:shared, shared_namespace) do
     with :ok <- validate_shared_namespace_for_namespace(shared_namespace) do
@@ -308,9 +312,13 @@ defmodule Moto.Memory do
     end
   end
 
-  defp validate_namespace({:context, key}, _shared_namespace)
+  defp validate_namespace({:context, key}, nil)
        when is_atom(key) or is_binary(key) do
     {:ok, {:context, key}}
+  end
+
+  defp validate_namespace({:context, _key}, shared_namespace) do
+    {:error, "memory shared_namespace is only valid when namespace is :shared, got: #{inspect(shared_namespace)}"}
   end
 
   defp validate_namespace(other, _shared_namespace) do
@@ -345,11 +353,11 @@ defmodule Moto.Memory do
   defp validate_capture(other),
     do: {:error, "memory capture must be :conversation or :off, got: #{inspect(other)}"}
 
-  defp validate_inject(:system_prompt), do: :ok
+  defp validate_inject(:instructions), do: :ok
   defp validate_inject(:context), do: :ok
 
   defp validate_inject(other),
-    do: {:error, "memory inject must be :system_prompt or :context, got: #{inspect(other)}"}
+    do: {:error, "memory inject must be :instructions or :context, got: #{inspect(other)}"}
 
   defp normalize_retrieve(%{limit: limit}),
     do: with(:ok <- validate_limit(limit), do: {:ok, %{limit: limit}})

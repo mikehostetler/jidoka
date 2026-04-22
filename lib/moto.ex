@@ -73,12 +73,8 @@ defmodule Moto do
   @doc """
   Imports a constrained Moto agent from a map, JSON string, or YAML string.
 
-  The imported format currently supports `name`, `model`, `system_prompt`,
-  default `context`,
-  published tool names via `tools`, published subagent definitions via
-  `subagents`, published plugin names via `plugins`,
-  published hook names via `hooks`, and published guardrail names via
-  `guardrails`.
+  The imported format mirrors the beta DSL sections: `agent`, `defaults`,
+  `capabilities`, and `lifecycle`.
 
   Imported tools and plugins must be resolved through the explicit
   `:available_tools`, `:available_subagents`, `:available_plugins`,

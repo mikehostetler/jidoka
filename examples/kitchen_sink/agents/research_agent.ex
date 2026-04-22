@@ -2,8 +2,7 @@ defmodule Moto.Examples.KitchenSink.Agents.ResearchAgent do
   use Moto.Agent
 
   agent do
-    name("kitchen_research_agent")
-    model(:fast)
+    id(:kitchen_research_agent)
 
     schema(
       Zoi.object(%{
@@ -13,8 +12,12 @@ defmodule Moto.Examples.KitchenSink.Agents.ResearchAgent do
         specialty: Zoi.string() |> Zoi.default("research")
       })
     )
+  end
 
-    system_prompt("""
+  defaults do
+    model(:fast)
+
+    instructions("""
     You are a research specialist used by the Moto kitchen sink showcase.
     Return concise factual notes.
     Do not mention orchestration internals.

@@ -6,7 +6,7 @@ defmodule Moto.Agent.Verifiers.VerifySkills do
   @impl true
   def verify(dsl_state) do
     dsl_state
-    |> Spark.Dsl.Verifier.get_entities([:skills])
+    |> Spark.Dsl.Verifier.get_entities([:capabilities])
     |> Enum.reduce_while({:ok, MapSet.new()}, fn
       %Moto.Agent.Dsl.SkillRef{skill: skill} = entry, {:ok, seen} ->
         with :ok <- Moto.Skill.validate_skill_ref(skill),
@@ -24,6 +24,9 @@ defmodule Moto.Agent.Verifiers.VerifySkills do
           {:error, reason} ->
             {:halt, {:error, skill_error(dsl_state, entry, :load_path, reason)}}
         end
+
+      _other, {:ok, seen} ->
+        {:cont, {:ok, seen}}
     end)
     |> case do
       {:ok, _seen} -> :ok
@@ -47,7 +50,7 @@ defmodule Moto.Agent.Verifiers.VerifySkills do
   defp skill_error(dsl_state, entry, path_name, message) do
     Spark.Error.DslError.exception(
       message: message,
-      path: [:skills, path_name],
+      path: [:capabilities, path_name],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(entry)
     )

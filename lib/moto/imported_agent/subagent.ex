@@ -38,7 +38,7 @@ defmodule Moto.ImportedAgent.Subagent do
       def dynamic_agent, do: imported_agent()
 
       @spec name() :: String.t()
-      def name, do: @moto_imported_subagent.spec.name
+      def name, do: @moto_imported_subagent.spec.id
 
       @spec runtime_module() :: module()
       def runtime_module, do: @moto_imported_subagent.runtime_module

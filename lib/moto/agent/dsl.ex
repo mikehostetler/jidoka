@@ -26,36 +26,28 @@ defmodule Moto.Agent.Dsl do
   @agent_section %Spark.Dsl.Section{
     name: :agent,
     describe: """
-    Configure the Moto agent.
+    Configure the immutable Moto agent contract.
     """,
     schema: [
-      name: [
-        type: :string,
+      id: [
+        type: :any,
         required: false,
-        doc: "The public agent name. Defaults to the underscored module name."
+        doc: "The stable public agent id. Must be lower snake case."
       ],
       model: [
         type: :any,
         required: false,
-        doc: """
-        The model to use for this agent.
-
-        Supports the same shapes Jido.AI accepts, including alias atoms, direct
-        model strings, inline model maps, and `%LLMDB.Model{}` structs.
-        """
+        doc: "Legacy placement. Use `defaults do model ... end` instead."
       ],
       system_prompt: [
         type: :any,
-        required: true,
-        doc: """
-        The system prompt used for this agent.
-
-        Supports:
-
-        - a static string
-        - a module implementing `resolve_system_prompt/1`
-        - an MFA tuple like `{MyApp.Prompts.Support, :build, ["prefix"]}`
-        """
+        required: false,
+        doc: "Legacy placement. Use `defaults do instructions ... end` instead."
+      ],
+      description: [
+        type: :string,
+        required: false,
+        doc: "Optional human-readable description for inspection and imported specs."
       ],
       schema: [
         type: :any,
@@ -64,6 +56,38 @@ defmodule Moto.Agent.Dsl do
         Optional Zoi map/object schema for runtime context passed to `chat/3`.
 
         Defaults declared in the schema become the agent's default context.
+        """
+      ]
+    ]
+  }
+
+  @defaults_section %Spark.Dsl.Section{
+    name: :defaults,
+    describe: """
+    Configure runtime defaults for this agent.
+    """,
+    schema: [
+      model: [
+        type: :any,
+        required: false,
+        doc: """
+        The default model to use for this agent.
+
+        Supports the same shapes Jido.AI accepts, including alias atoms, direct
+        model strings, inline model maps, and `%LLMDB.Model{}` structs.
+        """
+      ],
+      instructions: [
+        type: :any,
+        required: false,
+        doc: """
+        Default instructions used for this agent.
+
+        Supports:
+
+        - a static string
+        - a module implementing `resolve_system_prompt/1`
+        - an MFA tuple like `{MyApp.Prompts.Support, :build, ["prefix"]}`
         """
       ]
     ]
@@ -147,38 +171,6 @@ defmodule Moto.Agent.Dsl do
     ]
   }
 
-  @tools_section %Spark.Dsl.Section{
-    name: :tools,
-    describe: """
-    Register Moto tools for this agent.
-    """,
-    entities: [@tool_entity, @ash_resource_entity, @mcp_tools_entity]
-  }
-
-  @plugin_entity %Spark.Dsl.Entity{
-    name: :plugin,
-    describe: """
-    Register a Moto plugin module for this agent.
-    """,
-    target: Plugin,
-    args: [:module],
-    schema: [
-      module: [
-        type: :atom,
-        required: true,
-        doc: "A module defined with `use Moto.Plugin`."
-      ]
-    ]
-  }
-
-  @plugins_section %Spark.Dsl.Section{
-    name: :plugins,
-    describe: """
-    Register Moto plugins for this agent.
-    """,
-    entities: [@plugin_entity]
-  }
-
   @skill_ref_entity %Spark.Dsl.Entity{
     name: :skill,
     describe: """
@@ -211,12 +203,20 @@ defmodule Moto.Agent.Dsl do
     ]
   }
 
-  @skills_section %Spark.Dsl.Section{
-    name: :skills,
+  @plugin_entity %Spark.Dsl.Entity{
+    name: :plugin,
     describe: """
-    Register Jido.AI skills for this agent.
+    Register a Moto plugin module for this agent.
     """,
-    entities: [@skill_ref_entity, @skill_path_entity]
+    target: Plugin,
+    args: [:module],
+    schema: [
+      module: [
+        type: :atom,
+        required: true,
+        doc: "A module defined with `use Moto.Plugin`."
+      ]
+    ]
   }
 
   @subagent_entity %Spark.Dsl.Entity{
@@ -272,12 +272,20 @@ defmodule Moto.Agent.Dsl do
     ]
   }
 
-  @subagents_section %Spark.Dsl.Section{
-    name: :subagents,
+  @capabilities_section %Spark.Dsl.Section{
+    name: :capabilities,
     describe: """
-    Register subagent specialists for this agent.
+    Register the tools, skills, plugins, and subagents available to this agent.
     """,
-    entities: [@subagent_entity]
+    entities: [
+      @tool_entity,
+      @ash_resource_entity,
+      @mcp_tools_entity,
+      @skill_ref_entity,
+      @skill_path_entity,
+      @plugin_entity,
+      @subagent_entity
+    ]
   }
 
   @memory_mode_entity %Spark.Dsl.Entity{
@@ -355,7 +363,7 @@ defmodule Moto.Agent.Dsl do
       value: [
         type: :any,
         required: true,
-        doc: "Supports :system_prompt or :context."
+        doc: "Supports :instructions or :context."
       ]
     ]
   }
@@ -380,8 +388,9 @@ defmodule Moto.Agent.Dsl do
   @memory_section %Spark.Dsl.Section{
     name: :memory,
     describe: """
-    Configure conversation memory for this agent.
+    Configure conversation memory for this agent lifecycle.
     """,
+    singleton_entity_keys: [:mode, :namespace, :shared_namespace, :capture, :inject, :retrieve],
     entities: [
       @memory_mode_entity,
       @memory_namespace_entity,
@@ -440,16 +449,8 @@ defmodule Moto.Agent.Dsl do
     ]
   }
 
-  @hooks_section %Spark.Dsl.Section{
-    name: :hooks,
-    describe: """
-    Register Moto hooks for this agent.
-    """,
-    entities: [@before_turn_hook_entity, @after_turn_hook_entity, @interrupt_hook_entity]
-  }
-
   @input_guardrail_entity %Spark.Dsl.Entity{
-    name: :input,
+    name: :input_guardrail,
     describe: """
     Register a guardrail that validates the final turn input before the LLM call.
     """,
@@ -465,7 +466,7 @@ defmodule Moto.Agent.Dsl do
   }
 
   @output_guardrail_entity %Spark.Dsl.Entity{
-    name: :output,
+    name: :output_guardrail,
     describe: """
     Register a guardrail that validates the final turn outcome before Moto returns it.
     """,
@@ -481,7 +482,7 @@ defmodule Moto.Agent.Dsl do
   }
 
   @tool_guardrail_entity %Spark.Dsl.Entity{
-    name: :tool,
+    name: :tool_guardrail,
     describe: """
     Register a guardrail that validates model-selected tool calls before execution.
     """,
@@ -496,24 +497,135 @@ defmodule Moto.Agent.Dsl do
     ]
   }
 
-  @guardrails_section %Spark.Dsl.Section{
+  @legacy_input_guardrail_entity %Spark.Dsl.Entity{
+    name: :input,
+    describe: """
+    Legacy guardrail declaration. Use lifecycle.input_guardrail instead.
+    """,
+    target: InputGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @legacy_output_guardrail_entity %Spark.Dsl.Entity{
+    name: :output,
+    describe: """
+    Legacy guardrail declaration. Use lifecycle.output_guardrail instead.
+    """,
+    target: OutputGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @legacy_tool_guardrail_entity %Spark.Dsl.Entity{
+    name: :tool,
+    describe: """
+    Legacy guardrail declaration. Use lifecycle.tool_guardrail instead.
+    """,
+    target: ToolGuardrail,
+    args: [:guardrail],
+    schema: [
+      guardrail: [
+        type: :any,
+        required: true,
+        doc: "A Moto.Guardrail module or MFA tuple."
+      ]
+    ]
+  }
+
+  @lifecycle_section %Spark.Dsl.Section{
+    name: :lifecycle,
+    describe: """
+    Configure per-turn lifecycle policies for this agent.
+    """,
+    entities: [
+      @before_turn_hook_entity,
+      @after_turn_hook_entity,
+      @interrupt_hook_entity,
+      @input_guardrail_entity,
+      @output_guardrail_entity,
+      @tool_guardrail_entity
+    ],
+    sections: [@memory_section]
+  }
+
+  @legacy_tools_section %Spark.Dsl.Section{
+    name: :tools,
+    describe: """
+    Legacy tool section. Use capabilities instead.
+    """,
+    entities: [@tool_entity, @ash_resource_entity, @mcp_tools_entity]
+  }
+
+  @legacy_skills_section %Spark.Dsl.Section{
+    name: :skills,
+    describe: """
+    Legacy skill section. Use capabilities instead.
+    """,
+    entities: [@skill_ref_entity, @skill_path_entity]
+  }
+
+  @legacy_plugins_section %Spark.Dsl.Section{
+    name: :plugins,
+    describe: """
+    Legacy plugin section. Use capabilities instead.
+    """,
+    entities: [@plugin_entity]
+  }
+
+  @legacy_subagents_section %Spark.Dsl.Section{
+    name: :subagents,
+    describe: """
+    Legacy subagent section. Use capabilities instead.
+    """,
+    entities: [@subagent_entity]
+  }
+
+  @legacy_hooks_section %Spark.Dsl.Section{
+    name: :hooks,
+    describe: """
+    Legacy hook section. Use lifecycle instead.
+    """,
+    entities: [@before_turn_hook_entity, @after_turn_hook_entity, @interrupt_hook_entity]
+  }
+
+  @legacy_guardrails_section %Spark.Dsl.Section{
     name: :guardrails,
     describe: """
-    Register Moto guardrails for this agent.
+    Legacy guardrail section. Use lifecycle instead.
     """,
-    entities: [@input_guardrail_entity, @output_guardrail_entity, @tool_guardrail_entity]
+    entities: [
+      @legacy_input_guardrail_entity,
+      @legacy_output_guardrail_entity,
+      @legacy_tool_guardrail_entity
+    ]
   }
 
   use Spark.Dsl.Extension,
     sections: [
       @agent_section,
+      @defaults_section,
+      @capabilities_section,
+      @lifecycle_section,
       @memory_section,
-      @tools_section,
-      @skills_section,
-      @subagents_section,
-      @plugins_section,
-      @hooks_section,
-      @guardrails_section
+      @legacy_tools_section,
+      @legacy_skills_section,
+      @legacy_subagents_section,
+      @legacy_plugins_section,
+      @legacy_hooks_section,
+      @legacy_guardrails_section
     ],
     verifiers: [
       Moto.Agent.Verifiers.VerifyModel,

@@ -16,17 +16,19 @@ defmodule Moto.Agent.SystemPrompt do
   @typedoc false
   @type spec :: String.t() | module() | {module(), atom(), [term()]}
 
-  @spec normalize(module(), term()) ::
+  @spec normalize(module(), term(), keyword()) ::
           {:ok, {:static, String.t()} | {:dynamic, spec()}} | {:error, String.t()}
-  def normalize(_owner_module, system_prompt) when is_binary(system_prompt) do
+  def normalize(owner_module, system_prompt, opts \\ [])
+
+  def normalize(_owner_module, system_prompt, opts) when is_binary(system_prompt) do
     if String.trim(system_prompt) == "" do
-      {:error, "system_prompt must not be empty"}
+      {:error, "#{label(opts)} must not be empty"}
     else
       {:ok, {:static, system_prompt}}
     end
   end
 
-  def normalize(_owner_module, {module, function, args} = spec)
+  def normalize(_owner_module, {module, function, args} = spec, opts)
       when is_atom(module) and is_atom(function) and is_list(args) do
     case Code.ensure_compiled(module) do
       {:module, ^module} ->
@@ -35,35 +37,35 @@ defmodule Moto.Agent.SystemPrompt do
         if function_exported?(module, function, arity) do
           {:ok, {:dynamic, spec}}
         else
-          {:error, "system_prompt MFA #{inspect(spec)} must export #{function}/#{arity} on #{inspect(module)}"}
+          {:error, "#{label(opts)} MFA #{inspect(spec)} must export #{function}/#{arity} on #{inspect(module)}"}
         end
 
       {:error, reason} ->
-        {:error, "system_prompt module #{inspect(module)} could not be loaded: #{inspect(reason)}"}
+        {:error, "#{label(opts)} module #{inspect(module)} could not be loaded: #{inspect(reason)}"}
     end
   end
 
-  def normalize(_owner_module, module) when is_atom(module) do
+  def normalize(_owner_module, module, opts) when is_atom(module) do
     case Code.ensure_compiled(module) do
       {:module, ^module} ->
         if function_exported?(module, :resolve_system_prompt, 1) do
           {:ok, {:dynamic, module}}
         else
-          {:error, "system_prompt module #{inspect(module)} must implement resolve_system_prompt/1"}
+          {:error, "#{label(opts)} module #{inspect(module)} must implement resolve_system_prompt/1"}
         end
 
       {:error, reason} ->
-        {:error, "system_prompt module #{inspect(module)} could not be loaded: #{inspect(reason)}"}
+        {:error, "#{label(opts)} module #{inspect(module)} could not be loaded: #{inspect(reason)}"}
     end
   end
 
-  def normalize(_owner_module, system_prompt) when is_function(system_prompt) do
-    {:error, "system_prompt does not support anonymous functions; use a module callback or MFA instead"}
+  def normalize(_owner_module, system_prompt, opts) when is_function(system_prompt) do
+    {:error, "#{label(opts)} does not support anonymous functions; use a module callback or MFA instead"}
   end
 
-  def normalize(_owner_module, other) do
+  def normalize(_owner_module, other, opts) do
     {:error,
-     "system_prompt must be a string, a module implementing resolve_system_prompt/1, or an MFA tuple, got: #{inspect(other)}"}
+     "#{label(opts)} must be a string, a module implementing resolve_system_prompt/1, or an MFA tuple, got: #{inspect(other)}"}
   end
 
   @spec transform_request(spec(), map(), State.t(), Config.t(), map()) ::
@@ -124,6 +126,8 @@ defmodule Moto.Agent.SystemPrompt do
     {:error,
      "dynamic system_prompt resolver #{inspect(resolver)} must return a string, {:ok, string}, or {:error, reason}; got: #{inspect(other)}"}
   end
+
+  defp label(opts), do: Keyword.get(opts, :label, "system_prompt")
 
   @spec put_system_prompt([map()], String.t()) :: [map()]
   def put_system_prompt(messages, prompt) when is_list(messages) and is_binary(prompt) do

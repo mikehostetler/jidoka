@@ -64,7 +64,8 @@ defmodule Moto.ImportedAgent.Codec do
 
   @spec expand_skill_paths(map(), Path.t()) :: map()
   def expand_skill_paths(%{} = attrs, base_dir) when is_binary(base_dir) do
-    skill_paths = Map.get(attrs, "skill_paths", Map.get(attrs, :skill_paths, []))
+    capabilities = Map.get(attrs, "capabilities", Map.get(attrs, :capabilities, %{}))
+    skill_paths = Map.get(capabilities, "skill_paths", Map.get(capabilities, :skill_paths, []))
 
     expanded_paths =
       Enum.map(skill_paths, fn
@@ -72,9 +73,14 @@ defmodule Moto.ImportedAgent.Codec do
         other -> other
       end)
 
+    expanded_capabilities =
+      capabilities
+      |> maybe_put("skill_paths", expanded_paths)
+      |> maybe_put(:skill_paths, expanded_paths)
+
     attrs
-    |> maybe_put("skill_paths", expanded_paths)
-    |> maybe_put(:skill_paths, expanded_paths)
+    |> maybe_put("capabilities", expanded_capabilities)
+    |> maybe_put(:capabilities, expanded_capabilities)
   end
 
   @spec encode(Spec.t(), keyword()) :: {:ok, binary()} | {:error, String.t()}
@@ -108,52 +114,72 @@ defmodule Moto.ImportedAgent.Codec do
   end
 
   defp encode_yaml(%Spec{} = spec) do
-    model_yaml =
-      case Spec.to_external_map(spec)["model"] do
-        model when is_binary(model) ->
-          "model: #{Jason.encode!(model)}"
-
-        %{} = model ->
-          lines =
-            model
-            |> Enum.map(fn {key, value} -> "  #{key}: #{Jason.encode!(value)}" end)
-
-          Enum.join(["model:" | lines], "\n")
-      end
-
-    prompt_block =
-      spec.system_prompt
+    instructions_block =
+      spec.instructions
       |> String.split("\n", trim: false)
-      |> Enum.map_join("\n", &"  #{&1}")
+      |> Enum.map_join("\n", &"    #{&1}")
 
     [
-      "name: #{Jason.encode!(spec.name)}",
-      model_yaml,
-      "system_prompt: |-",
-      prompt_block,
-      "context:",
-      encode_yaml_context(spec.context),
-      "memory:",
-      encode_yaml_memory(spec.memory),
-      "tools:",
-      encode_yaml_tools(spec.tools),
-      "skills:",
-      encode_yaml_skills(spec.skills),
-      "skill_paths:",
-      encode_yaml_skill_paths(spec.skill_paths),
-      "mcp_tools:",
-      encode_yaml_mcp_tools(spec.mcp_tools),
-      "subagents:",
-      encode_yaml_subagents(spec.subagents),
-      "plugins:",
-      encode_yaml_plugins(spec.plugins),
-      "hooks:",
-      encode_yaml_hooks(spec.hooks),
-      "guardrails:",
-      encode_yaml_guardrails(spec.guardrails)
+      "agent:",
+      "  id: #{Jason.encode!(spec.id)}",
+      maybe_yaml_agent_description(spec.description),
+      "  context:",
+      indent_lines(encode_yaml_context(spec.context), 2),
+      "defaults:",
+      encode_yaml_model(spec.model),
+      "  instructions: |-",
+      instructions_block,
+      "capabilities:",
+      "  tools:",
+      indent_lines(encode_yaml_tools(spec.tools), 2),
+      "  skills:",
+      indent_lines(encode_yaml_skills(spec.skills), 2),
+      "  skill_paths:",
+      indent_lines(encode_yaml_skill_paths(spec.skill_paths), 2),
+      "  mcp_tools:",
+      indent_lines(encode_yaml_mcp_tools(spec.mcp_tools), 2),
+      "  subagents:",
+      indent_lines(encode_yaml_subagents(spec.subagents), 2),
+      "  plugins:",
+      indent_lines(encode_yaml_plugins(spec.plugins), 2),
+      "lifecycle:",
+      "  memory:",
+      indent_lines(encode_yaml_memory(spec.memory), 2),
+      "  hooks:",
+      indent_lines(encode_yaml_hooks(spec.hooks), 2),
+      "  guardrails:",
+      indent_lines(encode_yaml_guardrails(spec.guardrails), 2)
     ]
+    |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join("\n")
     |> Kernel.<>("\n")
+  end
+
+  defp encode_yaml_model(model) when is_atom(model) do
+    "  model: #{Jason.encode!(Atom.to_string(model))}"
+  end
+
+  defp encode_yaml_model(model) when is_binary(model) do
+    "  model: #{Jason.encode!(model)}"
+  end
+
+  defp encode_yaml_model(%{} = model) do
+    lines =
+      model
+      |> Enum.map(fn {key, value} -> "    #{key}: #{Jason.encode!(value)}" end)
+
+    Enum.join(["  model:" | lines], "\n")
+  end
+
+  defp maybe_yaml_agent_description(nil), do: nil
+  defp maybe_yaml_agent_description(description), do: "  description: #{Jason.encode!(description)}"
+
+  defp indent_lines(text, spaces) when is_binary(text) and is_integer(spaces) do
+    prefix = String.duplicate(" ", spaces)
+
+    text
+    |> String.split("\n", trim: false)
+    |> Enum.map_join("\n", &(prefix <> &1))
   end
 
   defp encode_yaml_tools([]), do: "  []"

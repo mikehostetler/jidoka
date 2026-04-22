@@ -124,16 +124,22 @@ defmodule Moto.Agent.Codegen do
       def runtime_module, do: unquote(definition.runtime_module)
 
       @doc """
+      Returns the stable public agent id.
+      """
+      @spec id() :: String.t()
+      def id, do: unquote(definition.id)
+
+      @doc """
       Returns the configured public agent name.
       """
       @spec name() :: String.t()
       def name, do: unquote(definition.name)
 
       @doc """
-      Returns the configured system prompt.
+      Returns the configured instructions.
       """
-      @spec system_prompt() :: Moto.Agent.SystemPrompt.spec()
-      def system_prompt, do: unquote(Macro.escape(definition.configured_system_prompt))
+      @spec instructions() :: Moto.Agent.SystemPrompt.spec()
+      def instructions, do: unquote(Macro.escape(definition.configured_instructions))
 
       @doc """
       Returns the generated request transformer used for a dynamic system prompt, if any.

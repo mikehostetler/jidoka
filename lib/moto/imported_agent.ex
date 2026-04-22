@@ -318,7 +318,7 @@ defmodule Moto.ImportedAgent do
             @moduledoc false
             @behaviour Jido.AI.Reasoning.ReAct.RequestTransformer
 
-            @system_prompt_spec unquote(Macro.escape(spec.system_prompt))
+            @system_prompt_spec unquote(Macro.escape(spec.instructions))
             @skills_config unquote(Macro.escape(skill_config))
 
             @impl true
@@ -338,8 +338,8 @@ defmodule Moto.ImportedAgent do
         unquote_splicing(generated_tool_modules)
 
         use Jido.AI.Agent,
-          name: unquote(spec.name),
-          system_prompt: unquote(spec.system_prompt),
+          name: unquote(spec.id),
+          system_prompt: unquote(spec.instructions),
           model: unquote(Macro.escape(spec.model)),
           tools: unquote(Macro.escape(tool_modules)),
           plugins: unquote(Macro.escape(runtime_plugins)),
@@ -449,8 +449,10 @@ defmodule Moto.ImportedAgent do
       kind: :imported_agent_definition,
       module: nil,
       runtime_module: runtime_module,
-      name: spec.name,
-      system_prompt: spec.system_prompt,
+      id: spec.id,
+      name: spec.id,
+      description: spec.description,
+      instructions: spec.instructions,
       request_transformer: request_transformer,
       configured_model: spec.model,
       model: Moto.model(spec.model),

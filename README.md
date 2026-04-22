@@ -10,7 +10,9 @@ It is a design/prototyping repo, not a stable package. The API is expected to
 change, large parts may be rewritten, and the repository may disappear entirely
 if the spike does not hold up.
 
-This first implementation keeps the Spark DSL deliberately tiny.
+This beta implementation keeps the Spark DSL deliberately structured: immutable
+agent identity, runtime defaults, capabilities, and lifecycle policy are
+declared in separate sections.
 
 ## Installation
 
@@ -36,11 +38,11 @@ LLM agents on top of Jido and Jido.AI.
 Today, Moto can:
 
 - define agents with a small Spark DSL via `use Moto.Agent`
-- configure agent `name`, `model`, `system_prompt`, runtime context `schema`,
-  `tools`, `memory`, `skills`, `plugins`, `hooks`, and `guardrails`
+- configure agent `id`, runtime context `schema`, runtime `defaults`,
+  `capabilities`, and `lifecycle`
 - resolve models through Moto-owned aliases like `:fast`, direct model strings,
   inline maps, and `%LLMDB.Model{}`
-- support static or dynamic system prompts through strings, module callbacks,
+- support static or dynamic instructions through strings, module callbacks,
   and MFA tuples
 - define tools with `use Moto.Tool` as a thin, Zoi-only wrapper over `Jido.Action`
 - compose prompt-level agent skills from Jido.AI skills, including runtime
@@ -100,13 +102,11 @@ release instead of pretending the spike is already there.
 
 The generated runtime currently uses:
 
-- the DSL-configured `model` value, defaulting to `:fast`
+- the DSL-configured `defaults.model` value, defaulting to `:fast`
 - the DSL-configured context `schema`
-- the DSL-configured `memory`
-- the DSL-configured `skills`
-- the DSL-configured `tools`
-- the DSL-configured `plugins`
-- the DSL-configured `hooks`
+- the DSL-configured `lifecycle.memory`
+- the DSL-configured `capabilities`
+- the DSL-configured `lifecycle` hooks and guardrails
 
 Model configuration lives in:
 
@@ -120,29 +120,27 @@ defmodule MyApp.ChatAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :chat_agent
 
     schema Zoi.object(%{
       tenant: Zoi.string() |> Zoi.default("demo"),
       channel: Zoi.string() |> Zoi.default("web")
     })
   end
+
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
+  end
 end
 ```
 
 The DSL currently supports:
 
-- `name`
-- `model`
-- `system_prompt`
-- `schema`
-- `memory`
-- `skills`
-- `tools`
-- `plugins`
-- `hooks`
-- `guardrails`
+- `agent do`: required `id`, optional `description`, optional Zoi `schema`
+- `defaults do`: required `instructions`, optional `model`
+- `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `skill`, `load_path`, `plugin`, and `subagent`
+- `lifecycle do`: `memory`, hooks, and guardrails
 
 `model` accepts the same shapes Jido.AI and ReqLLM support:
 
@@ -158,14 +156,17 @@ defmodule MyApp.SupportAgent do
   use Moto.Agent
 
   agent do
-    name "support"
+    id :support_agent
+  end
+
+  defaults do
     model "anthropic:claude-haiku-4-5"
-    system_prompt "You help customers with support questions."
+    instructions "You help customers with support questions."
   end
 end
 ```
 
-`system_prompt` supports three forms:
+`instructions` supports three forms:
 
 - a static string
 - a module implementing `resolve_system_prompt/1`
@@ -188,8 +189,12 @@ defmodule MyApp.SupportAgent do
   use Moto.Agent
 
   agent do
+    id :support_agent
+  end
+
+  defaults do
     model :fast
-    system_prompt MyApp.SupportPrompt
+    instructions MyApp.SupportPrompt
   end
 end
 ```
@@ -208,13 +213,17 @@ defmodule MyApp.SupportAgent do
   use Moto.Agent
 
   agent do
+    id :support_agent
+  end
+
+  defaults do
     model :fast
-    system_prompt {MyApp.SupportPrompts, :build, ["Support tenant"]}
+    instructions {MyApp.SupportPrompts, :build, ["Support tenant"]}
   end
 end
 ```
 
-Dynamic system prompts resolve once per turn through Jido.AI's request
+Dynamic instructions resolve once per turn through Jido.AI's request
 transformer hook, using the current runtime context.
 
 ## Default Context
@@ -226,8 +235,7 @@ defmodule MyApp.ChatAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :chat_agent
 
     schema Zoi.object(%{
       tenant: Zoi.string() |> Zoi.default("demo"),
@@ -235,6 +243,11 @@ defmodule MyApp.ChatAgent do
       actor: Zoi.any() |> Zoi.optional(),
       order_id: Zoi.string() |> Zoi.optional()
     })
+  end
+
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
   end
 end
 ```
@@ -253,16 +266,22 @@ defmodule MyApp.ChatAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :chat_agent
   end
 
-  memory do
-    mode :conversation
-    namespace {:context, :session}
-    capture :conversation
-    retrieve limit: 5
-    inject :system_prompt
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
+  end
+
+  lifecycle do
+    memory do
+      mode :conversation
+      namespace {:context, :session}
+      capture :conversation
+      retrieve limit: 5
+      inject :instructions
+    end
   end
 end
 ```
@@ -275,17 +294,17 @@ V1 memory supports only:
 - `namespace {:context, key}`
 - `capture :conversation` or `:off`
 - `retrieve limit: n`
-- `inject :system_prompt` or `:context`
+- `inject :instructions` or `:context`
 
-`inject :system_prompt` appends a bounded `Relevant memory:` section to the
-effective system prompt for the turn.
+`inject :instructions` appends a bounded `Relevant memory:` section to the
+effective instructions for the turn.
 
 `inject :context` exposes retrieved records at `context.memory` for hooks,
 tools, and plugins without automatically projecting memory into the prompt.
 
 Memory is opt-in:
 
-- no `memory do ... end` means no memory lifecycle at all
+- no `lifecycle do memory do ... end end` means no memory lifecycle at all
 - `capture :off` disables writes but still allows retrieval from an existing
   namespace
 - imported JSON/YAML agents support the same constrained memory subset
@@ -319,11 +338,15 @@ defmodule MyApp.MathAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You can use math tools."
+    id :math_agent
   end
 
-  tools do
+  defaults do
+    model :fast
+    instructions "You can use math tools."
+  end
+
+  capabilities do
     tool MyApp.Tools.AddNumbers
   end
 end
@@ -336,11 +359,15 @@ defmodule MyApp.UserAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You can use account tools."
+    id :user_agent
   end
 
-  tools do
+  defaults do
+    model :fast
+    instructions "You can use account tools."
+  end
+
+  capabilities do
     ash_resource MyApp.Accounts.User
   end
 end
@@ -375,11 +402,15 @@ defmodule MyApp.MathAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :math_agent
   end
 
-  skills do
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
+  end
+
+  capabilities do
     skill "math-discipline"
     load_path "../skills"
   end
@@ -405,11 +436,15 @@ defmodule MyApp.GitHubAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You can use GitHub MCP tools."
+    id :github_agent
   end
 
-  tools do
+  defaults do
+    model :fast
+    instructions "You can use GitHub MCP tools."
+  end
+
+  capabilities do
     mcp_tools endpoint: :github, prefix: "github_"
   end
 end
@@ -435,7 +470,7 @@ Compiled agents can also declare an inline endpoint. Moto registers it
 idempotently before the first turn and syncs the tools before the model runs:
 
 ```elixir
-tools do
+capabilities do
   mcp_tools endpoint: :workspace_fs,
             prefix: "fs_",
             transport:
@@ -480,11 +515,15 @@ defmodule MyApp.MathAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You can use math tools."
+    id :math_agent
   end
 
-  plugins do
+  defaults do
+    model :fast
+    instructions "You can use math tools."
+  end
+
+  capabilities do
     plugin MyApp.Plugins.Math
   end
 end
@@ -492,7 +531,7 @@ end
 
 Plugin-provided tools are merged into `MyApp.MathAgent.tools/0` and exposed to
 the underlying Jido.AI runtime just like tools registered directly in the
-`tools do ... end` block.
+`capabilities do ... end` block.
 
 ## Define A Hook
 
@@ -526,11 +565,15 @@ defmodule MyApp.ChatAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :chat_agent
   end
 
-  hooks do
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
+  end
+
+  lifecycle do
     before_turn MyApp.Hooks.ReplyWithFinalAnswer
     before_turn {MyApp.Hooks.AuditTurn, :call, [:support]}
     after_turn MyApp.Hooks.NormalizeReply
@@ -593,14 +636,18 @@ defmodule MyApp.ChatAgent do
   use Moto.Agent
 
   agent do
-    model :fast
-    system_prompt "You are a concise assistant."
+    id :chat_agent
   end
 
-  guardrails do
-    input MyApp.Guardrails.SafePrompt
-    output {MyApp.Guardrails.SafeReply, :call, [:support]}
-    tool MyApp.Guardrails.ApproveRefundTool
+  defaults do
+    model :fast
+    instructions "You are a concise assistant."
+  end
+
+  lifecycle do
+    input_guardrail MyApp.Guardrails.SafePrompt
+    output_guardrail {MyApp.Guardrails.SafeReply, :call, [:support]}
+    tool_guardrail MyApp.Guardrails.ApproveRefundTool
   end
 end
 ```
@@ -710,13 +757,13 @@ over it.
 `context` is:
 
 - runtime-only application data for this turn
-- available to hooks, dynamic `system_prompt`, tools, and `ash_resource`
+- available to hooks, dynamic `instructions`, tools, and `ash_resource`
 - distinct from internal agent state
 - distinct from model-visible conversation context
 
 Moto does not automatically inject `context` into prompts or messages. If you
 want the model to see part of it, project it explicitly through a hook, tool,
-or dynamic system prompt.
+or dynamic instructions.
 
 ## Start And Chat
 
@@ -745,7 +792,7 @@ Subagents use the manager pattern: the parent agent sees each specialist as a
 tool-like capability and stays in control of the conversation.
 
 ```elixir
-subagents do
+capabilities do
   subagent MyApp.ResearchAgent,
     as: "research_agent",
     description: "Ask the research specialist",
@@ -860,23 +907,31 @@ JSON:
 ```elixir
 json = ~S"""
 {
-  "name": "json_agent",
-  "model": "fast",
-  "system_prompt": "You are a concise assistant.",
-  "context": {
-    "tenant": "json-demo",
-    "channel": "imported"
+  "agent": {
+    "id": "json_agent",
+    "context": {
+      "tenant": "json-demo",
+      "channel": "imported"
+    }
   },
-  "skills": ["math-discipline"],
-  "skill_paths": ["../skills"],
-  "plugins": ["math_plugin"],
-  "hooks": {
-    "before_turn": ["reply_with_final_answer"]
+  "defaults": {
+    "model": "fast",
+    "instructions": "You are a concise assistant."
   },
-  "guardrails": {
-    "input": ["safe_prompt"],
-    "output": ["safe_reply"],
-    "tool": ["approve_refund_tool"]
+  "capabilities": {
+    "skills": ["math-discipline"],
+    "skill_paths": ["../skills"],
+    "plugins": ["math_plugin"]
+  },
+  "lifecycle": {
+    "hooks": {
+      "before_turn": ["reply_with_final_answer"]
+    },
+    "guardrails": {
+      "input": ["safe_prompt"],
+      "output": ["safe_reply"],
+      "tool": ["approve_refund_tool"]
+    }
   }
 }
 """
@@ -901,31 +956,35 @@ YAML:
 
 ```elixir
 yaml = """
-name: "yaml_agent"
-model:
-  provider: "openai"
-  id: "gpt-4.1"
-system_prompt: |-
-  You are a concise assistant.
-context:
-  tenant: "yaml-demo"
-  channel: "imported"
-plugins:
-  - "math_plugin"
-skills:
-  - "math-discipline"
-skill_paths:
-  - "../skills"
-hooks:
-  before_turn:
-    - "reply_with_final_answer"
-guardrails:
-  input:
-    - "safe_prompt"
-  output:
-    - "safe_reply"
-  tool:
-    - "approve_refund_tool"
+agent:
+  id: "yaml_agent"
+  context:
+    tenant: "yaml-demo"
+    channel: "imported"
+defaults:
+  model:
+    provider: "openai"
+    id: "gpt-4.1"
+  instructions: |-
+    You are a concise assistant.
+capabilities:
+  plugins:
+    - "math_plugin"
+  skills:
+    - "math-discipline"
+  skill_paths:
+    - "../skills"
+lifecycle:
+  hooks:
+    before_turn:
+      - "reply_with_final_answer"
+  guardrails:
+    input:
+      - "safe_prompt"
+    output:
+      - "safe_reply"
+    tool:
+      - "approve_refund_tool"
 """
 
 {:ok, agent} = Moto.import_agent(yaml,
@@ -942,17 +1001,12 @@ guardrails:
 
 The imported-agent path is intentionally narrower than the Elixir DSL:
 
-- only `name`
-- only `model`
-- only `system_prompt`
-- only default `context` as a plain map
-- only published tool names through `tools`
-- only published skill names through `skills`
-- only skill load paths through `skill_paths`
-- only MCP sync settings through `mcp_tools`
-- only published plugin names through `plugins`
-- only published hook names through `hooks`
-- only published guardrail names through `guardrails`
+- `agent.id`
+- `agent.context` as a plain default map
+- `defaults.model`
+- `defaults.instructions`
+- published tool, skill, MCP, plugin, and subagent declarations under `capabilities`
+- memory, hook, and guardrail declarations under `lifecycle`
 - `model` supports:
   - alias strings like `"fast"`
   - direct model strings like `"anthropic:claude-haiku-4-5"`
@@ -982,7 +1036,7 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
 
 The imported path does not currently support the `ash_resource` shorthand
 directly, because JSON/YAML specs cannot safely encode Elixir resource modules.
-It also does not support dynamic `system_prompt` callbacks yet, because the
+It also does not support dynamic `instructions` callbacks yet, because the
 constrained JSON/YAML format intentionally avoids executable Elixir references.
 
 The top-level helpers are:

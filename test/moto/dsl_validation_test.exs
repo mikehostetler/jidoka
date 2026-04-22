@@ -8,403 +8,273 @@ defmodule MotoTest.DslValidationTest do
       Code.compile_string("""
       defmodule MotoTest.InvalidKeywordAgent do
         use Moto.Agent,
-          system_prompt: "This should fail."
+          instructions: "This should fail."
       end
       """)
     end
   end
 
-  test "rejects invalid model configuration at compile time" do
-    assert_raise Spark.Error.DslError, ~r/invalid model input 123/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidModelAgent do
-        use Moto.Agent
+  test "rejects legacy agent.model placement" do
+    assert_dsl_error(~r/agent.model.*defaults/s, """
+    agent do
+      id :legacy_model_agent
+      model :fast
+    end
 
-        agent do
-          model 123
-          system_prompt "This should fail."
-        end
+    defaults do
+      instructions "This should fail."
+    end
+    """)
+  end
+
+  test "rejects legacy agent.system_prompt placement" do
+    assert_dsl_error(~r/agent.system_prompt.*instructions/s, """
+    agent do
+      id :legacy_prompt_agent
+      system_prompt "This should fail."
+    end
+
+    defaults do
+      instructions "This should fail."
+    end
+    """)
+  end
+
+  test "rejects legacy top-level sections" do
+    for {section, body} <- [
+          {"memory", "mode :conversation"},
+          {"tools", "tool MotoTest.AddNumbers"},
+          {"skills", "skill \"math-discipline\""},
+          {"plugins", "plugin MotoTest.MathPlugin"},
+          {"subagents", "subagent MotoTest.ResearchSpecialist"},
+          {"hooks", "before_turn MotoTest.InjectTenantHook"},
+          {"guardrails", "input MotoTest.SafePromptGuardrail"}
+        ] do
+      assert_dsl_error(~r/Top-level `#{section} do .*` is not valid/s, """
+      agent do
+        id :legacy_#{section}_agent
+      end
+
+      defaults do
+        instructions "This should fail."
+      end
+
+      #{section} do
+        #{body}
       end
       """)
     end
   end
 
-  test "rejects non-map agent schemas at compile time" do
-    assert_raise Spark.Error.DslError, ~r/agent schema must be a Zoi map\/object schema/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidContextSchemaAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-          schema Zoi.string()
-        end
-      end
-      """)
+  test "requires lower snake case agent ids" do
+    assert_dsl_error(~r/agent.id.*lower snake case/s, """
+    agent do
+      id "Bad-ID"
     end
-  end
 
-  test "rejects anonymous functions as system prompts at compile time" do
-    assert_raise Spark.Error.DslError, ~r/does not support anonymous functions/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidDynamicPromptAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt fn _input -> "This should fail." end
-        end
-      end
-      """)
+    defaults do
+      instructions "This should fail."
     end
+    """)
   end
 
-  test "rejects anonymous functions in DSL hooks at compile time" do
-    assert_raise Spark.Error.DslError, ~r/DSL hooks do not support anonymous functions/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidHookFnAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        hooks do
-          before_turn fn _input -> {:ok, %{}} end
-        end
-      end
-      """)
+  test "requires agent ids" do
+    assert_dsl_error(~r/agent.id.*required/s, """
+    agent do
+      description "Missing id"
     end
-  end
 
-  test "rejects anonymous functions in DSL guardrails at compile time" do
-    assert_raise Spark.Error.DslError,
-                 ~r/DSL guardrails do not support anonymous functions/,
-                 fn ->
-                   Code.compile_string("""
-                   defmodule MotoTest.InvalidGuardrailFnAgent do
-                     use Moto.Agent
-
-                     agent do
-                       system_prompt "This should fail."
-                     end
-
-                     guardrails do
-                       input fn _input -> :ok end
-                     end
-                   end
-                   """)
-                 end
-  end
-
-  test "rejects invalid memory modes at compile time" do
-    assert_raise Spark.Error.DslError, ~r/memory mode must be :conversation/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidMemoryModeAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        memory do
-          mode :semantic
-        end
-      end
-      """)
+    defaults do
+      instructions "This should fail."
     end
+    """)
   end
 
-  test "rejects invalid memory namespaces at compile time" do
-    assert_raise Spark.Error.DslError, ~r/memory namespace must be/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidMemoryNamespaceAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        memory do
-          namespace :shared
-        end
-      end
-      """)
+  test "requires defaults.instructions" do
+    assert_dsl_error(~r/defaults.instructions.*required/s, """
+    agent do
+      id :missing_instructions_agent
     end
+    """)
   end
 
-  test "rejects invalid hook modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not a valid Moto hook/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidHookAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        hooks do
-          before_turn String
-        end
-      end
-      """)
+  test "rejects invalid instructions resolvers" do
+    assert_dsl_error(~r/instructions does not support anonymous functions/, """
+    agent do
+      id :invalid_instructions_agent
     end
-  end
 
-  test "rejects invalid guardrail modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not a valid Moto guardrail/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidGuardrailAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        guardrails do
-          input String
-        end
-      end
-      """)
+    defaults do
+      instructions fn _input -> "This should fail." end
     end
+    """)
   end
 
-  test "rejects invalid tool modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not a valid Moto tool/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidToolAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        tools do
-          tool String
-        end
-      end
-      """)
+  test "rejects invalid model configuration" do
+    assert_dsl_error(~r/invalid model input 123/, """
+    agent do
+      id :invalid_model_agent
     end
-  end
 
-  test "rejects invalid ash_resource modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not an Ash resource/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidAshResourceAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        tools do
-          ash_resource String
-        end
-      end
-      """)
+    defaults do
+      model 123
+      instructions "This should fail."
     end
+    """)
   end
 
-  test "rejects invalid plugin modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not a valid Moto plugin/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidPluginAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        plugins do
-          plugin String
-        end
-      end
-      """)
+  test "rejects non-map agent schemas" do
+    assert_dsl_error(~r/agent schema must be a Zoi map\/object schema/, """
+    agent do
+      id :invalid_context_schema_agent
+      schema Zoi.string()
     end
-  end
 
-  test "rejects invalid skill refs at compile time" do
-    assert_raise Spark.Error.DslError, ~r/invalid skill name/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSkillRefAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        skills do
-          skill "Bad Skill"
-        end
-      end
-      """)
+    defaults do
+      instructions "This should fail."
     end
+    """)
   end
 
-  test "rejects invalid skill load paths at compile time" do
-    assert_raise Spark.Error.DslError, ~r/skill load paths must not be empty/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSkillPathAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        skills do
-          skill "valid-skill"
-          load_path "   "
-        end
-      end
-      """)
+  test "validates memory lifecycle configuration" do
+    assert_dsl_error(~r/memory namespace must be :per_agent, :shared with shared_namespace/, """
+    agent do
+      id :invalid_memory_namespace_agent
     end
-  end
 
-  test "rejects inline MCP endpoints without atom ids at compile time" do
-    assert_raise Spark.Error.DslError,
-                 ~r/inline MCP endpoint definitions require an atom endpoint id/,
-                 fn ->
-                   Code.compile_string("""
-                   defmodule MotoTest.InvalidInlineMCPAgent do
-                     use Moto.Agent
-
-                     agent do
-                       system_prompt "This should fail."
-                     end
-
-                     tools do
-                       mcp_tools endpoint: "inline_fs", transport: {:stdio, command: "echo"}
-                     end
-                   end
-                   """)
-                 end
-  end
-
-  test "rejects duplicate MCP endpoints at compile time" do
-    assert_raise Spark.Error.DslError, ~r/mcp endpoint :github is defined more than once/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.DuplicateMCPAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        tools do
-          mcp_tools endpoint: :github, prefix: "github_"
-          mcp_tools endpoint: :github, prefix: "gh_"
-        end
-      end
-      """)
+    defaults do
+      instructions "This should fail."
     end
+
+    lifecycle do
+      memory do
+        namespace :shared
+      end
+    end
+    """)
+
+    assert_dsl_error(~r/shared_namespace is only valid when namespace is :shared/, """
+    agent do
+      id :invalid_shared_namespace_agent
+    end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    lifecycle do
+      memory do
+        namespace :per_agent
+        shared_namespace "wrong"
+      end
+    end
+    """)
+
+    assert_dsl_error(~r/memory context namespace key is not declared/, """
+    agent do
+      id :invalid_memory_context_key_agent
+      schema Zoi.object(%{tenant: Zoi.string() |> Zoi.optional()})
+    end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    lifecycle do
+      memory do
+        namespace {:context, :session}
+      end
+    end
+    """)
   end
 
-  test "rejects invalid subagent modules at compile time" do
-    assert_raise Spark.Error.DslError, ~r/not a valid Moto subagent/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSubagentAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        subagents do
-          subagent String
-        end
-      end
-      """)
+  test "rejects duplicate capability names across sources" do
+    assert_dsl_error(~r/duplicate tool names.*multiply_numbers/s, """
+    agent do
+      id :duplicate_capability_agent
     end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    capabilities do
+      tool MotoTest.MultiplyNumbers
+      plugin MotoTest.MathPlugin
+    end
+    """)
   end
 
-  test "rejects duplicate subagent names at compile time" do
-    assert_raise Spark.Error.DslError, ~r/subagent names must be unique/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.DuplicateSubagentAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        subagents do
-          subagent MotoTest.ResearchSpecialist
-          subagent MotoTest.ReviewSpecialist, as: "research_agent"
-        end
-      end
-      """)
+  test "rejects duplicate lifecycle refs within stages" do
+    assert_dsl_error(~r/hook .*defined more than once/, """
+    agent do
+      id :duplicate_hook_agent
     end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    lifecycle do
+      before_turn MotoTest.InjectTenantHook
+      before_turn MotoTest.InjectTenantHook
+    end
+    """)
+
+    assert_dsl_error(~r/guardrail .*defined more than once/, """
+    agent do
+      id :duplicate_guardrail_agent
+    end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    lifecycle do
+      input_guardrail MotoTest.SafePromptGuardrail
+      input_guardrail MotoTest.SafePromptGuardrail
+    end
+    """)
   end
 
-  test "rejects invalid subagent target shapes at compile time" do
-    assert_raise Spark.Error.DslError, ~r/subagent target must be/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSubagentTargetAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        subagents do
-          subagent MotoTest.ResearchSpecialist, target: {:peer, 123}
-        end
-      end
-      """)
+  test "rejects invalid capability modules" do
+    assert_dsl_error(~r/not a valid Moto tool/, """
+    agent do
+      id :invalid_tool_agent
     end
+
+    defaults do
+      instructions "This should fail."
+    end
+
+    capabilities do
+      tool String
+    end
+    """)
   end
 
-  test "rejects invalid subagent timeouts at compile time" do
-    assert_raise Spark.Error.DslError, ~r/subagent timeout must be a positive integer/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSubagentTimeoutAgent do
-        use Moto.Agent
-
-        agent do
-          system_prompt "This should fail."
-        end
-
-        subagents do
-          subagent MotoTest.ResearchSpecialist, timeout: 0
-        end
-      end
-      """)
-    end
+  test "rejects invalid request hook stages" do
+    assert {:error, {:invalid_hook_stage, :bogus}} =
+             Moto.Agent.prepare_chat_opts([hooks: [bogus: InjectTenantHook]], nil)
   end
 
-  test "rejects invalid subagent context forwarding policies at compile time" do
-    assert_raise Spark.Error.DslError, ~r/subagent forward_context must be/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSubagentForwardContextAgent do
-        use Moto.Agent
+  test "rejects invalid request hook refs" do
+    assert {:error, {:invalid_hook, :before_turn, message}} =
+             Moto.Agent.prepare_chat_opts([hooks: [before_turn: String]], nil)
 
-        agent do
-          system_prompt "This should fail."
-        end
-
-        subagents do
-          subagent MotoTest.ResearchSpecialist, forward_context: :everything
-        end
-      end
-      """)
-    end
+    assert message =~ "not a valid Moto hook"
   end
 
-  test "rejects invalid subagent result modes at compile time" do
-    assert_raise Spark.Error.DslError, ~r/subagent result must be :text or :structured/, fn ->
-      Code.compile_string("""
-      defmodule MotoTest.InvalidSubagentResultAgent do
-        use Moto.Agent
+  test "rejects invalid request guardrail stages" do
+    assert {:error, {:invalid_guardrail_stage, :bogus}} =
+             Moto.Agent.prepare_chat_opts([guardrails: [bogus: SafePromptGuardrail]], nil)
+  end
 
-        agent do
-          system_prompt "This should fail."
-        end
+  test "rejects invalid request guardrail refs" do
+    assert {:error, {:invalid_guardrail, :input, message}} =
+             Moto.Agent.prepare_chat_opts([guardrails: [input: String]], nil)
 
-        subagents do
-          subagent MotoTest.ResearchSpecialist, result: :json
-        end
-      end
-      """)
-    end
+    assert message =~ "not a valid Moto guardrail"
   end
 
   test "rejects NimbleOptions schemas in Moto.Tool" do
@@ -435,27 +305,19 @@ defmodule MotoTest.DslValidationTest do
     end
   end
 
-  test "rejects invalid request hook stages" do
-    assert {:error, {:invalid_hook_stage, :bogus}} =
-             Moto.Agent.prepare_chat_opts([hooks: [bogus: InjectTenantHook]], nil)
-  end
+  defp assert_dsl_error(pattern, body) do
+    module = Module.concat(MotoTest.DynamicDsl, "Agent#{System.unique_integer([:positive])}")
 
-  test "rejects invalid request hook refs" do
-    assert {:error, {:invalid_hook, :before_turn, message}} =
-             Moto.Agent.prepare_chat_opts([hooks: [before_turn: String]], nil)
+    source = """
+    defmodule #{inspect(module)} do
+      use Moto.Agent
 
-    assert message =~ "not a valid Moto hook"
-  end
+      #{body}
+    end
+    """
 
-  test "rejects invalid request guardrail stages" do
-    assert {:error, {:invalid_guardrail_stage, :bogus}} =
-             Moto.Agent.prepare_chat_opts([guardrails: [bogus: SafePromptGuardrail]], nil)
-  end
-
-  test "rejects invalid request guardrail refs" do
-    assert {:error, {:invalid_guardrail, :input, message}} =
-             Moto.Agent.prepare_chat_opts([guardrails: [input: String]], nil)
-
-    assert message =~ "not a valid Moto guardrail"
+    assert_raise Spark.Error.DslError, pattern, fn ->
+      Code.compile_string(source)
+    end
   end
 end

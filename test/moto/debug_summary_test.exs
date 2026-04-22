@@ -26,7 +26,7 @@ defmodule MotoTest.DebugSummaryTest do
           moto_memory: %{
             namespace: "agent:demo",
             records: [%{id: 1}, %{id: 2}],
-            config: %{inject: :system_prompt},
+            config: %{inject: :instructions},
             captured?: true
           },
           moto_debug: %{
@@ -69,7 +69,7 @@ defmodule MotoTest.DebugSummaryTest do
     assert summary.memory == %{
              namespace: "agent:demo",
              retrieved: 2,
-             inject: :system_prompt,
+             inject: :instructions,
              captured: true
            }
 

@@ -18,26 +18,28 @@ defmodule MotoTest.ImportedAgentTest do
   }
 
   test "imports a constrained imported agent from JSON" do
-    json = """
-    {
-      "name": "json_agent",
-      "model": "fast",
-      "system_prompt": "You are a concise assistant.",
-      "context": {"tenant": "json", "channel": "imported"},
-      "tools": ["add_numbers"],
-      "plugins": ["math_plugin"],
-      "hooks": {
-        "before_turn": ["inject_tenant", "restrict_refunds"],
-        "after_turn": ["normalize_reply"],
-        "on_interrupt": ["notify_ops"]
-      },
-      "guardrails": {
-        "input": ["safe_prompt"],
-        "output": ["safe_reply"],
-        "tool": ["approve_large_math_tool"]
-      }
-    }
-    """
+    json =
+      imported_spec("json_agent",
+        instructions: "You are a concise assistant.",
+        context: %{"tenant" => "json", "channel" => "imported"},
+        capabilities: %{
+          "tools" => ["add_numbers"],
+          "plugins" => ["math_plugin"]
+        },
+        lifecycle: %{
+          "hooks" => %{
+            "before_turn" => ["inject_tenant", "restrict_refunds"],
+            "after_turn" => ["normalize_reply"],
+            "on_interrupt" => ["notify_ops"]
+          },
+          "guardrails" => %{
+            "input" => ["safe_prompt"],
+            "output" => ["safe_reply"],
+            "tool" => ["approve_large_math_tool"]
+          }
+        }
+      )
+      |> Jason.encode!(pretty: true)
 
     assert {:ok, %ImportedAgent{} = agent} =
              Moto.import_agent(
@@ -58,7 +60,7 @@ defmodule MotoTest.ImportedAgentTest do
              )
 
     assert {:ok, encoded} = Moto.encode_agent(agent, format: :json)
-    assert encoded =~ "\"name\": \"json_agent\""
+    assert encoded =~ "\"id\": \"json_agent\""
     assert encoded =~ "\"model\": \"fast\""
     assert encoded =~ "\"context\": {"
     assert encoded =~ "\"tools\": ["
@@ -79,13 +81,13 @@ defmodule MotoTest.ImportedAgentTest do
   test "imports skills and mcp tool sync settings" do
     assert {:ok, %ImportedAgent{} = agent} =
              Moto.import_agent(
-               %{
-                 "name" => "skills_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are skill-aware.",
-                 "skills" => ["module-math-skill"],
-                 "mcp_tools" => [%{"endpoint" => "github", "prefix" => "github_"}]
-               },
+               imported_spec("skills_agent",
+                 instructions: "You are skill-aware.",
+                 capabilities: %{
+                   "skills" => ["module-math-skill"],
+                   "mcp_tools" => [%{"endpoint" => "github", "prefix" => "github_"}]
+                 }
+               ),
                available_skills: [ModuleMathSkill]
              )
 
@@ -126,13 +128,11 @@ defmodule MotoTest.ImportedAgentTest do
 
     File.write!(
       spec_path,
-      Jason.encode!(%{
-        name: "runtime_skill_agent",
-        model: "fast",
-        system_prompt: "You are concise.",
-        skills: ["math-discipline"],
-        skill_paths: ["../skills"]
-      })
+      Jason.encode!(
+        imported_spec("runtime_skill_agent",
+          capabilities: %{"skills" => ["math-discipline"], "skill_paths" => ["../skills"]}
+        )
+      )
     )
 
     on_exit(fn -> File.rm_rf!(root) end)
@@ -145,12 +145,7 @@ defmodule MotoTest.ImportedAgentTest do
   test "imports from a normalized imported-agent spec" do
     assert {:ok, %ImportedAgent{spec: %Moto.ImportedAgent.Spec{} = spec}} =
              Moto.import_agent(
-               %{
-                 "name" => "spec_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "tools" => ["add_numbers"]
-               },
+               imported_spec("spec_agent", capabilities: %{"tools" => ["add_numbers"]}),
                available_tools: [AddNumbers]
              )
 
@@ -158,7 +153,7 @@ defmodule MotoTest.ImportedAgentTest do
              Moto.import_agent(spec, available_tools: [AddNumbers])
 
     assert {:ok, encoded} = Moto.encode_agent(agent, format: :json)
-    assert encoded =~ "\"name\": \"spec_agent\""
+    assert encoded =~ "\"id\": \"spec_agent\""
 
     assert {:ok, pid} = Moto.start_agent(agent, id: "imported-spec-agent")
     assert Moto.whereis("imported-spec-agent") == pid
@@ -167,34 +162,38 @@ defmodule MotoTest.ImportedAgentTest do
 
   test "imports a constrained imported agent from YAML" do
     yaml = """
-    name: "yaml_agent"
-    model:
-      provider: "openai"
-      id: "gpt-4.1"
-    system_prompt: |-
-      You are a concise assistant.
-    context:
-      tenant: "yaml"
-      channel: "imported"
-    tools:
-      - "add_numbers"
-    plugins:
-      - "math_plugin"
-    hooks:
-      before_turn:
-        - "inject_tenant"
-        - "restrict_refunds"
-      after_turn:
-        - "normalize_reply"
-      on_interrupt:
-        - "notify_ops"
-    guardrails:
-      input:
-        - "safe_prompt"
-      output:
-        - "safe_reply"
-      tool:
-        - "approve_large_math_tool"
+    agent:
+      id: "yaml_agent"
+      context:
+        tenant: "yaml"
+        channel: "imported"
+    defaults:
+      model:
+        provider: "openai"
+        id: "gpt-4.1"
+      instructions: |-
+        You are a concise assistant.
+    capabilities:
+      tools:
+        - "add_numbers"
+      plugins:
+        - "math_plugin"
+    lifecycle:
+      hooks:
+        before_turn:
+          - "inject_tenant"
+          - "restrict_refunds"
+        after_turn:
+          - "normalize_reply"
+        on_interrupt:
+          - "notify_ops"
+      guardrails:
+        input:
+          - "safe_prompt"
+        output:
+          - "safe_reply"
+        tool:
+          - "approve_large_math_tool"
     """
 
     assert {:ok, %ImportedAgent{} = agent} =
@@ -217,7 +216,7 @@ defmodule MotoTest.ImportedAgentTest do
              )
 
     assert {:ok, encoded} = Moto.encode_agent(agent, format: :yaml)
-    assert encoded =~ "name: \"yaml_agent\""
+    assert encoded =~ "id: \"yaml_agent\""
     assert encoded =~ "provider: \"openai\""
     assert encoded =~ "context:"
     assert encoded =~ "tenant: \"yaml\""
@@ -239,7 +238,24 @@ defmodule MotoTest.ImportedAgentTest do
 
     File.write!(
       path,
-      ~s({"name":"file_agent","model":"fast","system_prompt":"You are concise.","context":{"tenant":"file","channel":"imported"},"tools":["add_numbers"],"plugins":["math_plugin"],"hooks":{"before_turn":["inject_tenant"],"after_turn":["normalize_reply"],"on_interrupt":["notify_ops"]},"guardrails":{"input":["safe_prompt"],"output":["safe_reply"],"tool":["approve_large_math_tool"]}})
+      Jason.encode!(
+        imported_spec("file_agent",
+          context: %{"tenant" => "file", "channel" => "imported"},
+          capabilities: %{"tools" => ["add_numbers"], "plugins" => ["math_plugin"]},
+          lifecycle: %{
+            "hooks" => %{
+              "before_turn" => ["inject_tenant"],
+              "after_turn" => ["normalize_reply"],
+              "on_interrupt" => ["notify_ops"]
+            },
+            "guardrails" => %{
+              "input" => ["safe_prompt"],
+              "output" => ["safe_reply"],
+              "tool" => ["approve_large_math_tool"]
+            }
+          }
+        )
+      )
     )
 
     assert {:ok, %ImportedAgent{} = agent} =
@@ -265,26 +281,26 @@ defmodule MotoTest.ImportedAgentTest do
   test "imports constrained subagents and compiles them into generated tool modules" do
     assert {:ok, %ImportedAgent{} = agent} =
              Moto.import_agent(
-               %{
-                 "name" => "subagent_import_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{
-                     "agent" => "research_agent",
-                     "timeout_ms" => 12_345,
-                     "forward_context" => %{"mode" => "only", "keys" => ["tenant"]},
-                     "result" => "structured"
-                   },
-                   %{
-                     "agent" => "review_agent",
-                     "as" => "review_specialist",
-                     "description" => "Ask the review specialist",
-                     "target" => "peer",
-                     "peer_id_context_key" => "review_peer_id"
-                   }
-                 ]
-               },
+               imported_spec("subagent_import_agent",
+                 instructions: "You can delegate.",
+                 capabilities: %{
+                   "subagents" => [
+                     %{
+                       "agent" => "research_agent",
+                       "timeout_ms" => 12_345,
+                       "forward_context" => %{"mode" => "only", "keys" => ["tenant"]},
+                       "result" => "structured"
+                     },
+                     %{
+                       "agent" => "review_agent",
+                       "as" => "review_specialist",
+                       "description" => "Ask the review specialist",
+                       "target" => "peer",
+                       "peer_id_context_key" => "review_peer_id"
+                     }
+                   ]
+                 }
+               ),
                available_subagents: [ResearchSpecialist, ReviewSpecialist]
              )
 
@@ -321,18 +337,21 @@ defmodule MotoTest.ImportedAgentTest do
 
   test "imports constrained subagent runtime options from YAML" do
     yaml = """
-    name: "subagent_yaml_agent"
-    model: "fast"
-    system_prompt: "You can delegate."
-    subagents:
-      - agent: "research_agent"
-        target: "ephemeral"
-        timeout_ms: 45000
-        forward_context:
-          mode: "except"
-          keys:
-            - "secret"
-        result: "structured"
+    agent:
+      id: "subagent_yaml_agent"
+    defaults:
+      model: "fast"
+      instructions: "You can delegate."
+    capabilities:
+      subagents:
+        - agent: "research_agent"
+          target: "ephemeral"
+          timeout_ms: 45000
+          forward_context:
+            mode: "except"
+            keys:
+              - "secret"
+          result: "structured"
     """
 
     assert {:ok, %ImportedAgent{} = agent} =
@@ -346,19 +365,13 @@ defmodule MotoTest.ImportedAgentTest do
   end
 
   test "starts an imported agent under the shared runtime" do
-    json = """
-    {
-      "name": "runtime_agent",
-      "model": "fast",
-      "system_prompt": "You are a concise assistant.",
-      "tools": ["add_numbers"],
-      "plugins": ["math_plugin"],
-      "hooks": {
-        "before_turn": ["approval_gate"],
-        "on_interrupt": ["notify_ops"]
-      }
-    }
-    """
+    json =
+      imported_spec("runtime_agent",
+        instructions: "You are a concise assistant.",
+        capabilities: %{"tools" => ["add_numbers"], "plugins" => ["math_plugin"]},
+        lifecycle: %{"hooks" => %{"before_turn" => ["approval_gate"], "on_interrupt" => ["notify_ops"]}}
+      )
+      |> Jason.encode!(pretty: true)
 
     assert {:ok, %ImportedAgent{} = agent} =
              Moto.import_agent(
@@ -377,12 +390,11 @@ defmodule MotoTest.ImportedAgentTest do
 
   test "merges imported default context into runtime requests" do
     assert {:ok, %ImportedAgent{} = agent} =
-             Moto.import_agent(%{
-               "name" => "runtime_context_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "context" => %{"tenant" => "imported", "channel" => "json"}
-             })
+             Moto.import_agent(
+               imported_spec("runtime_context_agent",
+                 context: %{"tenant" => "imported", "channel" => "json"}
+               )
+             )
 
     runtime = agent.runtime_module
     runtime_agent = new_runtime_agent(runtime)
@@ -414,18 +426,24 @@ defmodule MotoTest.ImportedAgentTest do
   test "imports and round-trips memory settings in constrained imported agent specs" do
     json = """
     {
-      "name": "memory_json_agent",
-      "model": "fast",
-      "system_prompt": "You are concise.",
-      "memory": {
-        "mode": "conversation",
-        "namespace": "context",
-        "context_namespace_key": "session",
-        "capture": "conversation",
-        "retrieve": {
-          "limit": 4
-        },
-        "inject": "system_prompt"
+      "agent": {
+        "id": "memory_json_agent"
+      },
+      "defaults": {
+        "model": "fast",
+        "instructions": "You are concise."
+      },
+      "lifecycle": {
+        "memory": {
+          "mode": "conversation",
+          "namespace": "context",
+          "context_namespace_key": "session",
+          "capture": "conversation",
+          "retrieve": {
+            "limit": 4
+          },
+          "inject": "instructions"
+        }
       }
     }
     """
@@ -437,7 +455,7 @@ defmodule MotoTest.ImportedAgentTest do
              namespace: {:context, "session"},
              capture: :conversation,
              retrieve: %{limit: 4},
-             inject: :system_prompt
+             inject: :instructions
            }
 
     assert {:ok, encoded_json} = Moto.encode_agent(agent, format: :json)
@@ -453,16 +471,17 @@ defmodule MotoTest.ImportedAgentTest do
   test "imported agents retrieve and capture memory across turns" do
     assert {:ok, %ImportedAgent{} = agent} =
              Moto.import_agent(%{
-               "name" => "imported_memory_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "memory" => %{
-                 "mode" => "conversation",
-                 "namespace" => "context",
-                 "context_namespace_key" => "session",
-                 "capture" => "conversation",
-                 "retrieve" => %{"limit" => 4},
-                 "inject" => "context"
+               "agent" => %{"id" => "imported_memory_agent"},
+               "defaults" => %{"model" => "fast", "instructions" => "You are concise."},
+               "lifecycle" => %{
+                 "memory" => %{
+                   "mode" => "conversation",
+                   "namespace" => "context",
+                   "context_namespace_key" => "session",
+                   "capture" => "conversation",
+                   "retrieve" => %{"limit" => 4},
+                   "inject" => "context"
+                 }
                }
              })
 
@@ -515,12 +534,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unsupported imported memory config" do
     assert {:error, reason} =
              Moto.import_agent(%{
-               "name" => "bad_memory_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "memory" => %{
-                 "mode" => "semantic"
-               }
+               "agent" => %{"id" => "bad_memory_agent"},
+               "defaults" => %{"model" => "fast", "instructions" => "You are concise."},
+               "lifecycle" => %{"memory" => %{"mode" => "semantic"}}
              })
 
     assert reason =~ "memory mode must be :conversation"
@@ -529,21 +545,32 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unexpected keys in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(%{
-               "name" => "bad_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
+               "agent" => %{"id" => "bad_agent"},
+               "defaults" => %{"model" => "fast", "instructions" => "You are concise."},
                "extra" => true
              })
 
     assert reason =~ "unrecognized"
   end
 
+  test "rejects flat imported agent specs" do
+    assert {:error, reason} =
+             Moto.import_agent(%{
+               "name" => "flat_agent",
+               "model" => "fast",
+               "system_prompt" => "You are concise."
+             })
+
+    assert reason =~ "unrecognized"
+    assert reason =~ "agent"
+    assert reason =~ "defaults"
+  end
+
   test "rejects unknown bare model aliases in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(%{
-               "name" => "bad_model_agent",
-               "model" => "does_not_exist",
-               "system_prompt" => "You are concise."
+               "agent" => %{"id" => "bad_model_agent"},
+               "defaults" => %{"model" => "does_not_exist", "instructions" => "You are concise."}
              })
 
     assert reason =~ "known alias string"
@@ -552,12 +579,7 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unknown tool names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "bad_tool_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "tools" => ["does_not_exist"]
-               },
+               imported_spec("bad_tool_agent", capabilities: %{"tools" => ["does_not_exist"]}),
                available_tools: [AddNumbers]
              )
 
@@ -567,12 +589,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects duplicate tool names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "duplicate_tool_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "tools" => ["add_numbers", "add_numbers"]
-               },
+               imported_spec("duplicate_tool_agent",
+                 capabilities: %{"tools" => ["add_numbers", "add_numbers"]}
+               ),
                available_tools: [AddNumbers]
              )
 
@@ -582,12 +601,7 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unknown plugin names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "bad_plugin_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "plugins" => ["does_not_exist"]
-               },
+               imported_spec("bad_plugin_agent", capabilities: %{"plugins" => ["does_not_exist"]}),
                available_plugins: [MathPlugin]
              )
 
@@ -597,12 +611,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects duplicate plugin names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "duplicate_plugin_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "plugins" => ["math_plugin", "math_plugin"]
-               },
+               imported_spec("duplicate_plugin_agent",
+                 capabilities: %{"plugins" => ["math_plugin", "math_plugin"]}
+               ),
                available_plugins: [MathPlugin]
              )
 
@@ -612,12 +623,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects duplicate hook names within a stage in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "duplicate_hook_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "hooks" => %{"before_turn" => ["inject_tenant", "inject_tenant"]}
-               },
+               imported_spec("duplicate_hook_agent",
+                 lifecycle: %{"hooks" => %{"before_turn" => ["inject_tenant", "inject_tenant"]}}
+               ),
                available_hooks: [InjectTenantHook]
              )
 
@@ -627,12 +635,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects duplicate guardrail names within a stage in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "duplicate_guardrail_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "guardrails" => %{"input" => ["safe_prompt", "safe_prompt"]}
-               },
+               imported_spec("duplicate_guardrail_agent",
+                 lifecycle: %{"guardrails" => %{"input" => ["safe_prompt", "safe_prompt"]}}
+               ),
                available_guardrails: [SafePromptGuardrail]
              )
 
@@ -642,12 +647,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unknown hook names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "bad_hook_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "hooks" => %{"before_turn" => ["does_not_exist"]}
-               },
+               imported_spec("bad_hook_agent",
+                 lifecycle: %{"hooks" => %{"before_turn" => ["does_not_exist"]}}
+               ),
                available_hooks: [InjectTenantHook]
              )
 
@@ -657,12 +659,9 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects unknown guardrail names in imported agent specs" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "bad_guardrail_agent",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "guardrails" => %{"input" => ["does_not_exist"]}
-               },
+               imported_spec("bad_guardrail_agent",
+                 lifecycle: %{"guardrails" => %{"input" => ["does_not_exist"]}}
+               ),
                available_guardrails: [SafePromptGuardrail]
              )
 
@@ -671,36 +670,34 @@ defmodule MotoTest.ImportedAgentTest do
 
   test "rejects importing hooks without an available registry" do
     assert {:error, reason} =
-             Moto.import_agent(%{
-               "name" => "missing_hook_registry_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "hooks" => %{"before_turn" => ["inject_tenant"]}
-             })
+             Moto.import_agent(
+               imported_spec("missing_hook_registry_agent",
+                 lifecycle: %{"hooks" => %{"before_turn" => ["inject_tenant"]}}
+               )
+             )
 
     assert reason =~ "available_hooks registry"
   end
 
   test "rejects importing guardrails without an available registry" do
     assert {:error, reason} =
-             Moto.import_agent(%{
-               "name" => "missing_guardrail_registry_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "guardrails" => %{"input" => ["safe_prompt"]}
-             })
+             Moto.import_agent(
+               imported_spec("missing_guardrail_registry_agent",
+                 lifecycle: %{"guardrails" => %{"input" => ["safe_prompt"]}}
+               )
+             )
 
     assert reason =~ "available_guardrails registry"
   end
 
   test "rejects imported subagents without an available registry" do
     assert {:error, reason} =
-             Moto.import_agent(%{
-               "name" => "missing_subagent_registry",
-               "model" => "fast",
-               "system_prompt" => "You can delegate.",
-               "subagents" => [%{"agent" => "research_agent"}]
-             })
+             Moto.import_agent(
+               imported_spec("missing_subagent_registry",
+                 instructions: "You can delegate.",
+                 capabilities: %{"subagents" => [%{"agent" => "research_agent"}]}
+               )
+             )
 
     assert reason =~ "available_subagents registry"
   end
@@ -708,15 +705,15 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects imported subagents with duplicate published names" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "duplicate_subagent_import",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{"agent" => "research_agent"},
-                   %{"agent" => "review_agent", "as" => "research_agent"}
-                 ]
-               },
+               imported_spec("duplicate_subagent_import",
+                 instructions: "You can delegate.",
+                 capabilities: %{
+                   "subagents" => [
+                     %{"agent" => "research_agent"},
+                     %{"agent" => "review_agent", "as" => "research_agent"}
+                   ]
+                 }
+               ),
                available_subagents: [ResearchSpecialist, ReviewSpecialist]
              )
 
@@ -726,14 +723,10 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects imported subagents with invalid peer configuration" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "invalid_peer_import",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{"agent" => "research_agent", "target" => "peer"}
-                 ]
-               },
+               imported_spec("invalid_peer_import",
+                 instructions: "You can delegate.",
+                 capabilities: %{"subagents" => [%{"agent" => "research_agent", "target" => "peer"}]}
+               ),
                available_subagents: [ResearchSpecialist]
              )
 
@@ -743,14 +736,10 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects imported subagents with invalid timeout" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "invalid_subagent_timeout_import",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{"agent" => "research_agent", "timeout_ms" => 0}
-                 ]
-               },
+               imported_spec("invalid_subagent_timeout_import",
+                 instructions: "You can delegate.",
+                 capabilities: %{"subagents" => [%{"agent" => "research_agent", "timeout_ms" => 0}]}
+               ),
                available_subagents: [ResearchSpecialist]
              )
 
@@ -760,17 +749,17 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects imported subagents with invalid forward_context" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "invalid_subagent_forward_context_import",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{
-                     "agent" => "research_agent",
-                     "forward_context" => %{"mode" => "only"}
-                   }
-                 ]
-               },
+               imported_spec("invalid_subagent_forward_context_import",
+                 instructions: "You can delegate.",
+                 capabilities: %{
+                   "subagents" => [
+                     %{
+                       "agent" => "research_agent",
+                       "forward_context" => %{"mode" => "only"}
+                     }
+                   ]
+                 }
+               ),
                available_subagents: [ResearchSpecialist]
              )
 
@@ -780,14 +769,10 @@ defmodule MotoTest.ImportedAgentTest do
   test "rejects imported subagents with invalid result mode" do
     assert {:error, reason} =
              Moto.import_agent(
-               %{
-                 "name" => "invalid_subagent_result_import",
-                 "model" => "fast",
-                 "system_prompt" => "You can delegate.",
-                 "subagents" => [
-                   %{"agent" => "research_agent", "result" => "json"}
-                 ]
-               },
+               imported_spec("invalid_subagent_result_import",
+                 instructions: "You can delegate.",
+                 capabilities: %{"subagents" => [%{"agent" => "research_agent", "result" => "json"}]}
+               ),
                available_subagents: [ResearchSpecialist]
              )
 
@@ -796,25 +781,34 @@ defmodule MotoTest.ImportedAgentTest do
 
   test "rejects importing plugins without an available registry" do
     assert {:error, reason} =
-             Moto.import_agent(%{
-               "name" => "missing_plugin_registry_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "plugins" => ["math_plugin"]
-             })
+             Moto.import_agent(
+               imported_spec("missing_plugin_registry_agent",
+                 capabilities: %{"plugins" => ["math_plugin"]}
+               )
+             )
 
     assert reason =~ "available_plugins registry"
   end
 
   test "rejects importing tools without an available registry" do
     assert {:error, reason} =
-             Moto.import_agent(%{
-               "name" => "missing_registry_agent",
-               "model" => "fast",
-               "system_prompt" => "You are concise.",
-               "tools" => ["add_numbers"]
-             })
+             Moto.import_agent(imported_spec("missing_registry_agent", capabilities: %{"tools" => ["add_numbers"]}))
 
     assert reason =~ "available_tools registry"
+  end
+
+  defp imported_spec(id, opts) do
+    %{
+      "agent" => %{
+        "id" => id,
+        "context" => Keyword.get(opts, :context, %{})
+      },
+      "defaults" => %{
+        "model" => Keyword.get(opts, :model, "fast"),
+        "instructions" => Keyword.get(opts, :instructions, "You are concise.")
+      },
+      "capabilities" => Keyword.get(opts, :capabilities, %{}),
+      "lifecycle" => Keyword.get(opts, :lifecycle, %{})
+    }
   end
 end

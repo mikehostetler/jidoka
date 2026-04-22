@@ -2,8 +2,7 @@ defmodule Moto.Examples.Orchestrator.Agents.ResearchAgent do
   use Moto.Agent
 
   agent do
-    name("research_agent")
-    model(:fast)
+    id(:research_agent)
 
     schema(
       Zoi.object(%{
@@ -13,8 +12,12 @@ defmodule Moto.Examples.Orchestrator.Agents.ResearchAgent do
         session: Zoi.string() |> Zoi.optional()
       })
     )
+  end
 
-    system_prompt("""
+  defaults do
+    model(:fast)
+
+    instructions("""
     You are a research specialist.
     Return concise, factual notes with 3 short bullet points when possible.
     Do not mention delegation or orchestration.

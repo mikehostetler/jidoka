@@ -9,7 +9,7 @@ not the recommended shape for a normal application agent.
 It demonstrates:
 
 - `agent do schema ... end`
-- dynamic `system_prompt`
+- dynamic `instructions`
 - direct tools
 - Ash resource tool expansion
 - Jido.AI skills loaded from `SKILL.md`

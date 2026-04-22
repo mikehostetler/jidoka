@@ -26,13 +26,14 @@ defmodule MotoTest.AgentBasicsTest do
     assert :ok = Moto.stop_agent(pid)
   end
 
-  test "defaults the agent name from the module" do
+  test "exposes the stable agent id" do
+    assert ChatAgent.id() == "chat_agent"
     assert ChatAgent.name() == "chat_agent"
     assert ChatAgent.runtime_module() == MotoTest.ChatAgent.Runtime
   end
 
-  test "exposes the configured system prompt" do
-    assert ChatAgent.system_prompt() == "You are a concise assistant."
+  test "exposes the configured instructions" do
+    assert ChatAgent.instructions() == "You are a concise assistant."
     assert ChatAgent.request_transformer() == nil
   end
 
@@ -47,7 +48,7 @@ defmodule MotoTest.AgentBasicsTest do
              namespace: {:context, :session},
              capture: :conversation,
              retrieve: %{limit: 4},
-             inject: :system_prompt
+             inject: :instructions
            }
 
     assert ChatAgent.memory() == nil
@@ -86,8 +87,8 @@ defmodule MotoTest.AgentBasicsTest do
     assert MCPAgent.mcp_tools() == [%{endpoint: :github, prefix: "github_"}]
   end
 
-  test "supports module-based dynamic system prompts" do
-    assert ModulePromptAgent.system_prompt() == TenantPrompt
+  test "supports module-based dynamic instructions" do
+    assert ModulePromptAgent.instructions() == TenantPrompt
 
     assert ModulePromptAgent.request_transformer() ==
              MotoTest.ModulePromptAgent.RuntimeRequestTransformer
@@ -110,8 +111,8 @@ defmodule MotoTest.AgentBasicsTest do
            ]
   end
 
-  test "supports MFA-based dynamic system prompts" do
-    assert MfaPromptAgent.system_prompt() == {PromptCallbacks, :build, ["Serve tenant"]}
+  test "supports MFA-based dynamic instructions" do
+    assert MfaPromptAgent.instructions() == {PromptCallbacks, :build, ["Serve tenant"]}
 
     assert MfaPromptAgent.request_transformer() ==
              MotoTest.MfaPromptAgent.RuntimeRequestTransformer

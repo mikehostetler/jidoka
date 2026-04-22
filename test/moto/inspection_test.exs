@@ -19,10 +19,12 @@ defmodule MotoTest.InspectionTest do
     assert {:ok, agent} =
              Moto.import_agent(
                %{
-                 "name" => "inspect_imported",
-                 "model" => "fast",
-                 "system_prompt" => "You are concise.",
-                 "tools" => ["add_numbers"]
+                 "agent" => %{"id" => "inspect_imported"},
+                 "defaults" => %{
+                   "model" => "fast",
+                   "instructions" => "You are concise."
+                 },
+                 "capabilities" => %{"tools" => ["add_numbers"]}
                },
                available_tools: [AddNumbers]
              )
@@ -31,6 +33,7 @@ defmodule MotoTest.InspectionTest do
 
     assert definition.kind == :imported_agent_definition
     assert definition.module == nil
+    assert definition.id == "inspect_imported"
     assert definition.name == "inspect_imported"
     assert definition.tool_names == ["add_numbers"]
     assert definition.runtime_module == agent.runtime_module

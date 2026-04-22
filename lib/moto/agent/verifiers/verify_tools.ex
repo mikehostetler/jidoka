@@ -6,7 +6,7 @@ defmodule Moto.Agent.Verifiers.VerifyTools do
   @impl true
   def verify(dsl_state) do
     dsl_state
-    |> Spark.Dsl.Verifier.get_entities([:tools])
+    |> Spark.Dsl.Verifier.get_entities([:capabilities])
     |> Enum.reduce_while({:ok, MapSet.new()}, fn
       %Moto.Agent.Dsl.Tool{} = tool_ref, {:ok, seen_names} ->
         module = tool_ref.module
@@ -44,7 +44,7 @@ defmodule Moto.Agent.Verifiers.VerifyTools do
   defp duplicate_tool_error(dsl_state, tool_ref, name) do
     Spark.Error.DslError.exception(
       message: "tool #{inspect(name)} is defined more than once",
-      path: [:tools, :tool],
+      path: [:capabilities, :tool],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(tool_ref)
     )
@@ -53,7 +53,7 @@ defmodule Moto.Agent.Verifiers.VerifyTools do
   defp tool_error(dsl_state, tool_ref, message) do
     Spark.Error.DslError.exception(
       message: message,
-      path: [:tools, :tool],
+      path: [:capabilities, :tool],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(tool_ref)
     )
@@ -62,7 +62,7 @@ defmodule Moto.Agent.Verifiers.VerifyTools do
   defp mcp_error(dsl_state, mcp_ref, message) do
     Spark.Error.DslError.exception(
       message: message,
-      path: [:tools, :mcp_tools],
+      path: [:capabilities, :mcp_tools],
       module: Spark.Dsl.Verifier.get_persisted(dsl_state, :module),
       location: Spark.Dsl.Entity.anno(mcp_ref)
     )

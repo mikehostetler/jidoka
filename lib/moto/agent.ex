@@ -8,13 +8,16 @@ defmodule Moto.Agent do
         use Moto.Agent
 
         agent do
-          name "chat_agent"
-          model :fast
-          system_prompt "You are a concise assistant."
+          id :chat_agent
           schema Zoi.object(%{tenant: Zoi.string() |> Zoi.optional()})
         end
 
-        tools do
+        defaults do
+          model :fast
+          instructions "You are a concise assistant."
+        end
+
+        capabilities do
           tool MyApp.Tools.AddNumbers
           ash_resource MyApp.Accounts.User
         end
@@ -22,25 +25,21 @@ defmodule Moto.Agent do
 
   Supported fields are intentionally limited:
 
-  - `name`
-  - `model`
-  - `system_prompt` as a string, module callback, or MFA tuple
-  - `schema` as an optional Zoi map/object schema for runtime context
-  - `memory`
-  - `tools`
-  - `subagents`
-  - `plugins`
-  - `hooks`
-  - `guardrails`
+  - `agent.id`
+  - `agent.schema` as an optional Zoi map/object schema for runtime context
+  - `defaults.model`
+  - `defaults.instructions` as a string, module callback, or MFA tuple
+  - `capabilities` for tools, Ash resources, MCP tools, skills, plugins, and subagents
+  - `lifecycle` for memory, hooks, and guardrails
 
   A nested runtime module is generated automatically and uses `Jido.AI.Agent`
-  with the configured tool modules. The `tools` block currently supports
+  with the configured tool modules. The `capabilities` block currently supports
   explicit `Moto.Tool` modules and `ash_resource` expansion via `AshJido`.
-  The `subagents` block compiles specialist agents into tool-like delegation
+  Subagent entries compile specialist agents into tool-like delegation
   capabilities while keeping the parent agent in control. Subagent entries can
   tune child `timeout`, public `forward_context`, and parent-visible `result`
   shape without introducing handoffs or workflow graphs.
-  The `plugins` block accepts `Moto.Plugin` modules and merges their declared
+  Plugin entries accept `Moto.Plugin` modules and merge their declared
   action-backed tools into the same LLM-visible tool registry.
   """
 

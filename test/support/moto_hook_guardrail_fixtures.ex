@@ -183,11 +183,15 @@ defmodule MotoTest.HookedAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You have hooks.")
+    id(:hooked_agent)
   end
 
-  hooks do
+  defaults do
+    model(:fast)
+    instructions("You have hooks.")
+  end
+
+  lifecycle do
     before_turn(MotoTest.InjectTenantHook)
     before_turn({MotoTest.HookCallbacks, :before_turn, ["dsl_mfa"]})
     after_turn(MotoTest.NormalizeReplyHook)
@@ -201,22 +205,24 @@ defmodule MotoTest.GuardrailedAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You enforce guardrails.")
+    id(:guardrailed_agent)
   end
 
-  tools do
+  defaults do
+    model(:fast)
+    instructions("You enforce guardrails.")
+  end
+
+  capabilities do
     tool(MotoTest.AddNumbers)
   end
 
-  hooks do
+  lifecycle do
     on_interrupt(MotoTest.NotifyOpsHook)
-  end
 
-  guardrails do
-    input(MotoTest.SafePromptGuardrail)
-    output(MotoTest.SafeReplyGuardrail)
-    tool(MotoTest.ApproveLargeMathToolGuardrail)
+    input_guardrail(MotoTest.SafePromptGuardrail)
+    output_guardrail(MotoTest.SafeReplyGuardrail)
+    tool_guardrail(MotoTest.ApproveLargeMathToolGuardrail)
   end
 end
 
@@ -224,11 +230,15 @@ defmodule MotoTest.InterruptingAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You may interrupt.")
+    id(:interrupting_agent)
   end
 
-  hooks do
+  defaults do
+    model(:fast)
+    instructions("You may interrupt.")
+  end
+
+  lifecycle do
     before_turn(MotoTest.InterruptBeforeHook)
     on_interrupt(MotoTest.NotifyOpsHook)
   end

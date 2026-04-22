@@ -7,26 +7,20 @@ defmodule Moto.Agent.Definition do
   def build!(%Macro.Env{} = env) do
     owner_module = env.module
 
-    default_name =
-      owner_module
-      |> Module.split()
-      |> List.last()
-      |> Macro.underscore()
+    reject_legacy_placements!(owner_module)
 
-    name = Spark.Dsl.Extension.get_opt(owner_module, [:agent], :name, default_name)
-    configured_model = Spark.Dsl.Extension.get_opt(owner_module, [:agent], :model, :fast)
+    configured_id = Spark.Dsl.Extension.get_opt(owner_module, [:agent], :id)
+    id = resolve_agent_id!(owner_module, configured_id)
+    description = Spark.Dsl.Extension.get_opt(owner_module, [:agent], :description)
+
+    configured_model = Spark.Dsl.Extension.get_opt(owner_module, [:defaults], :model, :fast)
     resolved_model = resolve_model!(owner_module, configured_model)
-    configured_system_prompt = Spark.Dsl.Extension.get_opt(owner_module, [:agent], :system_prompt)
+    configured_instructions = Spark.Dsl.Extension.get_opt(owner_module, [:defaults], :instructions)
 
-    if is_nil(configured_system_prompt) do
-      raise CompileError,
-        file: env.file,
-        line: env.line,
-        description: "Moto.Agent requires `system_prompt` inside `agent do ... end`."
-    end
+    require_instructions!(owner_module, configured_instructions)
 
     {runtime_system_prompt, dynamic_system_prompt} =
-      case resolve_system_prompt!(owner_module, configured_system_prompt) do
+      case resolve_instructions!(owner_module, configured_instructions) do
         {:static, prompt} ->
           {prompt, nil}
 
@@ -34,20 +28,27 @@ defmodule Moto.Agent.Definition do
           {nil, spec}
       end
 
-    tool_entities = Spark.Dsl.Extension.get_entities(owner_module, [:tools])
-    plugin_entities = Spark.Dsl.Extension.get_entities(owner_module, [:plugins])
-    skill_entities = Spark.Dsl.Extension.get_entities(owner_module, [:skills])
+    configured_context_schema =
+      owner_module
+      |> Spark.Dsl.Extension.get_opt([:agent], :schema)
+      |> resolve_context_schema!(owner_module)
+
+    configured_context = resolve_context_defaults!(owner_module, configured_context_schema)
+
+    capability_entities = Spark.Dsl.Extension.get_entities(owner_module, [:capabilities])
 
     configured_subagents =
       owner_module
-      |> section_entities([:subagents], &match?(%Moto.Agent.Dsl.Subagent{}, &1))
+      |> section_entities([:capabilities], &match?(%Moto.Agent.Dsl.Subagent{}, &1))
       |> resolve_subagents!(owner_module)
 
-    configured_memory = resolve_memory_config!(owner_module)
+    configured_memory =
+      owner_module
+      |> resolve_memory_config!(configured_context_schema)
 
     skill_refs =
       Enum.filter(
-        skill_entities,
+        capability_entities,
         &(match?(%Moto.Agent.Dsl.SkillRef{}, &1) or
             match?(%Moto.Agent.Dsl.SkillPath{}, &1))
       )
@@ -55,14 +56,14 @@ defmodule Moto.Agent.Definition do
     configured_skills = resolve_skills!(owner_module, skill_refs, Path.dirname(env.file))
 
     configured_mcp_tools =
-      tool_entities
+      capability_entities
       |> Enum.filter(&match?(%Moto.Agent.Dsl.MCPTools{}, &1))
       |> resolve_mcp!(owner_module)
 
     configured_hooks =
       owner_module
       |> section_entities(
-        [:hooks],
+        [:lifecycle],
         &(match?(%Moto.Agent.Dsl.BeforeTurnHook{}, &1) or
             match?(%Moto.Agent.Dsl.AfterTurnHook{}, &1) or
             match?(%Moto.Agent.Dsl.InterruptHook{}, &1))
@@ -73,7 +74,7 @@ defmodule Moto.Agent.Definition do
     configured_guardrails =
       owner_module
       |> section_entities(
-        [:guardrails],
+        [:lifecycle],
         &(match?(%Moto.Agent.Dsl.InputGuardrail{}, &1) or
             match?(%Moto.Agent.Dsl.OutputGuardrail{}, &1) or
             match?(%Moto.Agent.Dsl.ToolGuardrail{}, &1))
@@ -81,29 +82,22 @@ defmodule Moto.Agent.Definition do
       |> guardrails_stage_map()
       |> resolve_guardrails!(owner_module)
 
-    configured_context_schema =
-      owner_module
-      |> Spark.Dsl.Extension.get_opt([:agent], :schema)
-      |> resolve_context_schema!(owner_module)
-
-    configured_context = resolve_context_defaults!(owner_module, configured_context_schema)
-
     direct_tool_modules =
-      tool_entities
+      capability_entities
       |> Enum.filter(&match?(%Moto.Agent.Dsl.Tool{}, &1))
       |> Enum.map(& &1.module)
 
     ash_resources =
-      tool_entities
+      capability_entities
       |> Enum.filter(&match?(%Moto.Agent.Dsl.AshResource{}, &1))
       |> Enum.map(& &1.resource)
 
     plugin_modules =
-      plugin_entities
+      capability_entities
       |> Enum.filter(&match?(%Moto.Agent.Dsl.Plugin{}, &1))
       |> Enum.map(& &1.module)
 
-    direct_tool_names = resolve_tool_names!(owner_module, direct_tool_modules, [:tools, :tool])
+    direct_tool_names = resolve_tool_names!(owner_module, direct_tool_modules, [:capabilities, :tool])
 
     {plugin_names, plugin_tool_modules, plugin_tool_names} =
       resolve_plugin_tools!(owner_module, plugin_modules)
@@ -160,8 +154,10 @@ defmodule Moto.Agent.Definition do
       kind: :agent_definition,
       module: owner_module,
       runtime_module: runtime_module,
-      name: name,
-      system_prompt: configured_system_prompt,
+      id: id,
+      name: id,
+      description: description,
+      instructions: configured_instructions,
       request_transformer: effective_request_transformer,
       configured_model: configured_model,
       model: resolved_model,
@@ -190,10 +186,12 @@ defmodule Moto.Agent.Definition do
       request_transformer_system_prompt: request_transformer_system_prompt,
       runtime_system_prompt: runtime_system_prompt,
       effective_request_transformer: effective_request_transformer,
-      name: name,
+      id: id,
+      name: id,
+      description: description,
       model: resolved_model,
       configured_model: configured_model,
-      configured_system_prompt: configured_system_prompt,
+      configured_instructions: configured_instructions,
       context_schema: configured_context_schema,
       context: configured_context,
       memory: configured_memory,
@@ -218,52 +216,193 @@ defmodule Moto.Agent.Definition do
     }
   end
 
+  @legacy_sections [
+    memory: "Move `memory do ... end` inside `lifecycle do ... end`.",
+    tools: "Move `tool`, `ash_resource`, and `mcp_tools` declarations inside `capabilities do ... end`.",
+    skills: "Move `skill` and `load_path` declarations inside `capabilities do ... end`.",
+    plugins: "Move `plugin` declarations inside `capabilities do ... end`.",
+    subagents: "Move `subagent` declarations inside `capabilities do ... end`.",
+    hooks: "Move hook declarations inside `lifecycle do ... end`.",
+    guardrails:
+      "Move guardrails inside `lifecycle do ... end` and rename `input`, `output`, and `tool` to `input_guardrail`, `output_guardrail`, and `tool_guardrail`."
+  ]
+
+  defp reject_legacy_placements!(owner_module) do
+    reject_legacy_agent_option!(
+      owner_module,
+      :model,
+      "Move `model` into `defaults do ... end`."
+    )
+
+    reject_legacy_agent_option!(
+      owner_module,
+      :system_prompt,
+      "Rename `system_prompt` to `instructions` inside `defaults do ... end`."
+    )
+
+    Enum.each(@legacy_sections, fn {section, hint} ->
+      if legacy_section_present?(owner_module, section) do
+        raise Moto.Agent.Dsl.Error.exception(
+                message: "Top-level `#{section} do ... end` is not valid in the beta Moto DSL.",
+                path: [section],
+                hint: hint,
+                module: owner_module,
+                location: Spark.Dsl.Extension.get_section_anno(owner_module, [section])
+              )
+      end
+    end)
+  end
+
+  defp reject_legacy_agent_option!(owner_module, option, hint) do
+    value = Spark.Dsl.Extension.get_opt(owner_module, [:agent], option)
+
+    unless is_nil(value) do
+      raise Moto.Agent.Dsl.Error.exception(
+              message: "`agent.#{option}` is not valid in the beta Moto DSL.",
+              path: [:agent, option],
+              value: value,
+              hint: hint,
+              module: owner_module
+            )
+    end
+  end
+
+  defp legacy_section_present?(owner_module, section) do
+    Spark.Dsl.Extension.get_entities(owner_module, [section]) != [] or
+      not is_nil(Spark.Dsl.Extension.get_section_anno(owner_module, [section]))
+  rescue
+    _ -> false
+  end
+
+  defp resolve_agent_id!(owner_module, id) do
+    normalized_id =
+      cond do
+        is_atom(id) and not is_nil(id) ->
+          Atom.to_string(id)
+
+        is_binary(id) ->
+          String.trim(id)
+
+        true ->
+          raise Moto.Agent.Dsl.Error.exception(
+                  message: "`agent.id` is required.",
+                  path: [:agent, :id],
+                  value: id,
+                  hint: "Declare `agent do id :my_agent end` using lower snake case.",
+                  module: owner_module
+                )
+      end
+
+    if Regex.match?(~r/^[a-z][a-z0-9_]*$/, normalized_id) do
+      normalized_id
+    else
+      raise Moto.Agent.Dsl.Error.exception(
+              message: "`agent.id` must be lower snake case.",
+              path: [:agent, :id],
+              value: id,
+              hint: "Use a value like `support_agent` with lowercase letters, numbers, and underscores.",
+              module: owner_module
+            )
+    end
+  end
+
+  defp require_instructions!(owner_module, nil) do
+    raise Moto.Agent.Dsl.Error.exception(
+            message: "`defaults.instructions` is required.",
+            path: [:defaults, :instructions],
+            value: nil,
+            hint: "Declare `defaults do instructions \"...\" end` or provide a resolver module/MFA.",
+            module: owner_module
+          )
+  end
+
+  defp require_instructions!(_owner_module, _instructions), do: :ok
+
   defp resolve_model!(owner_module, model) do
     Moto.model(model)
   rescue
     error in [ArgumentError] ->
-      raise Spark.Error.DslError,
-        message: Exception.message(error),
-        path: [:agent, :model],
-        module: owner_module
+      raise Moto.Agent.Dsl.Error.exception(
+              message: Exception.message(error),
+              path: [:defaults, :model],
+              value: model,
+              hint: "Use a configured Moto model alias such as `:fast` or a Jido.AI-compatible model spec.",
+              module: owner_module
+            )
   end
 
-  defp resolve_system_prompt!(owner_module, system_prompt) do
-    case Moto.Agent.SystemPrompt.normalize(owner_module, system_prompt) do
+  defp resolve_instructions!(owner_module, instructions) do
+    case Moto.Agent.SystemPrompt.normalize(owner_module, instructions, label: "instructions") do
       {:ok, normalized} ->
         normalized
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:agent, :system_prompt],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:defaults, :instructions],
+                value: instructions,
+                hint: "Use a non-empty string, a module implementing `resolve_system_prompt/1`, or an MFA tuple.",
+                module: owner_module
+              )
     end
   end
 
   defp resolve_hooks!(hooks, owner_module) do
-    case Moto.Hooks.normalize_dsl_hooks(hooks) do
-      {:ok, normalized} ->
-        normalized
-
+    with :ok <- ensure_unique_stage_refs!(owner_module, hooks, "hook", [:lifecycle]),
+         {:ok, normalized} <- Moto.Hooks.normalize_dsl_hooks(hooks) do
+      normalized
+    else
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:hooks],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:lifecycle],
+                hint: "Declare hooks as `before_turn`, `after_turn`, or `on_interrupt` inside `lifecycle`.",
+                module: owner_module
+              )
     end
   end
 
   defp resolve_guardrails!(guardrails, owner_module) do
-    case Moto.Guardrails.normalize_dsl_guardrails(guardrails) do
-      {:ok, normalized} ->
-        normalized
-
+    with :ok <- ensure_unique_stage_refs!(owner_module, guardrails, "guardrail", [:lifecycle]),
+         {:ok, normalized} <- Moto.Guardrails.normalize_dsl_guardrails(guardrails) do
+      normalized
+    else
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:guardrails],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:lifecycle],
+                hint:
+                  "Declare guardrails as `input_guardrail`, `output_guardrail`, or `tool_guardrail` inside `lifecycle`.",
+                module: owner_module
+              )
+    end
+  end
+
+  defp ensure_unique_stage_refs!(owner_module, stage_map, label, path) when is_map(stage_map) do
+    stage_map
+    |> Enum.find_value(fn {stage, refs} ->
+      duplicate =
+        refs
+        |> Enum.frequencies()
+        |> Enum.find(fn {_ref, count} -> count > 1 end)
+
+      case duplicate do
+        nil -> nil
+        {ref, _count} -> {stage, ref}
+      end
+    end)
+    |> case do
+      nil ->
+        :ok
+
+      {stage, ref} ->
+        raise Moto.Agent.Dsl.Error.exception(
+                message: "#{label} #{inspect(ref)} is defined more than once for #{stage}",
+                path: path ++ [stage],
+                value: ref,
+                hint: "Remove the duplicate #{label} declaration from the #{stage} lifecycle stage.",
+                module: owner_module
+              )
     end
   end
 
@@ -275,10 +414,13 @@ defmodule Moto.Agent.Definition do
         schema
 
       {:error, reason} ->
-        raise Spark.Error.DslError,
-          message: context_schema_error(reason),
-          path: [:agent, :schema],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: context_schema_error(reason),
+                path: [:agent, :schema],
+                value: schema,
+                hint: "Use a compiled Zoi map/object schema owned by the agent DSL.",
+                module: owner_module
+              )
     end
   end
 
@@ -288,18 +430,20 @@ defmodule Moto.Agent.Definition do
         context
 
       {:error, reason} ->
-        raise Spark.Error.DslError,
-          message: context_schema_error(reason),
-          path: [:agent, :schema],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: context_schema_error(reason),
+                path: [:agent, :schema],
+                hint: "Ensure the Zoi schema parses an empty input to map defaults.",
+                module: owner_module
+              )
     end
   end
 
-  defp resolve_memory_config!(owner_module) do
+  defp resolve_memory_config!(owner_module, context_schema) do
     memory_entities =
       section_entities(
         owner_module,
-        [:memory],
+        [:lifecycle, :memory],
         &(match?(%Moto.Agent.Dsl.MemoryMode{}, &1) or
             match?(%Moto.Agent.Dsl.MemoryNamespace{}, &1) or
             match?(%Moto.Agent.Dsl.MemorySharedNamespace{}, &1) or
@@ -312,16 +456,20 @@ defmodule Moto.Agent.Definition do
       owner_module
       |> Module.get_attribute(:spark_dsl_config)
       |> case do
-        %{} = dsl -> Spark.Dsl.Extension.get_section_anno(dsl, [:memory])
+        %{} = dsl -> Spark.Dsl.Extension.get_section_anno(dsl, [:lifecycle, :memory])
         _ -> nil
       end
 
     cond do
       memory_entities != [] ->
-        resolve_memory!(owner_module, memory_entities)
+        owner_module
+        |> resolve_memory!(memory_entities)
+        |> validate_memory_namespace_context!(owner_module, context_schema)
 
       not is_nil(memory_section_anno) ->
-        Moto.Memory.default_config()
+        owner_module
+        |> then(fn _ -> Moto.Memory.default_config() end)
+        |> validate_memory_namespace_context!(owner_module, context_schema)
 
       true ->
         nil
@@ -334,12 +482,33 @@ defmodule Moto.Agent.Definition do
         normalized
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:memory],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:lifecycle, :memory],
+                hint: "Declare each memory setting once and keep shared namespace settings consistent.",
+                module: owner_module
+              )
     end
   end
+
+  defp validate_memory_namespace_context!(nil, _owner_module, _context_schema), do: nil
+
+  defp validate_memory_namespace_context!(%{namespace: {:context, key}} = memory, owner_module, context_schema)
+       when not is_nil(context_schema) do
+    if Moto.Context.schema_has_key?(context_schema, key) do
+      memory
+    else
+      raise Moto.Agent.Dsl.Error.exception(
+              message: "memory context namespace key is not declared by `agent.schema`.",
+              path: [:lifecycle, :memory, :namespace],
+              value: {:context, key},
+              hint: "Add #{inspect(key)} to the Zoi schema or use `namespace :per_agent`/`:shared`.",
+              module: owner_module
+            )
+    end
+  end
+
+  defp validate_memory_namespace_context!(memory, _owner_module, _context_schema), do: memory
 
   defp resolve_skills!(owner_module, entries, base_dir)
        when is_list(entries) and is_binary(base_dir) do
@@ -348,10 +517,12 @@ defmodule Moto.Agent.Definition do
         normalized
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:skills],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities],
+                hint: "Declare skills with `skill` or `load_path` inside `capabilities`.",
+                module: owner_module
+              )
     end
   end
 
@@ -361,10 +532,12 @@ defmodule Moto.Agent.Definition do
         normalized
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:tools, :mcp_tools],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :mcp_tools],
+                hint: "Declare MCP endpoints as `mcp_tools endpoint: ...` inside `capabilities`.",
+                module: owner_module
+              )
     end
   end
 
@@ -394,17 +567,21 @@ defmodule Moto.Agent.Definition do
             subagents
 
           {:error, message} ->
-            raise Spark.Error.DslError,
-              message: message,
-              path: [:subagents],
-              module: owner_module
+            raise Moto.Agent.Dsl.Error.exception(
+                    message: message,
+                    path: [:capabilities, :subagent],
+                    hint: "Give each subagent a unique published tool name.",
+                    module: owner_module
+                  )
         end
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:subagents],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :subagent],
+                hint: "Declare subagents inside `capabilities` with a Moto-compatible module.",
+                module: owner_module
+              )
     end
   end
 
@@ -414,10 +591,12 @@ defmodule Moto.Agent.Definition do
         tool_names
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: path,
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: path,
+                hint: "Use Moto tool modules that publish valid tool names.",
+                module: owner_module
+              )
     end
   end
 
@@ -428,10 +607,12 @@ defmodule Moto.Agent.Definition do
           plugin_names
 
         {:error, message} ->
-          raise Spark.Error.DslError,
-            message: message,
-            path: [:plugins, :plugin],
-            module: owner_module
+          raise Moto.Agent.Dsl.Error.exception(
+                  message: message,
+                  path: [:capabilities, :plugin],
+                  hint: "Ensure each plugin module uses `Moto.Plugin` and declares a unique name.",
+                  module: owner_module
+                )
       end
 
     plugin_tool_modules =
@@ -440,10 +621,12 @@ defmodule Moto.Agent.Definition do
           plugin_tool_modules
 
         {:error, message} ->
-          raise Spark.Error.DslError,
-            message: message,
-            path: [:plugins, :plugin],
-            module: owner_module
+          raise Moto.Agent.Dsl.Error.exception(
+                  message: message,
+                  path: [:capabilities, :plugin],
+                  hint: "Ensure each plugin returns valid action-backed tool modules.",
+                  module: owner_module
+                )
       end
 
     plugin_tool_names =
@@ -452,10 +635,12 @@ defmodule Moto.Agent.Definition do
           plugin_tool_names
 
         {:error, message} ->
-          raise Spark.Error.DslError,
-            message: message,
-            path: [:plugins, :plugin],
-            module: owner_module
+          raise Moto.Agent.Dsl.Error.exception(
+                  message: message,
+                  path: [:capabilities, :plugin],
+                  hint: "Plugin-provided tools must publish valid unique tool names.",
+                  module: owner_module
+                )
       end
 
     {plugin_names, plugin_tool_modules, plugin_tool_names}
@@ -469,10 +654,12 @@ defmodule Moto.Agent.Definition do
         {Moto.Skill.skill_names(configured_skills), skill_tool_modules, skill_tool_names}
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:skills, :skill],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :skill],
+                hint: "Skill-provided tools must publish valid unique tool names.",
+                module: owner_module
+              )
     end
   end
 
@@ -482,10 +669,12 @@ defmodule Moto.Agent.Definition do
         ash_resource_info
 
       {:error, message} ->
-        raise Spark.Error.DslError,
-          message: message,
-          path: [:tools, :ash_resource],
-          module: owner_module
+        raise Moto.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :ash_resource],
+                hint: "Use an Ash resource extended with AshJido.",
+                module: owner_module
+              )
     end
   end
 
@@ -530,10 +719,14 @@ defmodule Moto.Agent.Definition do
         |> Enum.map(&elem(&1, 0))
         |> Enum.sort()
 
-      raise Spark.Error.DslError,
-        message: "duplicate tool names in Moto agent: #{Enum.join(duplicates, ", ")}",
-        path: [:tools],
-        module: owner_module
+      raise Moto.Agent.Dsl.Error.exception(
+              message: "duplicate tool names in Moto agent: #{Enum.join(duplicates, ", ")}",
+              path: [:capabilities],
+              value: duplicates,
+              hint:
+                "Rename or remove one of the conflicting tools across direct, Ash, MCP, skill, plugin, and subagent sources.",
+              module: owner_module
+            )
     end
   end
 

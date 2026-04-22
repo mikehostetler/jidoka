@@ -455,7 +455,7 @@ defmodule Moto.Subagent.Runtime do
   defp maybe_put_ash(config, ash), do: Map.put(config, :ash, ash)
 
   defp moto_agent_module?(agent_module) do
-    function_exported?(agent_module, :system_prompt, 0) and
+    function_exported?(agent_module, :instructions, 0) and
       function_exported?(agent_module, :context, 0) and
       function_exported?(agent_module, :requires_actor?, 0)
   end

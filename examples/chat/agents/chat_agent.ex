@@ -2,8 +2,7 @@ defmodule Moto.Examples.Chat.Agents.ChatAgent do
   use Moto.Agent
 
   agent do
-    name("script_chat_agent")
-    model(:fast)
+    id(:script_chat_agent)
 
     schema(
       Zoi.object(%{
@@ -13,40 +12,39 @@ defmodule Moto.Examples.Chat.Agents.ChatAgent do
         notify_pid: Zoi.any() |> Zoi.optional()
       })
     )
+  end
 
-    system_prompt("""
+  defaults do
+    model(:fast)
+
+    instructions("""
     You are a concise assistant.
     Keep answers short and direct.
     """)
   end
 
-  memory do
-    mode(:conversation)
-    namespace({:context, :session})
-    capture(:conversation)
-    retrieve(limit: 4)
-    inject(:system_prompt)
-  end
-
-  skills do
+  capabilities do
     skill("math-discipline")
     load_path("../skills")
-  end
-
-  plugins do
     plugin(Moto.Examples.Chat.Plugins.MathPlugin)
   end
 
-  hooks do
+  lifecycle do
+    memory do
+      mode(:conversation)
+      namespace({:context, :session})
+      capture(:conversation)
+      retrieve(limit: 4)
+      inject(:instructions)
+    end
+
     before_turn(Moto.Examples.Chat.Hooks.ReplyWithFinalAnswer)
     after_turn(Moto.Examples.Chat.Hooks.TagAfterTurn)
     after_turn(Moto.Examples.Chat.Hooks.RequireApprovalForRefunds)
     on_interrupt(Moto.Examples.Chat.Hooks.NotifyInterrupt)
-  end
 
-  guardrails do
-    input(Moto.Examples.Chat.Guardrails.BlockSecretPrompt)
-    output(Moto.Examples.Chat.Guardrails.BlockUnsafeReply)
-    tool(Moto.Examples.Chat.Guardrails.ApproveLargeMathTool)
+    input_guardrail(Moto.Examples.Chat.Guardrails.BlockSecretPrompt)
+    output_guardrail(Moto.Examples.Chat.Guardrails.BlockUnsafeReply)
+    tool_guardrail(Moto.Examples.Chat.Guardrails.ApproveLargeMathTool)
   end
 end

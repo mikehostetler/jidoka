@@ -16,11 +16,15 @@ defmodule MotoTest.SkillAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You can use skills.")
+    id(:skill_agent)
   end
 
-  skills do
+  defaults do
+    model(:fast)
+    instructions("You can use skills.")
+  end
+
+  capabilities do
     skill(MotoTest.ModuleMathSkill)
   end
 end
@@ -29,11 +33,15 @@ defmodule MotoTest.RuntimeSkillAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You can use runtime skills.")
+    id(:runtime_skill_agent)
   end
 
-  skills do
+  defaults do
+    model(:fast)
+    instructions("You can use runtime skills.")
+  end
+
+  capabilities do
     skill("math-discipline")
     load_path("../fixtures/skills")
   end
@@ -43,11 +51,15 @@ defmodule MotoTest.MCPAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You can use MCP-synced tools.")
+    id(:mcp_agent)
   end
 
-  tools do
+  defaults do
+    model(:fast)
+    instructions("You can use MCP-synced tools.")
+  end
+
+  capabilities do
     mcp_tools(endpoint: :github, prefix: "github_")
   end
 end
@@ -56,11 +68,15 @@ defmodule MotoTest.LocalFSMCPAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You can use filesystem MCP tools.")
+    id(:local_fsmcp_agent)
   end
 
-  tools do
+  defaults do
+    model(:fast)
+    instructions("You can use filesystem MCP tools.")
+  end
+
+  capabilities do
     mcp_tools(endpoint: :local_fs, prefix: "fs_")
   end
 end
@@ -69,11 +85,15 @@ defmodule MotoTest.InlineMCPAgent do
   use Moto.Agent
 
   agent do
-    model(:fast)
-    system_prompt("You can use an inline MCP endpoint.")
+    id(:inline_mcp_agent)
   end
 
-  tools do
+  defaults do
+    model(:fast)
+    instructions("You can use an inline MCP endpoint.")
+  end
+
+  capabilities do
     mcp_tools(
       endpoint: :inline_fs,
       prefix: "inline_",
