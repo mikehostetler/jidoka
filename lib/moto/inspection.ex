@@ -24,6 +24,8 @@ defmodule Moto.Inspection do
   def inspect_agent(%Moto.DynamicAgent{} = agent), do: {:ok, Moto.DynamicAgent.definition(agent)}
 
   def inspect_agent(module) when is_atom(module) do
+    _ = Code.ensure_loaded(module)
+
     cond do
       function_exported?(module, :__moto__, 0) ->
         {:ok, module.__moto__()}

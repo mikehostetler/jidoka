@@ -751,6 +751,18 @@ mix moto orchestrator --log-level trace -- "Use the writer_specialist specialist
 
 Use `--log-level trace` to see subagent config and delegation metadata.
 
+Kitchen sink showcase:
+
+```bash
+mix moto kitchen_sink --log-level trace --dry-run
+mix moto kitchen_sink -- "Use the research_agent specialist to explain embeddings."
+```
+
+The kitchen sink demo intentionally combines schema, dynamic prompts, tools,
+Ash resource expansion, skills, MCP tool sync, plugins, hooks, guardrails,
+memory, compiled subagents, and imported JSON subagents in one place. It is a
+showcase, not the recommended starting point.
+
 The example source modules live under `examples/`. `mix moto` is the canonical
 entrypoint for running them.
 

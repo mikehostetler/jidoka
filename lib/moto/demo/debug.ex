@@ -14,6 +14,8 @@ defmodule Moto.Demo.Debug do
     "ai.tool.result" => "tool finished"
   }
 
+  @row_width 12
+
   @spec parse_log_level(keyword()) :: {:ok, log_level()} | {:error, String.t()}
   def parse_log_level(opts) when is_list(opts) do
     case Keyword.get(opts, :log_level, "info") do
@@ -66,7 +68,13 @@ defmodule Moto.Demo.Debug do
 
   @spec print_trace_status(log_level()) :: :ok
   def print_trace_status(:trace) do
-    IO.puts("Debug status: #{inspect(Moto.Runtime.debug_status())}")
+    status = Moto.Runtime.debug_status()
+    level = Map.get(status, :level, :unknown)
+    overrides = Map.get(status, :overrides, %{})
+    events = Map.get(overrides, :observe_debug_events, :default)
+    telemetry = Map.get(overrides, :telemetry_log_level, :default)
+
+    IO.puts("Debug status: runtime=#{level} events=#{events} telemetry=#{telemetry}")
     :ok
   end
 
@@ -74,6 +82,18 @@ defmodule Moto.Demo.Debug do
 
   @spec request_log_level(log_level()) :: Logger.level()
   def request_log_level(_level), do: :warning
+
+  @spec safe_stop_agent(pid()) :: :ok
+  def safe_stop_agent(pid) when is_pid(pid) do
+    case Moto.stop_agent(pid) do
+      :ok -> :ok
+      {:error, :not_found} -> :ok
+      {:error, {:not_found, _}} -> :ok
+      _other -> :ok
+    end
+  catch
+    :exit, _reason -> :ok
+  end
 
   @spec print_recent_events(pid(), log_level(), keyword()) :: :ok
   def print_recent_events(pid, level, opts \\ [])
@@ -85,20 +105,22 @@ defmodule Moto.Demo.Debug do
 
     case Moto.Runtime.recent(pid, limit) do
       {:ok, []} ->
-        IO.puts("debug> no recent events")
+        section(debug_title(level))
+        row("events", "none")
 
       {:ok, events} ->
-        print_request_summary(pid, level)
-        print_event_summary(events)
-        maybe_print_raw_events(events, level)
+        print_request_summary(pid, level, events)
 
       {:error, :debug_not_enabled} ->
-        IO.puts("debug> event buffer unavailable")
+        section(debug_title(level))
+        row("events", "buffer unavailable")
 
       {:error, reason} ->
-        IO.puts("debug> failed to fetch recent events: #{inspect(reason)}")
+        section(debug_title(level))
+        row("events", "failed: #{inspect(reason)}")
     end
 
+    IO.puts("")
     :ok
   end
 
@@ -117,158 +139,206 @@ defmodule Moto.Demo.Debug do
     Moto.Runtime.debug(:verbose)
   end
 
-  defp print_request_summary(pid, level) do
+  defp print_request_summary(pid, level, events) do
     case Moto.Debug.request_summary(pid) do
       {:ok, summary} ->
-        IO.puts("debug> request #{summary.request_id} status=#{summary.status}")
-        maybe_print_model(summary)
-        maybe_print_prompt_summary(summary, level)
-        maybe_print_skill_summary(summary)
-        maybe_print_tool_summary(summary)
-        maybe_print_mcp_summary(summary)
-        maybe_print_context_keys(summary, level)
-        maybe_print_memory_summary(summary.memory)
-        maybe_print_subagent_summary(summary.subagents, level)
-        maybe_print_usage_summary(summary)
-        maybe_print_error_summary(summary)
+        section(debug_title(level))
+        print_request_overview(summary)
+        print_prompt_summary(summary, level)
+        print_context_summary(summary, level)
+        print_capability_summary(summary, level)
+        print_memory_summary(summary.memory)
+        print_subagent_summary(summary.subagents, level)
+        print_usage_summary(summary)
+        print_error_summary(summary)
+        print_event_summary(events)
 
       _ ->
         :ok
     end
   end
 
-  defp maybe_print_model(%{model: nil}), do: :ok
-
-  defp maybe_print_model(%{model: model}) do
-    IO.puts("debug> model #{inspect(model)}")
+  defp print_request_overview(summary) do
+    row("request", "#{summary.status || "unknown"} #{summary.request_id}")
+    if summary.model, do: row("model", inspect(summary.model))
   end
 
-  defp maybe_print_prompt_summary(summary, level) do
+  defp print_prompt_summary(summary, level) do
     cond do
       summary.user_message && summary.input_message &&
           summary.user_message != summary.input_message ->
-        IO.puts("debug> input #{inspect(preview(summary.input_message, level))}")
-        IO.puts("debug> prepared user #{inspect(preview(summary.user_message, level))}")
+        row("input", inspect(preview(summary.input_message, level)))
+        row("prepared", inspect(preview(summary.user_message, level)))
 
       summary.user_message ->
-        IO.puts("debug> user #{inspect(preview(summary.user_message, level))}")
+        row("user", inspect(preview(summary.user_message, level)))
 
       true ->
         :ok
     end
 
-    if summary.system_prompt do
-      IO.puts("debug> system #{inspect(preview(summary.system_prompt, level))}")
+    if level == :trace and summary.system_prompt do
+      row("system", inspect(preview(summary.system_prompt, level)))
     end
 
     if level == :trace and is_integer(summary.message_count) do
-      IO.puts("debug> messages count=#{summary.message_count}")
+      row("messages", Integer.to_string(summary.message_count))
     end
   end
 
-  defp maybe_print_tool_summary(%{tool_names: []}), do: :ok
+  defp print_context_summary(%{context_preview: []}, _level), do: :ok
 
-  defp maybe_print_tool_summary(%{tool_names: tool_names}) do
-    IO.puts("debug> tools #{Enum.join(tool_names, ", ")}")
+  defp print_context_summary(%{context_preview: items}, level) do
+    public_items = Enum.reject(items, &String.starts_with?(&1, "domain="))
+    hidden_count = length(items) - length(public_items)
+
+    if public_items != [] or level == :trace do
+      section("Context")
+    end
+
+    if public_items != [] do
+      row("values", Enum.join(public_items, " "))
+    end
+
+    if level == :trace and hidden_count > 0 do
+      row("internal", "#{hidden_count} hidden")
+    end
   end
 
-  defp maybe_print_skill_summary(%{skills: []}), do: :ok
+  defp print_capability_summary(summary, level) do
+    tools = summary.tool_names || []
+    skills = summary.skills || []
+    mcp_tools = summary.mcp_tools || []
+    mcp_count = count_mcp_proxy_tools(tools, mcp_tools)
 
-  defp maybe_print_skill_summary(%{skills: skills}) do
-    IO.puts("debug> skills #{Enum.join(skills, ", ")}")
+    if tools != [] or skills != [] or mcp_tools != [] or summary.mcp_errors != [] do
+      section("Capabilities")
+
+      if tools != [] do
+        suffix = if mcp_count > 0, do: " (#{mcp_count} mcp)", else: ""
+        row("tools", "#{length(tools)} available#{suffix}")
+
+        if level == :trace do
+          row("tool list", compact_list(tools, 12))
+        end
+      end
+
+      if skills != [] do
+        row("skills", Enum.join(skills, ", "))
+      end
+
+      if mcp_tools != [] do
+        row("mcp", Enum.join(mcp_tools, ", "))
+      end
+
+      print_mcp_errors(summary, level)
+    end
   end
 
-  defp maybe_print_mcp_summary(%{mcp_tools: []}), do: :ok
+  defp print_mcp_errors(%{mcp_errors: []}, _level), do: :ok
 
-  defp maybe_print_mcp_summary(%{mcp_tools: mcp_tools}) do
-    IO.puts("debug> mcp #{Enum.join(mcp_tools, ", ")}")
+  defp print_mcp_errors(%{mcp_errors: errors}, level) when is_list(errors) do
+    Enum.each(errors, fn error ->
+      endpoint = error[:endpoint] || "unknown"
+      prefix = if error[:prefix], do: ":#{error.prefix}", else: ""
+      reason = error[:reason] |> inspect() |> preview(level)
+
+      row("mcp error", "#{endpoint}#{prefix} #{reason}")
+    end)
   end
 
-  defp maybe_print_context_keys(%{context_preview: []}, _level), do: :ok
+  defp print_mcp_errors(_summary, _level), do: :ok
 
-  defp maybe_print_context_keys(%{context_preview: items}, _level) do
-    IO.puts("debug> context #{Enum.join(items, " ")}")
+  defp print_memory_summary(%{error: reason}) do
+    section("Memory")
+    row("error", inspect(reason))
   end
 
-  defp maybe_print_memory_summary(%{error: reason}) do
-    IO.puts("debug> memory error=#{inspect(reason)}")
-  end
-
-  defp maybe_print_memory_summary(%{} = memory) do
+  defp print_memory_summary(%{} = memory) do
     if memory[:namespace] do
+      section("Memory")
       inject = memory[:inject] || :none
       captured = Map.get(memory, :captured, false)
-
-      IO.puts(
-        "debug> memory namespace=#{memory.namespace} retrieved=#{memory.retrieved} inject=#{inject} captured=#{captured}"
-      )
+      row("namespace", memory.namespace)
+      row("retrieved", to_string(memory.retrieved || 0))
+      row("inject", to_string(inject))
+      row("captured", to_string(captured))
     else
       :ok
     end
   end
 
-  defp maybe_print_memory_summary(_memory), do: :ok
+  defp print_memory_summary(_memory), do: :ok
 
-  defp maybe_print_subagent_summary([], _level), do: :ok
+  defp print_subagent_summary([], _level), do: :ok
 
-  defp maybe_print_subagent_summary(calls, level) when is_list(calls) do
+  defp print_subagent_summary(calls, level) when is_list(calls) do
+    section("Delegation")
+
     Enum.each(calls, fn call ->
       child = call[:child_id] || "ephemeral"
       duration = call[:duration_ms] || 0
       status = subagent_status(call)
 
-      summary =
-        "debug> delegated to #{call.name} mode=#{call.mode} child=#{child} status=#{status} duration_ms=#{duration}"
+      row(to_string(call.name), "#{status} #{duration}ms")
 
       if level == :trace do
-        details =
-          [
-            trace_field("target", call[:target]),
-            trace_field("context_keys", call[:context_keys]),
-            trace_field("task", call[:task_preview]),
-            trace_field("result", call[:result_preview])
-          ]
-          |> Enum.reject(&is_nil/1)
-          |> Enum.join(" ")
-
-        if details == "" do
-          IO.puts(summary)
-        else
-          IO.puts(summary <> " " <> details)
-        end
-      else
-        IO.puts(summary)
+        row("child", child)
+        maybe_row("target", format_optional_term(call[:target]))
+        maybe_row("forwarded", format_context_keys(call[:context_keys]))
+        maybe_row("task", preview(call[:task_preview], level))
+        maybe_row("result", preview(call[:result_preview], level))
       end
     end)
   end
 
-  defp maybe_print_usage_summary(%{usage: nil}), do: :ok
+  defp print_usage_summary(%{usage: nil, duration_ms: nil}), do: :ok
 
-  defp maybe_print_usage_summary(%{usage: usage, duration_ms: duration_ms}) do
+  defp print_usage_summary(%{usage: nil, duration_ms: duration_ms}),
+    do: print_duration(duration_ms)
+
+  defp print_usage_summary(%{usage: usage, duration_ms: duration_ms}) do
+    section("Usage")
     input = usage[:input] || "?"
     output = usage[:output] || "?"
-    cost = format_cost(usage[:cost])
 
-    IO.puts(
-      "debug> usage input=#{input} output=#{output} cost=#{cost} duration_ms=#{duration_ms || "?"}"
-    )
+    row("tokens", "input=#{input} output=#{output}")
+
+    if usage[:cost] && usage[:cost] != 0 do
+      row("cost", format_cost(usage[:cost]))
+    end
+
+    if duration_ms do
+      row("duration", "#{duration_ms}ms")
+    end
   end
 
-  defp maybe_print_error_summary(%{interrupt: %{} = interrupt}) do
-    IO.puts("debug> interrupt kind=#{interrupt.kind} message=#{interrupt.message}")
+  defp print_duration(duration_ms) do
+    section("Usage")
+    row("duration", "#{duration_ms}ms")
   end
 
-  defp maybe_print_error_summary(%{error: {:guardrail, stage, label, reason}}) do
-    IO.puts("debug> guardrail blocked stage=#{stage} name=#{label} reason=#{inspect(reason)}")
+  defp print_error_summary(%{interrupt: %{} = interrupt}) do
+    section("Interrupt")
+    row("kind", to_string(interrupt.kind))
+    row("message", interrupt.message)
   end
 
-  defp maybe_print_error_summary(%{error: nil}), do: :ok
+  defp print_error_summary(%{error: {:guardrail, stage, label, reason}}) do
+    section("Guardrail")
+    row("stage", to_string(stage))
+    row("name", to_string(label))
+    row("reason", inspect(reason))
+  end
 
-  defp maybe_print_error_summary(%{error: other}) do
+  defp print_error_summary(%{error: nil}), do: :ok
+
+  defp print_error_summary(%{error: other}) do
     if match?({:interrupt, _}, other) do
       :ok
     else
-      IO.puts("debug> error #{inspect(other)}")
+      section("Error")
+      row("reason", inspect(other))
     end
   end
 
@@ -278,6 +348,7 @@ defmodule Moto.Demo.Debug do
       |> Enum.reverse()
       |> Enum.map(&summarize_event/1)
       |> Enum.reject(&is_nil/1)
+      |> Enum.reject(&redundant_event?/1)
       |> Enum.uniq()
 
     case summaries do
@@ -285,7 +356,8 @@ defmodule Moto.Demo.Debug do
         :ok
 
       entries ->
-        Enum.each(entries, fn entry -> IO.puts("debug> #{entry}") end)
+        section("Events")
+        Enum.each(entries, fn entry -> row("event", entry) end)
     end
   end
 
@@ -321,39 +393,21 @@ defmodule Moto.Demo.Debug do
   defp format_tool_signal(message, "unknown"), do: message
   defp format_tool_signal(message, tool_name), do: "#{message} name=#{tool_name}"
 
+  defp redundant_event?("model response received"), do: true
+  defp redundant_event?("request completed"), do: true
+  defp redundant_event?(_event), do: false
+
   defp subagent_status(%{outcome: :ok}), do: "ok"
   defp subagent_status(%{outcome: {:interrupt, _interrupt}}), do: "interrupt"
   defp subagent_status(%{outcome: {:error, reason}}), do: "error:#{inspect(reason)}"
   defp subagent_status(call), do: get_in(call, [:child_result_meta, :status]) || "unknown"
 
-  defp trace_field(_label, nil), do: nil
-  defp trace_field(_label, []), do: nil
-
-  defp trace_field(label, value) when is_binary(value) and value != "",
-    do: "#{label}=#{inspect(value)}"
-
-  defp trace_field(label, value), do: "#{label}=#{inspect(value)}"
-
-  defp maybe_print_raw_events(events, :trace) do
-    interesting =
-      events
-      |> Enum.reverse()
-      |> Enum.filter(&interesting_event?/1)
-
-    if interesting != [] do
-      IO.puts("debug> recent events")
-
-      Enum.each(interesting, fn event ->
-        IO.puts("debug> #{event.type} #{format_event_data(event.data, :trace)}")
-      end)
-    end
-  end
-
-  defp maybe_print_raw_events(_events, _level), do: :ok
-
   defp invalid_log_level(level) do
     "invalid --log-level #{inspect(level)}. Expected one of: info, debug, trace"
   end
+
+  defp debug_title(:trace), do: "Trace"
+  defp debug_title(:debug), do: "Debug"
 
   defp preview(text, :trace), do: truncate(text, 240)
   defp preview(text, _level), do: truncate(text, 140)
@@ -363,18 +417,6 @@ defmodule Moto.Demo.Debug do
   defp format_cost(cost) when is_float(cost), do: :erlang.float_to_binary(cost, decimals: 6)
   defp format_cost(other), do: inspect(other)
 
-  defp interesting_event?(%{data: data}) when is_map(data) do
-    signal_type =
-      Map.get(data, :type) ||
-        Map.get(data, "type") ||
-        Map.get(data, :signal_type) ||
-        Map.get(data, "signal_type")
-
-    signal_type in Map.keys(@signal_summaries)
-  end
-
-  defp interesting_event?(_event), do: false
-
   defp truncate(text, max_length) when is_binary(text) do
     if String.length(text) > max_length do
       String.slice(text, 0, max_length - 1) <> "…"
@@ -383,21 +425,70 @@ defmodule Moto.Demo.Debug do
     end
   end
 
-  defp format_event_data(data, :trace) when is_map(data) do
-    inspect(data, pretty: true, limit: :infinity)
+  defp truncate(nil, _max_length), do: nil
+  defp truncate(other, max_length), do: other |> inspect() |> truncate(max_length)
+
+  defp count_mcp_proxy_tools(tool_names, mcp_tools) do
+    prefixes =
+      mcp_tools
+      |> Enum.map(&mcp_prefix/1)
+      |> Enum.reject(&is_nil/1)
+
+    Enum.count(tool_names, fn name ->
+      Enum.any?(prefixes, &String.starts_with?(name, &1))
+    end)
   end
 
-  defp format_event_data(data, _level) when is_map(data) do
-    data
-    |> Map.take([:type, :id, :signal_type, :directive_type, :tool_name, :request_id, :call_id])
+  defp mcp_prefix(entry) do
+    entry
+    |> to_string()
+    |> String.split(":", parts: 2)
     |> case do
-      summary when map_size(summary) == 0 ->
-        "keys=#{inspect(Map.keys(data))}"
-
-      summary ->
-        inspect(summary)
+      [_endpoint, prefix] when prefix != "" -> prefix
+      _other -> nil
     end
   end
 
-  defp format_event_data(data, _level), do: inspect(data)
+  defp compact_list(items, max) when length(items) <= max, do: Enum.join(items, ", ")
+
+  defp compact_list(items, max) do
+    {shown, hidden} = Enum.split(items, max)
+    Enum.join(shown, ", ") <> " +" <> Integer.to_string(length(hidden)) <> " more"
+  end
+
+  defp format_context_keys(keys) when is_list(keys), do: Enum.join(keys, ", ")
+  defp format_context_keys(_keys), do: nil
+
+  defp format_optional_term(nil), do: nil
+  defp format_optional_term(term), do: inspect(term)
+
+  defp section(title) do
+    IO.puts("")
+    IO.puts(color(title, [:bright]))
+  end
+
+  defp row(label, value), do: IO.puts("  #{row_label(label)} #{value}")
+
+  defp maybe_row(_label, nil), do: :ok
+  defp maybe_row(_label, ""), do: :ok
+  defp maybe_row(label, value), do: row(label, value)
+
+  defp row_label(label) do
+    label
+    |> to_string()
+    |> String.pad_trailing(@row_width)
+    |> color([:faint])
+  end
+
+  defp color(text, codes) do
+    if ansi?() do
+      [IO.ANSI.format_fragment(codes, true), text, IO.ANSI.reset()] |> IO.iodata_to_binary()
+    else
+      text
+    end
+  end
+
+  defp ansi? do
+    IO.ANSI.enabled?() and System.get_env("NO_COLOR") in [nil, ""]
+  end
 end

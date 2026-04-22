@@ -53,7 +53,32 @@ defmodule MotoTest.MixTaskTest do
     assert output =~ "Moto orchestrator demo"
     assert output =~ "Log level: trace"
     assert output =~ "Debug status:"
-    assert output =~ "Subagents: research_agent, writer_specialist"
+    assert output =~ "Subagents"
+    assert output =~ "research_agent"
+    assert output =~ "writer_specialist"
+    assert output =~ "Dry run: no agent started."
+    assert Moto.Runtime.debug() == :off
+  end
+
+  test "kitchen sink demo mix task prints showcase trace details in dry-run mode" do
+    output =
+      capture_io(fn ->
+        Mix.Tasks.Moto.run(["kitchen_sink", "--log-level", "trace", "--dry-run"])
+      end)
+
+    assert output =~ "Moto kitchen sink demo"
+    assert output =~ "Showcase only"
+    assert output =~ "Runtime Context"
+    assert output =~ "schema"
+    assert output =~ "skills"
+    assert output =~ "kitchen-guidelines"
+    assert output =~ "mcp"
+    assert output =~ ":local_fs as fs_*"
+    assert output =~ "plugins"
+    assert output =~ "showcase_plugin"
+    assert output =~ "Subagents"
+    assert output =~ "research_agent"
+    assert output =~ "editor_specialist"
     assert output =~ "Dry run: no agent started."
     assert Moto.Runtime.debug() == :off
   end

@@ -1,7 +1,14 @@
 defmodule MotoTest.SkillsMCPTest do
   use MotoTest.Support.Case, async: false
 
-  alias MotoTest.{FakeMCPSync, LocalFSMCPAgent, MCPAgent, RuntimeSkillAgent, SkillAgent}
+  alias MotoTest.{
+    FailingMCPSync,
+    FakeMCPSync,
+    LocalFSMCPAgent,
+    MCPAgent,
+    RuntimeSkillAgent,
+    SkillAgent
+  }
 
   @mcp_sandbox Path.expand("../../tmp/mcp-sandbox", __DIR__)
 
@@ -99,6 +106,38 @@ defmodule MotoTest.SkillsMCPTest do
              Moto.MCP.on_before_cmd(agent, {:ai_react_start, %{}}, MCPAgent.mcp_tools())
 
     refute_received {:mcp_sync_called, _}
+  end
+
+  test "mcp sync failures are recorded without crashing the turn" do
+    Application.put_env(:moto, :mcp_sync_module, FailingMCPSync)
+
+    agent = new_runtime_agent(MCPAgent.runtime_module())
+
+    assert {:ok, updated_agent, {:ai_react_start, %{tool_context: context}}} =
+             Moto.MCP.on_before_cmd(
+               agent,
+               {:ai_react_start, %{tool_context: %{}}},
+               MCPAgent.mcp_tools()
+             )
+
+    assert_received {:mcp_sync_called,
+                     %{
+                       endpoint_id: :github,
+                       prefix: "github_",
+                       replace_existing: false
+                     }}
+
+    refute get_in(updated_agent.state, [:__moto_mcp__, :synced, {:github, "github_"}])
+
+    assert [
+             %{
+               endpoint: :github,
+               prefix: "github_",
+               reason: {:mcp_sync_failed, :github, :server_capabilities_not_set}
+             }
+           ] = get_in(updated_agent.state, [:__moto_mcp__, :last_errors])
+
+    assert context == %{}
   end
 
   @tag :mcp_live

@@ -20,13 +20,33 @@ defmodule Moto.Demo.Loader do
     "orchestrator/agents/manager_agent.ex"
   ]
 
-  @spec load!(:chat | :orchestrator) :: :ok
+  @kitchen_sink_files [
+    "kitchen_sink/prompts/dynamic_prompt.ex",
+    "kitchen_sink/tools/add_numbers.ex",
+    "kitchen_sink/tools/show_context.ex",
+    "kitchen_sink/plugins/showcase_plugin.ex",
+    "kitchen_sink/hooks/shape_turn.ex",
+    "kitchen_sink/hooks/tag_reply.ex",
+    "kitchen_sink/hooks/notify_interrupt.ex",
+    "kitchen_sink/guardrails/block_classified_prompt.ex",
+    "kitchen_sink/guardrails/block_unsafe_reply.ex",
+    "kitchen_sink/guardrails/approve_large_math_tool.ex",
+    "kitchen_sink/agents/research_agent.ex",
+    "kitchen_sink/subagents/imported_editor_specialist.ex",
+    "kitchen_sink/agents/kitchen_sink_agent.ex"
+  ]
+
+  @spec load!(:chat | :orchestrator | :kitchen_sink) :: :ok
   def load!(:chat) do
     require_demo_files(@chat_files)
   end
 
   def load!(:orchestrator) do
     require_demo_files(@orchestrator_files)
+  end
+
+  def load!(:kitchen_sink) do
+    require_demo_files(@kitchen_sink_files)
   end
 
   defp require_demo_files(paths) do

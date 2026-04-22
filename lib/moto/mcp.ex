@@ -48,8 +48,7 @@ defmodule Moto.MCP do
     end
   end
 
-  @spec on_before_cmd(Jido.Agent.t(), term(), config()) ::
-          {:ok, Jido.Agent.t(), term()} | {:error, term()}
+  @spec on_before_cmd(Jido.Agent.t(), term(), config()) :: {:ok, Jido.Agent.t(), term()}
   def on_before_cmd(agent, action, []), do: {:ok, agent, action}
 
   def on_before_cmd(agent, {:ai_react_start, _params} = action, config) when is_list(config) do
@@ -61,34 +60,34 @@ defmodule Moto.MCP do
 
     synced = agent.state |> Map.get(@state_key, %{}) |> Map.get(:synced, %{})
 
-    config
-    |> Enum.reduce_while({:ok, synced}, fn entry, {:ok, synced_acc} ->
-      key = sync_key(entry)
+    {agent, synced, errors} =
+      Enum.reduce(config, {agent, synced, []}, fn entry, {agent_acc, synced_acc, errors_acc} ->
+        key = sync_key(entry)
 
-      if Map.get(synced_acc, key, false) do
-        {:cont, {:ok, synced_acc}}
-      else
-        case sync_endpoint(entry) do
-          :ok ->
-            {:cont, {:ok, Map.put(synced_acc, key, true)}}
+        if Map.get(synced_acc, key, false) do
+          {agent_acc, synced_acc, errors_acc}
+        else
+          case sync_endpoint(entry, agent_acc) do
+            {:ok, updated_agent} ->
+              {updated_agent, Map.put(synced_acc, key, true), errors_acc}
 
-          {:error, reason} ->
-            {:halt, {:error, {:mcp_sync_failed, entry.endpoint, reason}}}
+            {:error, reason} ->
+              {agent_acc, synced_acc, [format_error(entry, reason) | errors_acc]}
+          end
         end
-      end
-    end)
-    |> case do
-      {:ok, synced} ->
-        :ok =
-          Moto.Debug.record_runtime_meta(context, %{
-            mcp_tools: Enum.map(config, &format_entry/1)
-          })
+      end)
 
-        {:ok, put_synced_state(agent, synced), action}
+    :ok =
+      Moto.Debug.record_runtime_meta(
+        context,
+        %{
+          mcp_tools: Enum.map(config, &format_entry/1),
+          mcp_errors: Enum.reverse(errors)
+        }
+        |> drop_empty_errors()
+      )
 
-      {:error, reason} ->
-        {:error, reason}
-    end
+    {:ok, put_mcp_state(agent, synced, errors), action}
   end
 
   def on_before_cmd(agent, action, _config), do: {:ok, agent, action}
@@ -141,16 +140,17 @@ defmodule Moto.MCP do
     end
   end
 
-  defp put_synced_state(agent, synced) do
+  defp put_mcp_state(agent, synced, errors) do
     state =
       agent.state
       |> Map.get(@state_key, %{})
       |> Map.put(:synced, synced)
+      |> Map.put(:last_errors, Enum.reverse(errors))
 
     %{agent | state: Map.put(agent.state, @state_key, state)}
   end
 
-  defp sync_endpoint(entry) do
+  defp sync_endpoint(entry, agent) do
     sync_module =
       Application.get_env(:moto, :mcp_sync_module, Moto.MCP.SyncToolsToAgent)
 
@@ -158,12 +158,14 @@ defmodule Moto.MCP do
       %{
         endpoint_id: entry.endpoint,
         agent_server: self(),
+        agent: agent,
         replace_existing: false
       }
       |> maybe_put_prefix(entry.prefix)
 
     case sync_module.run(params, %{}) do
-      {:ok, _result} -> :ok
+      {:ok, %{agent: %Jido.Agent{} = updated_agent}} -> {:ok, updated_agent}
+      {:ok, _result} -> {:ok, agent}
       {:error, reason} -> {:error, reason}
     end
   rescue
@@ -178,4 +180,15 @@ defmodule Moto.MCP do
 
   defp format_entry(%{endpoint: endpoint, prefix: nil}), do: to_string(endpoint)
   defp format_entry(%{endpoint: endpoint, prefix: prefix}), do: "#{endpoint}:#{prefix}"
+
+  defp format_error(entry, reason) do
+    %{
+      endpoint: entry.endpoint,
+      prefix: entry.prefix,
+      reason: {:mcp_sync_failed, entry.endpoint, reason}
+    }
+  end
+
+  defp drop_empty_errors(%{mcp_errors: []} = meta), do: Map.delete(meta, :mcp_errors)
+  defp drop_empty_errors(meta), do: meta
 end

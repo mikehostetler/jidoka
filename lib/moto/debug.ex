@@ -15,6 +15,7 @@ defmodule Moto.Debug do
           skills: [String.t()],
           tool_names: [String.t()],
           mcp_tools: [String.t()],
+          mcp_errors: [map()],
           context_preview: [String.t()],
           memory: map() | nil,
           subagents: [map()],
@@ -109,6 +110,7 @@ defmodule Moto.Debug do
       skills: normalize_string_list(debug_meta[:skills]),
       tool_names: effective_tool_names(agent, debug_meta, hook_meta, guardrail_meta),
       mcp_tools: normalize_string_list(debug_meta[:mcp_tools]),
+      mcp_errors: normalize_mcp_errors(debug_meta[:mcp_errors]),
       context_preview: context_preview(hook_meta, guardrail_meta, memory_meta),
       memory: memory_summary(memory_meta),
       subagents: subagent_calls,
@@ -238,6 +240,18 @@ defmodule Moto.Debug do
   end
 
   defp normalize_string_list(_), do: []
+
+  defp normalize_mcp_errors(errors) when is_list(errors) do
+    Enum.map(errors, fn
+      %{endpoint: endpoint, prefix: prefix, reason: reason} ->
+        %{endpoint: endpoint, prefix: prefix, reason: reason}
+
+      other ->
+        %{endpoint: :unknown, prefix: nil, reason: other}
+    end)
+  end
+
+  defp normalize_mcp_errors(_), do: []
 
   defp pending_runtime_meta(server_or_id, request_id) when is_binary(request_id) do
     case resolve_server(server_or_id) do

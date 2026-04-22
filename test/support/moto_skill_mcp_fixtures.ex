@@ -71,3 +71,10 @@ defmodule MotoTest.FakeMCPSync do
     {:ok, %{registered_count: 1}}
   end
 end
+
+defmodule MotoTest.FailingMCPSync do
+  def run(params, _context) do
+    send(self(), {:mcp_sync_called, params})
+    {:error, :server_capabilities_not_set}
+  end
+end

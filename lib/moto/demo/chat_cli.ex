@@ -1,7 +1,7 @@
 defmodule Moto.Demo.ChatCLI do
   @moduledoc false
 
-  alias Moto.Demo.{Debug, Loader}
+  alias Moto.Demo.{Debug, Inventory, Loader}
 
   @switches [log_level: :string, dry_run: :boolean, help: :boolean]
   @aliases [l: :log_level]
@@ -74,48 +74,18 @@ defmodule Moto.Demo.ChatCLI do
           one_shot(pid, options.prompt, log_level)
         end
       after
-        :ok = Moto.stop_agent(pid)
+        Debug.safe_stop_agent(pid)
       end
     end
   end
 
   defp print_header(log_level) do
-    chat_agent = agent_module()
-
-    IO.puts("Moto chat demo")
-    IO.puts("Resolved model: #{inspect(chat_agent.model())}")
-
-    if log_level == :trace do
-      IO.puts("Configured model: #{inspect(chat_agent.configured_model())}")
-      IO.puts("Default context: #{inspect(chat_agent.context())}")
-      IO.puts("Memory: #{inspect(chat_agent.memory())}")
-      IO.puts("Skills: #{format_list(chat_agent.skill_names())}")
-      IO.puts("MCP tools: #{inspect(chat_agent.mcp_tools())}")
-      IO.puts("Plugins: #{Enum.join(chat_agent.plugin_names(), ", ")}")
-      IO.puts("Tools: #{Enum.join(chat_agent.tool_names(), ", ")}")
-
-      IO.puts(
-        "Before-turn hooks: #{Enum.map_join(chat_agent.before_turn_hooks(), ", ", &inspect/1)}"
-      )
-
-      IO.puts(
-        "After-turn hooks: #{Enum.map_join(chat_agent.after_turn_hooks(), ", ", &inspect/1)}"
-      )
-
-      IO.puts("Interrupt hooks: #{Enum.map_join(chat_agent.interrupt_hooks(), ", ", &inspect/1)}")
-
-      IO.puts(
-        "Input guardrails: #{Enum.map_join(chat_agent.input_guardrails(), ", ", &inspect/1)}"
-      )
-
-      IO.puts(
-        "Output guardrails: #{Enum.map_join(chat_agent.output_guardrails(), ", ", &inspect/1)}"
-      )
-
-      IO.puts("Tool guardrails: #{Enum.map_join(chat_agent.tool_guardrails(), ", ", &inspect/1)}")
-    end
-
-    IO.puts("")
+    Inventory.print_compiled("Moto chat demo", agent_module(), log_level,
+      try: [
+        ~s(mix moto chat -- "Add 8 and 13."),
+        ~s(mix moto chat -- "Remember that my favorite color is blue.")
+      ]
+    )
   end
 
   defp ensure_api_key! do
@@ -239,7 +209,4 @@ defmodule Moto.Demo.ChatCLI do
   defp agent_module do
     Module.concat([Moto, Examples, Chat, Agents, ChatAgent])
   end
-
-  defp format_list([]), do: "(none)"
-  defp format_list(items), do: Enum.join(items, ", ")
 end

@@ -1,0 +1,9 @@
+{
+  "name": "kitchen_editor_specialist",
+  "model": "fast",
+  "system_prompt": "You are an editing specialist. Rewrite or polish the requested text. Return only the polished text.",
+  "context": {
+    "specialty": "editor",
+    "channel": "kitchen_sink_imported_subagent"
+  }
+}

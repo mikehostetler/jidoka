@@ -1,4 +1,4 @@
-defmodule Moto.Demo.OrchestratorCLI do
+defmodule Moto.Demo.KitchenSinkCLI do
   @moduledoc false
 
   alias Moto.Demo.{Debug, Inventory, Loader}
@@ -8,7 +8,7 @@ defmodule Moto.Demo.OrchestratorCLI do
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
-    Loader.load!(:orchestrator)
+    Loader.load!(:kitchen_sink)
 
     case parse(argv) do
       {:ok, %{help?: true}} ->
@@ -26,7 +26,7 @@ defmodule Moto.Demo.OrchestratorCLI do
 
   @spec usage() :: :ok
   def usage do
-    IO.puts("mix moto orchestrator [--log-level info|debug|trace] [--dry-run] [prompt]")
+    IO.puts("mix moto kitchen_sink [--log-level info|debug|trace] [--dry-run] [prompt]")
     :ok
   end
 
@@ -64,7 +64,8 @@ defmodule Moto.Demo.OrchestratorCLI do
       :ok
     else
       ensure_api_key!()
-      {:ok, pid} = agent_module().start_link(id: "script-orchestrator-agent")
+      prepare_mcp_sandbox!()
+      {:ok, pid} = agent_module().start_link(id: "script-kitchen-sink-agent")
       Debug.maybe_enable_agent_debug(pid, log_level)
 
       try do
@@ -80,10 +81,13 @@ defmodule Moto.Demo.OrchestratorCLI do
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Moto orchestrator demo", agent_module(), log_level,
+    Inventory.print_compiled("Moto kitchen sink demo", agent_module(), log_level,
+      notice: "Showcase only: start with `mix moto chat` for the simple path.",
       try: [
-        ~s(mix moto orchestrator -- "Use the research_agent specialist to explain vector databases."),
-        ~s(mix moto orchestrator -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now.")
+        ~s(mix moto kitchen_sink -- "Add 17 and 25 with the tool."),
+        ~s(mix moto kitchen_sink -- "Show what runtime context is visible."),
+        ~s(mix moto kitchen_sink -- "Use the research_agent specialist to explain embeddings."),
+        ~s(mix moto kitchen_sink -- "Use the editor_specialist to polish: Moto makes agents easier.")
       ]
     )
   end
@@ -98,22 +102,31 @@ defmodule Moto.Demo.OrchestratorCLI do
     end
   end
 
+  defp prepare_mcp_sandbox! do
+    sandbox = Path.expand("../../../tmp/mcp-sandbox", __DIR__)
+    File.mkdir_p!(sandbox)
+    File.write!(Path.join(sandbox, "kitchen-sink.txt"), "hello from the Moto kitchen sink demo\n")
+  end
+
   defp one_shot(pid, prompt, log_level) do
     case agent_module().chat(pid, prompt,
-           context: %{session: "orchestrator-cli"},
+           context: %{notify_pid: self(), session: "kitchen-sink-cli"},
            log_level: Debug.request_log_level(log_level)
          ) do
       {:ok, reply} ->
+        flush_interrupt_messages()
         print_last_subagent_calls(pid, log_level)
         Debug.print_recent_events(pid, log_level)
         IO.puts("agent> #{reply}")
 
       {:interrupt, interrupt} ->
+        flush_interrupt_messages()
         print_last_subagent_calls(pid, log_level)
         Debug.print_recent_events(pid, log_level)
         IO.puts("interrupt> #{interrupt.kind} - #{interrupt.message}")
 
       {:error, reason} ->
+        flush_interrupt_messages()
         print_last_subagent_calls(pid, log_level)
         Debug.print_recent_events(pid, log_level)
         IO.puts("error> #{inspect(reason)}")
@@ -122,12 +135,10 @@ defmodule Moto.Demo.OrchestratorCLI do
 
   defp interactive_loop(pid, log_level) do
     IO.puts("Type `exit` or press Ctrl-D to quit.")
-    IO.puts("Try: Use the research_agent specialist to explain vector databases.")
-
-    IO.puts(
-      "Try: Use the writer_specialist specialist to rewrite this copy: our setup is easier now."
-    )
-
+    IO.puts("Try: Add 17 and 25 with the tool.")
+    IO.puts("Try: Show what runtime context is visible.")
+    IO.puts("Try: Use the research_agent specialist to explain embeddings.")
+    IO.puts("Try: Use the editor_specialist to polish: Moto makes agents easier.")
     IO.puts("")
     loop(pid, log_level)
   end
@@ -155,29 +166,30 @@ defmodule Moto.Demo.OrchestratorCLI do
     end
   end
 
+  defp flush_interrupt_messages do
+    receive do
+      {:kitchen_sink_interrupt, interrupt} ->
+        tenant = get_in(interrupt.data, [:tenant])
+        suffix = if tenant, do: " tenant=#{tenant}", else: ""
+        IO.puts("hook> on_interrupt received #{interrupt.kind}#{suffix}: #{interrupt.message}")
+        flush_interrupt_messages()
+    after
+      0 -> :ok
+    end
+  end
+
   defp print_last_subagent_calls(_pid, level) when level in [:debug, :trace], do: :ok
 
   defp print_last_subagent_calls(pid, :info) do
     case Moto.Subagent.latest_request_calls(pid) do
       [] ->
-        IO.puts("delegation> none")
+        :ok
 
       entries ->
         Enum.each(entries, fn entry ->
-          mode = entry.mode
-          child_id = entry.child_id || "ephemeral"
-          status = subagent_status(entry)
-          duration = entry[:duration_ms] || 0
-          result = entry[:result_preview]
-
-          line =
-            "delegation> #{entry.name} mode=#{mode} child=#{child_id} status=#{status} duration_ms=#{duration}"
-
-          if is_binary(result) and result != "" do
-            IO.puts(line <> " result=#{inspect(result)}")
-          else
-            IO.puts(line)
-          end
+          IO.puts(
+            "delegation> #{entry.name} mode=#{entry.mode} child=#{entry.child_id || "ephemeral"} status=#{subagent_status(entry)} duration_ms=#{entry[:duration_ms] || 0}"
+          )
         end)
     end
   end
@@ -185,12 +197,12 @@ defmodule Moto.Demo.OrchestratorCLI do
   defp subagent_status(%{outcome: :ok}), do: "ok"
   defp subagent_status(%{outcome: {:interrupt, _interrupt}}), do: "interrupt"
   defp subagent_status(%{outcome: {:error, reason}}), do: "error:#{inspect(reason)}"
-  defp subagent_status(entry), do: get_in(entry, [:child_result_meta, :status]) || "unknown"
+  defp subagent_status(_entry), do: "unknown"
 
   defp join_prompt([]), do: nil
   defp join_prompt(args), do: Enum.join(args, " ")
 
   defp agent_module do
-    Module.concat([Moto, Examples, Orchestrator, Agents, ManagerAgent])
+    Module.concat([Moto, Examples, KitchenSink, Agents, KitchenSinkAgent])
   end
 end
