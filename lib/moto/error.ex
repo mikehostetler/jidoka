@@ -2,9 +2,8 @@ defmodule Moto.Error do
   @moduledoc """
   Structured Moto error helpers.
 
-  Moto still returns simple tagged tuples at most public boundaries while the API
-  is experimental. This module provides the package-level Splode error root used
-  when errors need to be raised, normalized, or classified consistently.
+  Moto uses Splode-backed errors for validation, configuration, and execution
+  failures so they can be raised, formatted, and classified consistently.
   """
 
   defmodule Invalid do
@@ -125,6 +124,103 @@ defmodule Moto.Error do
     ExecutionError.exception(put_details(details, message))
   end
 
+  @doc """
+  Builds an invalid-context validation error.
+  """
+  @spec invalid_context(term(), keyword() | map()) :: Exception.t()
+  def invalid_context(reason, opts \\ %{})
+
+  def invalid_context(:expected_map, opts) do
+    validation_error("Invalid context: pass `context:` as a map or keyword list.",
+      field: :context,
+      value: get_detail(opts, :value),
+      details: %{reason: :expected_map}
+    )
+  end
+
+  def invalid_context({:schema, errors}, opts) do
+    validation_error(schema_error_message(errors),
+      field: :context,
+      value: get_detail(opts, :value),
+      details: %{reason: :schema, errors: errors}
+    )
+  end
+
+  def invalid_context({:schema_result, :expected_map, value}, opts) do
+    validation_error("Invalid context schema: expected schema parsing to return a map, got #{inspect(value)}.",
+      field: :context,
+      value: get_detail(opts, :value),
+      details: %{reason: :schema_result, schema_result: value}
+    )
+  end
+
+  def invalid_context({:domain_mismatch, expected, actual}, opts) do
+    validation_error("Invalid context: expected `domain` to be #{inspect(expected)}, got #{inspect(actual)}.",
+      field: :domain,
+      value: actual,
+      details: %{
+        reason: :domain_mismatch,
+        expected: expected,
+        actual: actual,
+        context: get_detail(opts, :value)
+      }
+    )
+  end
+
+  @doc """
+  Builds an invalid-context-schema configuration error.
+  """
+  @spec invalid_context_schema(term(), keyword() | map()) :: Exception.t()
+  def invalid_context_schema(reason, opts \\ %{})
+
+  def invalid_context_schema(:expected_zoi_schema, opts) do
+    config_error("agent schema must be a Zoi map/object schema",
+      field: :schema,
+      value: get_detail(opts, :value),
+      details: %{reason: :expected_zoi_schema}
+    )
+  end
+
+  def invalid_context_schema(:expected_zoi_map_schema, opts) do
+    config_error("agent schema must be a Zoi map/object schema",
+      field: :schema,
+      value: get_detail(opts, :value),
+      details: %{reason: :expected_zoi_map_schema}
+    )
+  end
+
+  def invalid_context_schema({:expected_map_result, value}, opts) do
+    config_error("agent schema must parse context to a map, got: #{inspect(value)}",
+      field: :schema,
+      value: get_detail(opts, :value),
+      details: %{reason: :expected_map_result, schema_result: value}
+    )
+  end
+
+  @doc """
+  Builds an invalid public option error.
+  """
+  @spec invalid_option(atom(), atom(), keyword() | map()) :: Exception.t()
+  def invalid_option(:tool_context, :use_context, opts \\ %{}) do
+    validation_error("Invalid option: use `context:` for request-scoped data; `tool_context:` is internal.",
+      field: :tool_context,
+      value: get_detail(opts, :value),
+      details: %{reason: :use_context}
+    )
+  end
+
+  @doc """
+  Builds a missing context validation error.
+  """
+  @spec missing_context(atom() | String.t(), keyword() | map()) :: Exception.t()
+  def missing_context(key, opts \\ %{}) when is_atom(key) or is_binary(key) do
+    validation_error("Missing required context key `#{key}`. Pass it with `context: %{#{key}: ...}`.",
+      field: key,
+      value: get_detail(opts, :value),
+      details: %{reason: :missing_context, key: key}
+    )
+  end
+
   defp put_details(details, message) when is_map(details) do
     details
     |> Map.put(:message, message)
@@ -136,4 +232,65 @@ defmodule Moto.Error do
     |> Keyword.put(:message, message)
     |> Keyword.put_new(:details, %{})
   end
+
+  @doc """
+  Formats Moto error terms for humans.
+  """
+  @spec format(term()) :: String.t()
+  def format(%{message: message}) when is_binary(message), do: message
+  def format(message) when is_binary(message), do: message
+  def format(other), do: inspect(other)
+
+  defp schema_error_message(errors) do
+    case format_schema_errors(errors) do
+      "" -> "Invalid context: context did not match the agent schema."
+      formatted -> "Invalid context:\n" <> formatted
+    end
+  end
+
+  defp format_schema_errors(errors) do
+    errors
+    |> flatten_schema_errors()
+    |> Enum.sort_by(fn {path, message} -> {path, message} end)
+    |> Enum.map_join("\n", fn {path, message} -> "- #{path}: #{message}" end)
+  end
+
+  defp flatten_schema_errors(errors), do: flatten_schema_errors(errors, [])
+
+  defp flatten_schema_errors(%{} = errors, path) do
+    errors
+    |> Enum.flat_map(fn {key, value} ->
+      flatten_schema_errors(value, path ++ [key])
+    end)
+  end
+
+  defp flatten_schema_errors(errors, path) when is_list(errors) do
+    if Enum.all?(errors, &is_binary/1) do
+      Enum.map(errors, fn message -> {format_schema_path(path), message} end)
+    else
+      Enum.flat_map(errors, &flatten_schema_errors(&1, path))
+    end
+  end
+
+  defp flatten_schema_errors(error, path) when is_binary(error) do
+    [{format_schema_path(path), error}]
+  end
+
+  defp flatten_schema_errors(error, path) do
+    [{format_schema_path(path), inspect(error)}]
+  end
+
+  defp format_schema_path([]), do: "context"
+
+  defp format_schema_path(path) do
+    Enum.map_join(path, ".", fn
+      key when is_atom(key) -> Atom.to_string(key)
+      key when is_binary(key) -> key
+      key -> inspect(key)
+    end)
+  end
+
+  defp get_detail(details, key) when is_map(details), do: Map.get(details, key)
+  defp get_detail(details, key) when is_list(details), do: Keyword.get(details, key)
+  defp get_detail(_details, _key), do: nil
 end

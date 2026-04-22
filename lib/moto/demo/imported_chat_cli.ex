@@ -109,7 +109,7 @@ defmodule Moto.Demo.ImportedChatCLI do
       {:error, reason} ->
         flush_interrupt_messages()
         Debug.print_recent_events(pid, log_level)
-        IO.puts("error> #{inspect(reason)}")
+        IO.puts("error> #{Moto.format_error(reason)}")
     end
   end
 
@@ -163,7 +163,7 @@ defmodule Moto.Demo.ImportedChatCLI do
                 flush_interrupt_messages()
                 IO.puts("")
                 Debug.print_recent_events(pid, log_level)
-                IO.puts("error> #{inspect(reason)}")
+                IO.puts("error> #{Moto.format_error(reason)}")
                 IO.puts("")
                 loop(pid, log_level)
             end

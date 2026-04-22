@@ -32,6 +32,26 @@ defmodule MotoTest.ContextAgent do
   end
 end
 
+defmodule MotoTest.RequiredContextAgent do
+  use Moto.Agent
+
+  @context_fields %{
+    account_id: Zoi.string(),
+    tenant: Zoi.string() |> Zoi.default("demo")
+  }
+
+  agent do
+    id :required_context_agent
+
+    schema Zoi.object(@context_fields)
+  end
+
+  defaults do
+    model :fast
+    instructions "You require account context."
+  end
+end
+
 defmodule MotoTest.StringModelAgent do
   use Moto.Agent
 

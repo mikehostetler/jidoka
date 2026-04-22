@@ -8,6 +8,7 @@ defmodule MotoTest.AgentBasicsTest do
     MemoryAgent,
     MCPAgent,
     MfaPromptAgent,
+    RequiredContextAgent,
     RuntimeSkillAgent,
     SkillAgent,
     ModulePromptAgent,
@@ -40,6 +41,9 @@ defmodule MotoTest.AgentBasicsTest do
   test "exposes the configured default context" do
     assert ContextAgent.context() == %{tenant: "demo", channel: "test"}
     assert %Zoi.Types.Map{} = ContextAgent.context_schema()
+
+    assert RequiredContextAgent.context() == %{tenant: "demo"}
+    assert %Zoi.Types.Map{} = RequiredContextAgent.context_schema()
   end
 
   test "exposes the configured memory settings" do

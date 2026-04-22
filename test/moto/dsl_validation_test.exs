@@ -254,27 +254,41 @@ defmodule MotoTest.DslValidationTest do
   end
 
   test "rejects invalid request hook stages" do
-    assert {:error, {:invalid_hook_stage, :bogus}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([hooks: [bogus: InjectTenantHook]], nil)
+
+    assert error.field == :hooks
+    assert error.details.reason == :invalid_hook_stage
+    assert error.details.stage == :bogus
   end
 
   test "rejects invalid request hook refs" do
-    assert {:error, {:invalid_hook, :before_turn, message}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([hooks: [before_turn: String]], nil)
 
-    assert message =~ "not a valid Moto hook"
+    assert error.field == :hooks
+    assert error.details.reason == :invalid_hook
+    assert error.details.stage == :before_turn
+    assert error.message =~ "not a valid Moto hook"
   end
 
   test "rejects invalid request guardrail stages" do
-    assert {:error, {:invalid_guardrail_stage, :bogus}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([guardrails: [bogus: SafePromptGuardrail]], nil)
+
+    assert error.field == :guardrails
+    assert error.details.reason == :invalid_guardrail_stage
+    assert error.details.stage == :bogus
   end
 
   test "rejects invalid request guardrail refs" do
-    assert {:error, {:invalid_guardrail, :input, message}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([guardrails: [input: String]], nil)
 
-    assert message =~ "not a valid Moto guardrail"
+    assert error.field == :guardrails
+    assert error.details.reason == :invalid_guardrail
+    assert error.details.stage == :input
+    assert error.message =~ "not a valid Moto guardrail"
   end
 
   test "rejects NimbleOptions schemas in Moto.Tool" do

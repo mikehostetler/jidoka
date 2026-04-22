@@ -64,7 +64,7 @@ defmodule Moto.Demo.OrchestratorCLI do
       {:error, reason} ->
         print_last_subagent_calls(pid, log_level)
         Debug.print_recent_events(pid, log_level)
-        IO.puts("error> #{inspect(reason)}")
+        IO.puts("error> #{Moto.format_error(reason)}")
     end
   end
 

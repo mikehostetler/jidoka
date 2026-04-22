@@ -22,7 +22,7 @@ defmodule Moto.Context do
   def normalize(context, nil) do
     case coerce_map(context) do
       {:ok, normalized} -> {:ok, normalized}
-      :error -> {:error, {:invalid_context, :expected_map}}
+      :error -> {:error, Moto.Error.invalid_context(:expected_map, value: context)}
     end
   end
 
@@ -39,17 +39,10 @@ defmodule Moto.Context do
   def defaults(nil), do: {:ok, %{}}
 
   def defaults(schema) do
-    with :ok <- validate_schema(schema) do
-      case Zoi.parse(schema, %{}) do
-        {:ok, defaults} when is_map(defaults) ->
-          {:ok, defaults}
-
-        {:ok, other} ->
-          {:error, {:invalid_context_schema, {:expected_map_result, other}}}
-
-        {:error, _errors} ->
-          {:ok, %{}}
-      end
+    with :ok <- validate_schema(schema),
+         {:ok, defaults} <- parse_defaults(schema),
+         :ok <- validate_default(defaults) do
+      {:ok, defaults}
     end
   end
 
@@ -59,10 +52,10 @@ defmodule Moto.Context do
   def validate_schema(schema) do
     cond do
       not zoi_schema?(schema) ->
-        {:error, {:invalid_context_schema, :expected_zoi_schema}}
+        {:error, Moto.Error.invalid_context_schema(:expected_zoi_schema, value: schema)}
 
       Zoi.Type.impl_for(schema) != Zoi.Type.Zoi.Types.Map ->
-        {:error, {:invalid_context_schema, :expected_zoi_map_schema}}
+        {:error, Moto.Error.invalid_context_schema(:expected_zoi_map_schema, value: schema)}
 
       true ->
         :ok
@@ -102,7 +95,7 @@ defmodule Moto.Context do
     end)
   end
 
-  @spec validate_default(term()) :: :ok | {:error, String.t()}
+  @spec validate_default(term()) :: :ok | {:error, Exception.t()}
   def validate_default(context) when is_map(context) do
     Enum.reduce_while(context, :ok, fn {key, _value}, :ok ->
       case validate_key(key) do
@@ -113,7 +106,11 @@ defmodule Moto.Context do
   end
 
   def validate_default(other),
-    do: {:error, "context defaults must be maps, got: #{inspect(other)}"}
+    do:
+      {:error,
+       Moto.Error.invalid_context_schema({:expected_map_result, other},
+         value: other
+       )}
 
   @spec strip_internal(t()) :: t()
   def strip_internal(context) when is_map(context) do
@@ -143,7 +140,12 @@ defmodule Moto.Context do
 
     cond do
       trimmed == "" ->
-        {:error, "context keys must not be empty strings"}
+        {:error,
+         Moto.Error.validation_error("context keys must not be empty strings",
+           field: :context,
+           value: key,
+           details: %{reason: :empty_context_key}
+         )}
 
       true ->
         validate_reserved_key(trimmed)
@@ -151,12 +153,39 @@ defmodule Moto.Context do
   end
 
   defp validate_key(other),
-    do: {:error, "context keys must be atoms or strings, got: #{inspect(other)}"}
+    do:
+      {:error,
+       Moto.Error.validation_error("context keys must be atoms or strings, got: #{inspect(other)}",
+         field: :context,
+         value: other,
+         details: %{reason: :invalid_context_key}
+       )}
 
   defp validate_reserved_key(key) when key in @reserved_keys,
-    do: {:error, "context key #{key} is reserved for Moto internals"}
+    do:
+      {:error,
+       Moto.Error.validation_error("context key #{key} is reserved for Moto internals",
+         field: :context,
+         value: key,
+         details: %{reason: :reserved_context_key, key: key}
+       )}
 
   defp validate_reserved_key(_key), do: :ok
+
+  defp parse_defaults(schema) do
+    context =
+      schema
+      |> Zoi.Context.new(%{})
+      |> Zoi.Context.parse()
+
+    case context.parsed do
+      defaults when is_map(defaults) ->
+        {:ok, defaults}
+
+      other ->
+        {:error, Moto.Error.invalid_context_schema({:expected_map_result, other}, value: schema)}
+    end
+  end
 
   defp parse_schema(schema, context) do
     case Zoi.parse(schema, context) do
@@ -164,10 +193,10 @@ defmodule Moto.Context do
         {:ok, parsed}
 
       {:ok, other} ->
-        {:error, {:invalid_context, {:schema_result, :expected_map, other}}}
+        {:error, Moto.Error.invalid_context({:schema_result, :expected_map, other}, value: context)}
 
       {:error, errors} ->
-        {:error, {:invalid_context, {:schema, Zoi.treefy_errors(errors)}}}
+        {:error, Moto.Error.invalid_context({:schema, Zoi.treefy_errors(errors)}, value: context)}
     end
   end
 

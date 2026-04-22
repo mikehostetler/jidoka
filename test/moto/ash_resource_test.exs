@@ -15,8 +15,11 @@ defmodule MotoTest.AshResourceTest do
     assert {:ok, pid} = AshResourceAgent.start_link(id: "ash-resource-agent-test")
 
     try do
-      assert {:error, {:missing_context, :actor}} =
+      assert {:error, %Moto.Error.ValidationError{} = error} =
                AshResourceAgent.chat(pid, "List users.")
+
+      assert error.field == :actor
+      assert error.details.reason == :missing_context
     after
       :ok = Moto.stop_agent(pid)
     end
@@ -33,10 +36,15 @@ defmodule MotoTest.AshResourceTest do
   end
 
   test "rejects mismatched context domain for ash_resource agents" do
-    assert {:error, {:invalid_context, {:domain_mismatch, Accounts, :other_domain}}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts(
                [context: %{actor: %{id: "user-1"}, domain: :other_domain}],
                %{domain: Accounts, require_actor?: true}
              )
+
+    assert error.field == :domain
+    assert error.details.reason == :domain_mismatch
+    assert error.details.expected == Accounts
+    assert error.details.actual == :other_domain
   end
 end

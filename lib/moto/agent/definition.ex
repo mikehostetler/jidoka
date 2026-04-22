@@ -740,12 +740,6 @@ defmodule Moto.Agent.Definition do
     }
   end
 
-  defp context_schema_error({:invalid_context_schema, :expected_zoi_schema}),
-    do: "agent schema must be a Zoi map/object schema"
-
-  defp context_schema_error({:invalid_context_schema, :expected_zoi_map_schema}),
-    do: "agent schema must be a Zoi map/object schema"
-
-  defp context_schema_error({:invalid_context_schema, {:expected_map_result, other}}),
-    do: "agent schema must parse context to a map, got: #{inspect(other)}"
+  defp context_schema_error(%{message: message}) when is_binary(message), do: message
+  defp context_schema_error(reason), do: Moto.format_error(reason)
 end

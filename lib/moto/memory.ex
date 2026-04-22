@@ -460,7 +460,7 @@ defmodule Moto.Memory do
   defp resolve_namespace(agent, context, %{namespace: {:context, key}}) do
     case get_value(context, key) do
       nil ->
-        {:error, {:missing_context_namespace, key}}
+        {:error, Moto.Error.missing_context(key, value: context)}
 
       value ->
         {:ok,

@@ -256,6 +256,43 @@ Schema defaults are available through `MyApp.ChatAgent.context/0`. Per-turn
 `context:` passed to `chat/3` is parsed through `MyApp.ChatAgent.context_schema/0`
 before hooks, tools, guardrails, memory, and subagents see it.
 
+Required context fields fail before a model call starts, while defaulted fields
+remain available as agent defaults:
+
+```elixir
+defmodule MyApp.BillingAgent do
+  use Moto.Agent
+
+  agent do
+    id :billing_agent
+
+    schema Zoi.object(%{
+      account_id: Zoi.string(),
+      tenant: Zoi.string() |> Zoi.default("demo")
+    })
+  end
+
+  defaults do
+    model :fast
+    instructions "You help with billing questions."
+  end
+end
+
+MyApp.BillingAgent.context()
+#=> %{tenant: "demo"}
+
+{:error, %Moto.Error.ValidationError{} = reason} =
+  MyApp.BillingAgent.chat(pid, "Show my invoice.")
+
+Moto.format_error(reason)
+#=> "Invalid context:\n- account_id: is required"
+
+{:ok, reply} =
+  MyApp.BillingAgent.chat(pid, "Show my invoice.",
+    context: %{account_id: "acct_123"}
+  )
+```
+
 ## Memory
 
 Moto memory is conversation-first and opt-in. It is implemented on top of

@@ -68,11 +68,13 @@ defmodule MotoTest.HooksTest do
            } = tool_context[:__moto_hooks__]
   end
 
-  test "rejects malformed request-scoped hook specs with a tagged error" do
-    assert {:error, {:invalid_hook_spec, message}} =
+  test "rejects malformed request-scoped hook specs with a validation error" do
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([hooks: [1, 2]], nil)
 
-    assert message =~ "hooks must be a keyword list or map"
+    assert error.field == :hooks
+    assert error.details.reason == :invalid_hook_spec
+    assert error.message =~ "hooks must be a keyword list or map"
   end
 
   test "fails malformed before_turn override lists cleanly instead of raising" do

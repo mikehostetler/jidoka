@@ -61,11 +61,13 @@ defmodule MotoTest.GuardrailsTest do
            } = tool_context[:__moto_guardrails__]
   end
 
-  test "rejects malformed request-scoped guardrail specs with a tagged error" do
-    assert {:error, {:invalid_guardrail_spec, message}} =
+  test "rejects malformed request-scoped guardrail specs with a validation error" do
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([guardrails: [1, 2]], nil)
 
-    assert message =~ "guardrails must be a keyword list or map"
+    assert error.field == :guardrails
+    assert error.details.reason == :invalid_guardrail_spec
+    assert error.message =~ "guardrails must be a keyword list or map"
   end
 
   test "runs input guardrails and blocks before the LLM call" do

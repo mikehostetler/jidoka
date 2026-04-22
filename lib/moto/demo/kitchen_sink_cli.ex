@@ -79,7 +79,7 @@ defmodule Moto.Demo.KitchenSinkCLI do
         flush_interrupt_messages()
         print_last_subagent_calls(pid, log_level)
         Debug.print_recent_events(pid, log_level)
-        IO.puts("error> #{inspect(reason)}")
+        IO.puts("error> #{Moto.format_error(reason)}")
     end
   end
 

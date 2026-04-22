@@ -7,6 +7,7 @@ defmodule MotoTest.ContextMemoryTest do
     ContextMemoryAgent,
     MemoryAgent,
     NoCaptureMemoryAgent,
+    RequiredContextAgent,
     SharedMemoryAgent
   }
 
@@ -17,9 +18,13 @@ defmodule MotoTest.ContextMemoryTest do
     assert Keyword.get(opts, :tool_context) == %{tenant: "acme", locale: "en-US"}
   end
 
-  test "rejects malformed context lists with a tagged error instead of raising" do
-    assert {:error, {:invalid_context, :expected_map}} =
+  test "rejects malformed context lists with a structured validation error instead of raising" do
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([context: [1, 2]], nil)
+
+    assert error.field == :context
+    assert error.details.reason == :expected_map
+    assert Moto.format_error(error) == "Invalid context: pass `context:` as a map or keyword list."
   end
 
   test "merges default agent context with per-turn context" do
@@ -37,22 +42,44 @@ defmodule MotoTest.ContextMemoryTest do
   end
 
   test "validates runtime context through the agent schema" do
-    assert {:error, {:invalid_context, {:schema, errors}}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts(
                [context: %{tenant: 123}],
                %{context: ContextAgent.context(), context_schema: ContextAgent.context_schema()}
              )
 
-    assert inspect(errors) =~ "tenant"
+    assert error.details.reason == :schema
+    assert inspect(error.details.errors) =~ "tenant"
+  end
+
+  test "keeps schema defaults when other context fields are required" do
+    assert RequiredContextAgent.context() == %{tenant: "demo"}
+  end
+
+  test "validates required runtime context while applying schema defaults" do
+    config = %{
+      context: RequiredContextAgent.context(),
+      context_schema: RequiredContextAgent.context_schema()
+    }
+
+    assert {:ok, opts} =
+             Moto.Agent.prepare_chat_opts([context: %{account_id: "acct_123"}], config)
+
+    assert Keyword.get(opts, :tool_context) == %{account_id: "acct_123", tenant: "demo"}
+
+    assert {:error, %Moto.Error.ValidationError{} = error} =
+             Moto.Agent.prepare_chat_opts([context: %{}], config)
+
+    assert error.details.errors == %{account_id: ["is required"]}
   end
 
   test "Moto.chat validates context through the running agent schema" do
     assert {:ok, pid} = ContextAgent.start_link(id: "context-schema-chat")
 
-    assert {:error, {:invalid_context, {:schema, errors}}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.chat(pid, "hello", context: %{tenant: 123})
 
-    assert inspect(errors) =~ "tenant"
+    assert inspect(error.details.errors) =~ "tenant"
     assert :ok = Moto.stop_agent(pid)
   end
 
@@ -232,19 +259,25 @@ defmodule MotoTest.ContextMemoryTest do
   end
 
   test "rejects public tool_context in favor of context" do
-    assert {:error, {:invalid_option, :tool_context, :use_context}} =
+    assert {:error, %Moto.Error.ValidationError{} = error} =
              Moto.Agent.prepare_chat_opts([tool_context: %{actor: %{id: "user-1"}}], nil)
+
+    assert error.field == :tool_context
+    assert error.details.reason == :use_context
   end
 
   test "rejects public tool_context in chat helpers" do
     assert {:ok, pid} = ChatAgent.start_link(id: "invalid-tool-context-chat-test")
 
     try do
-      assert {:error, {:invalid_option, :tool_context, :use_context}} =
+      assert {:error, %Moto.Error.ValidationError{} = chat_error} =
                ChatAgent.chat(pid, "Hello", tool_context: %{tenant: "acme"})
 
-      assert {:error, {:invalid_option, :tool_context, :use_context}} =
+      assert {:error, %Moto.Error.ValidationError{} = moto_error} =
                Moto.chat(pid, "Hello", tool_context: %{tenant: "acme"})
+
+      assert chat_error.details.reason == :use_context
+      assert moto_error.details.reason == :use_context
     after
       :ok = Moto.stop_agent(pid)
     end

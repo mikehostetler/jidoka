@@ -120,6 +120,14 @@ defmodule Moto do
   def encode_agent(%ImportedAgent{} = agent, opts), do: ImportedAgent.encode(agent, opts)
 
   @doc """
+  Formats Moto error terms for humans.
+
+  Use this helper when presenting Moto errors in CLIs, demos, logs, or tests.
+  """
+  @spec format_error(term()) :: String.t()
+  def format_error(reason), do: Moto.Error.format(reason)
+
+  @doc """
   Encodes an imported Moto agent as JSON or YAML and raises on failure.
   """
   @spec encode_agent!(ImportedAgent.t(), keyword()) :: binary()
