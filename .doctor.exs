@@ -15,7 +15,6 @@
     Moto.ImportedAgent,
     ~r/^Moto\.ImportedAgent\./,
     Moto.Inspection,
-    Moto.MCP,
     Moto.Memory,
     ~r/^Moto\.Plugins\./,
     Moto.Skill,
@@ -28,7 +27,7 @@
     ~r"^lib/moto/demo/",
     ~r"^lib/moto/plugins/",
     ~r"^lib/moto/imported_agent/(codec|registries)\.ex$",
-    ~r"^lib/moto/mcp/sync_tools_to_agent\.ex$",
+    ~r"^lib/moto/mcp/",
     ~r"^lib/moto/subagent/"
   ],
   min_module_doc_coverage: 60,

@@ -5,9 +5,9 @@ and the framework research in `../research/`.
 
 Current baseline:
 
-- Commit: `4cc9c42 feat: define agent context with schema`
-- Verification: `mix format && mix compile --warnings-as-errors && mix test`
-- Test status: `158 tests, 0 failures`
+- Branch: `main`
+- Verification: `mix quality && mix test`
+- Test status: `168 tests, 0 failures`
 
 The bias remains:
 
@@ -36,8 +36,9 @@ Moto now has a complete first-pass shape:
   Jido.AI skill modules and runtime `SKILL.md` load paths are supported.
 
 - [x] MCP tool sync
-  Configured MCP endpoints can sync remote tools into Moto agents. Live
-  filesystem MCP integration coverage exists.
+  Configured, runtime-registered, and inline compiled-agent MCP endpoints can
+  sync remote tools into Moto agents. Live filesystem MCP integration coverage
+  exists.
 
 - [x] `plugins`
   Moto plugins are first-class and can contribute action-backed tools.
@@ -142,9 +143,14 @@ These are implemented, but should keep getting sharper before Moto broadens.
 
 ### 4. MCP Client Support
 
+- [x] Support dynamic MCP endpoints.
+  Moto exposes `Moto.MCP.register_endpoint/2`, `Moto.MCP.ensure_endpoint/2`,
+  inline compiled-agent endpoint registration, and named imported-agent endpoint
+  references.
+
 - [ ] Harden configured MCP endpoint errors.
-  Missing endpoint, failed server startup, bad command, and partial sync should
-  fail clearly.
+  Missing endpoint, failed server startup, bad command, endpoint conflicts, and
+  partial sync should fail clearly.
 
 - [ ] Reduce Moto-owned MCP schema shims when possible.
   Moto currently handles real-world JSON Schema compatibility around synced MCP
@@ -217,7 +223,7 @@ Remaining dependency work:
    subagent story.
 
 3. Harden MCP endpoint failure behavior.
-   Keep the scope to configured MCP clients syncing tools into Moto agents.
+   Keep the scope to MCP clients syncing tools into Moto agents.
 
 4. Keep observability focused.
    Improve `inspect_request/1` and CLI trace output where it helps users

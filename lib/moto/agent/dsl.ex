@@ -104,7 +104,7 @@ defmodule Moto.Agent.Dsl do
   @mcp_tools_entity %Spark.Dsl.Entity{
     name: :mcp_tools,
     describe: """
-    Register remote MCP tools from a configured endpoint.
+    Register remote MCP tools from a configured or runtime endpoint.
     """,
     target: MCPTools,
     args: [],
@@ -118,6 +118,31 @@ defmodule Moto.Agent.Dsl do
         type: :string,
         required: false,
         doc: "Optional prefix to prepend to synced tool names."
+      ],
+      transport: [
+        type: :any,
+        required: false,
+        doc: "Optional inline MCP transport definition for runtime endpoint registration."
+      ],
+      client_info: [
+        type: :map,
+        required: false,
+        doc: "Optional MCP client info when registering an inline endpoint."
+      ],
+      protocol_version: [
+        type: :string,
+        required: false,
+        doc: "Optional MCP protocol version for an inline endpoint."
+      ],
+      capabilities: [
+        type: :map,
+        required: false,
+        doc: "Optional MCP client capabilities for an inline endpoint."
+      ],
+      timeouts: [
+        type: :map,
+        required: false,
+        doc: "Optional MCP timeout settings for an inline endpoint."
       ]
     ]
   }

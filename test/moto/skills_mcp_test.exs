@@ -4,6 +4,7 @@ defmodule MotoTest.SkillsMCPTest do
   alias MotoTest.{
     FailingMCPSync,
     FakeMCPSync,
+    InlineMCPAgent,
     LocalFSMCPAgent,
     MCPAgent,
     RuntimeSkillAgent,
@@ -108,6 +109,92 @@ defmodule MotoTest.SkillsMCPTest do
     refute_received {:mcp_sync_called, _}
   end
 
+  test "runtime MCP endpoints can be registered without application config" do
+    with_isolated_mcp_pool(fn ->
+      attrs = runtime_endpoint_attrs()
+
+      assert {:ok, endpoint} = Moto.MCP.register_endpoint(:runtime_fs, attrs)
+      assert endpoint.id == :runtime_fs
+      assert :runtime_fs in Moto.MCP.endpoint_ids()
+      assert {:error, :not_started} = Moto.MCP.endpoint_status(:runtime_fs)
+
+      assert {:error, {:endpoint_already_registered, :runtime_fs}} =
+               Moto.MCP.register_endpoint(:runtime_fs, attrs)
+    end)
+  end
+
+  test "runtime MCP endpoint ensure is idempotent and detects conflicts" do
+    with_isolated_mcp_pool(fn ->
+      attrs = runtime_endpoint_attrs()
+
+      assert {:ok, endpoint} = Moto.MCP.ensure_endpoint(:runtime_fs, attrs)
+      assert {:ok, ^endpoint} = Moto.MCP.ensure_endpoint(:runtime_fs, attrs)
+
+      assert {:error, {:endpoint_conflict, :runtime_fs, _existing, _incoming}} =
+               Moto.MCP.ensure_endpoint(
+                 :runtime_fs,
+                 Keyword.put(attrs, :client_info, %{name: "different-test"})
+               )
+    end)
+  end
+
+  test "public MCP sync helper supports runtime endpoint attrs" do
+    Application.put_env(:moto, :mcp_sync_module, FakeMCPSync)
+
+    with_isolated_mcp_pool(fn ->
+      assert {:ok, %{registered_count: 1}} =
+               Moto.MCP.sync_tools(
+                 self(),
+                 [endpoint: :runtime_sync_fs, prefix: "rt_", replace_existing: false] ++
+                   runtime_endpoint_attrs()
+               )
+
+      assert :runtime_sync_fs in Moto.MCP.endpoint_ids()
+
+      assert_received {:mcp_sync_called,
+                       %{
+                         agent_server: test_pid,
+                         endpoint_id: :runtime_sync_fs,
+                         prefix: "rt_",
+                         replace_existing: false
+                       }}
+
+      assert test_pid == self()
+    end)
+  end
+
+  test "inline MCP endpoint definitions register before sync" do
+    Application.put_env(:moto, :mcp_sync_module, FakeMCPSync)
+
+    with_isolated_mcp_pool(fn ->
+      agent = new_runtime_agent(InlineMCPAgent.runtime_module())
+
+      assert [
+               %{
+                 endpoint: :inline_fs,
+                 prefix: "inline_",
+                 registration: %Jido.MCP.Endpoint{} = registration
+               }
+             ] = InlineMCPAgent.mcp_tools()
+
+      assert registration.id == :inline_fs
+      assert registration.transport == {:stdio, command: "echo"}
+      assert registration.timeouts == %{request_ms: 15_000}
+
+      assert {:ok, _agent, {:ai_react_start, %{}}} =
+               Moto.MCP.on_before_cmd(agent, {:ai_react_start, %{}}, InlineMCPAgent.mcp_tools())
+
+      assert :inline_fs in Moto.MCP.endpoint_ids()
+
+      assert_received {:mcp_sync_called,
+                       %{
+                         endpoint_id: :inline_fs,
+                         prefix: "inline_",
+                         replace_existing: false
+                       }}
+    end)
+  end
+
   test "mcp sync failures are recorded without crashing the turn" do
     Application.put_env(:moto, :mcp_sync_module, FailingMCPSync)
 
@@ -197,7 +284,7 @@ defmodule MotoTest.SkillsMCPTest do
   defp sync_filesystem_tools(pid, attempts \\ 10)
 
   defp sync_filesystem_tools(pid, attempts) do
-    case Moto.MCP.SyncToolsToAgent.run(sync_params(pid), %{}) do
+    case Moto.MCP.Sync.run(sync_params(pid), %{}) do
       {:ok, _result} = ok ->
         ok
 
@@ -217,5 +304,23 @@ defmodule MotoTest.SkillsMCPTest do
       prefix: "fs_",
       replace_existing: false
     }
+  end
+
+  defp runtime_endpoint_attrs do
+    [
+      transport: {:stdio, command: "echo"},
+      client_info: %{name: "moto-runtime-test", version: "0.1.0"},
+      timeouts: %{request_ms: 15_000}
+    ]
+  end
+
+  defp with_isolated_mcp_pool(fun) do
+    previous_state = :sys.get_state(Jido.MCP.ClientPool)
+
+    try do
+      fun.()
+    after
+      :sys.replace_state(Jido.MCP.ClientPool, fn _state -> previous_state end)
+    end
   end
 end

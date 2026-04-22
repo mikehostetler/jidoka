@@ -1,20 +1,106 @@
 defmodule Moto.MCP do
-  @moduledoc false
+  @moduledoc """
+  Moto-facing MCP endpoint and tool-sync helpers.
+
+  Moto treats MCP servers as a first-class tool source for agents. MCP endpoints
+  may come from `:jido_mcp` application config, `jido_mcp` runtime endpoint
+  registration, or inline `mcp_tools` DSL entries on compiled agents.
+  """
+
+  alias Jido.MCP.{ClientPool, Endpoint}
 
   @state_key :__moto_mcp__
 
   @type endpoint_ref :: atom() | String.t()
-  @type config :: [%{endpoint: endpoint_ref(), prefix: String.t() | nil}]
+  @type endpoint_config :: %{
+          required(:endpoint) => endpoint_ref(),
+          required(:prefix) => String.t() | nil,
+          optional(:registration) => Endpoint.t()
+        }
+  @type config :: [endpoint_config()]
 
+  @doc """
+  Builds a validated MCP endpoint definition.
+  """
+  @spec endpoint(atom(), map() | keyword()) :: {:ok, Endpoint.t()} | {:error, term()}
+  def endpoint(id, attrs), do: Endpoint.new(id, attrs)
+
+  @doc """
+  Registers a runtime MCP endpoint with `jido_mcp`.
+
+  This mirrors `Jido.MCP.register_endpoint/1` and intentionally surfaces
+  duplicate endpoint ids as errors.
+  """
+  @spec register_endpoint(atom(), map() | keyword()) :: {:ok, Endpoint.t()} | {:error, term()}
+  def register_endpoint(id, attrs) do
+    with {:ok, endpoint} <- endpoint(id, attrs) do
+      Jido.MCP.register_endpoint(endpoint)
+    end
+  end
+
+  @doc """
+  Ensures a runtime MCP endpoint exists.
+
+  Unlike `register_endpoint/2`, this is idempotent for matching endpoint
+  definitions and returns an explicit conflict error for mismatched definitions.
+  Moto uses this for inline `mcp_tools` endpoint declarations.
+  """
+  @spec ensure_endpoint(atom(), map() | keyword()) :: {:ok, Endpoint.t()} | {:error, term()}
+  def ensure_endpoint(id, attrs) do
+    with {:ok, endpoint} <- endpoint(id, attrs) do
+      ensure_endpoint(endpoint)
+    end
+  end
+
+  @doc """
+  Returns the currently known `jido_mcp` endpoint ids.
+  """
+  @spec endpoint_ids() :: [atom()]
+  def endpoint_ids, do: ClientPool.endpoint_ids()
+
+  @doc """
+  Returns runtime status for a configured or registered endpoint.
+  """
+  @spec endpoint_status(endpoint_ref()) :: {:ok, map()} | {:error, term()}
+  def endpoint_status(endpoint) do
+    with {:ok, endpoint_id} <- ClientPool.resolve_endpoint_id(endpoint) do
+      Jido.MCP.endpoint_status(endpoint_id)
+    end
+  end
+
+  @doc """
+  Syncs an MCP endpoint's tools into a running Moto/Jido.AI agent.
+
+  Options:
+
+  - `:endpoint` - configured or registered endpoint id
+  - `:prefix` - optional tool-name prefix
+  - `:transport` - optional runtime endpoint transport definition
+  - `:client_info` - optional runtime endpoint client metadata
+  - `:replace_existing` - whether to remove previous proxies first, default `true`
+  """
+  @spec sync_tools(GenServer.server(), keyword()) :: {:ok, map()} | {:error, term()}
+  def sync_tools(agent_server, opts) when is_list(opts) do
+    with {:ok, entry} <- normalize_entry(Enum.into(opts, %{})),
+         :ok <- ensure_registered_endpoint(entry) do
+      params =
+        %{
+          endpoint_id: entry.endpoint,
+          agent_server: agent_server,
+          replace_existing: Keyword.get(opts, :replace_existing, true)
+        }
+        |> maybe_put_prefix(entry.prefix)
+
+      sync_module().run(params, %{})
+    end
+  end
+
+  @doc false
   @spec normalize_dsl([struct()]) :: {:ok, config()} | {:error, String.t()}
   def normalize_dsl(entries) when is_list(entries) do
     entries
-    |> Enum.reduce_while({:ok, []}, fn %Moto.Agent.Dsl.MCPTools{
-                                         endpoint: endpoint,
-                                         prefix: prefix
-                                       },
-                                       {:ok, acc} ->
-      with {:ok, normalized} <- normalize_entry(%{endpoint: endpoint, prefix: prefix}),
+    |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
+      with {:ok, normalized} <- normalize_dsl_entry(entry),
            :ok <- ensure_unique_endpoint(normalized, acc) do
         {:cont, {:ok, acc ++ [normalized]}}
       else
@@ -23,6 +109,7 @@ defmodule Moto.MCP do
     end)
   end
 
+  @doc false
   @spec normalize_imported([map()]) :: {:ok, config()} | {:error, String.t()}
   def normalize_imported(entries) when is_list(entries) do
     entries
@@ -40,13 +127,15 @@ defmodule Moto.MCP do
   def normalize_imported(other),
     do: {:error, "mcp_tools must be a list of maps, got: #{inspect(other)}"}
 
+  @doc false
   @spec validate_dsl_entry(struct()) :: :ok | {:error, String.t()}
-  def validate_dsl_entry(%Moto.Agent.Dsl.MCPTools{endpoint: endpoint, prefix: prefix}) do
-    with {:ok, _normalized} <- normalize_entry(%{endpoint: endpoint, prefix: prefix}) do
+  def validate_dsl_entry(%Moto.Agent.Dsl.MCPTools{} = entry) do
+    with {:ok, _normalized} <- normalize_dsl_entry(entry) do
       :ok
     end
   end
 
+  @doc false
   @spec on_before_cmd(Jido.Agent.t(), term(), config()) :: {:ok, Jido.Agent.t(), term()}
   def on_before_cmd(agent, action, []), do: {:ok, agent, action}
 
@@ -91,13 +180,28 @@ defmodule Moto.MCP do
 
   def on_before_cmd(agent, action, _config), do: {:ok, agent, action}
 
+  defp normalize_dsl_entry(%Moto.Agent.Dsl.MCPTools{} = entry) do
+    normalize_entry(%{
+      endpoint: entry.endpoint,
+      prefix: entry.prefix,
+      transport: entry.transport,
+      client_info: entry.client_info,
+      protocol_version: entry.protocol_version,
+      capabilities: entry.capabilities,
+      timeouts: entry.timeouts
+    })
+  end
+
   defp normalize_entry(entry) when is_map(entry) do
     endpoint = Map.get(entry, :endpoint, Map.get(entry, "endpoint"))
     prefix = Map.get(entry, :prefix, Map.get(entry, "prefix"))
 
     with {:ok, normalized_endpoint} <- normalize_endpoint(endpoint),
-         {:ok, normalized_prefix} <- normalize_prefix(prefix) do
-      {:ok, %{endpoint: normalized_endpoint, prefix: normalized_prefix}}
+         {:ok, normalized_prefix} <- normalize_prefix(prefix),
+         {:ok, registration} <- normalize_registration(normalized_endpoint, entry) do
+      entry = %{endpoint: normalized_endpoint, prefix: normalized_prefix}
+
+      {:ok, maybe_put_registration(entry, registration)}
     end
   end
 
@@ -131,6 +235,44 @@ defmodule Moto.MCP do
   defp normalize_prefix(other),
     do: {:error, "mcp prefix must be a string when provided, got: #{inspect(other)}"}
 
+  defp normalize_registration(endpoint, entry) do
+    transport = Map.get(entry, :transport, Map.get(entry, "transport"))
+
+    if is_nil(transport) do
+      {:ok, nil}
+    else
+      with :ok <- ensure_runtime_endpoint_id(endpoint),
+           attrs <- endpoint_attrs(entry),
+           {:ok, endpoint} <- Endpoint.new(endpoint, attrs) do
+        {:ok, endpoint}
+      else
+        {:error, reason} -> {:error, format_endpoint_error(reason)}
+      end
+    end
+  end
+
+  defp ensure_runtime_endpoint_id(endpoint) when is_atom(endpoint), do: :ok
+
+  defp ensure_runtime_endpoint_id(endpoint) do
+    {:error, "inline MCP endpoint definitions require an atom endpoint id, got: #{inspect(endpoint)}"}
+  end
+
+  defp endpoint_attrs(entry) do
+    %{
+      transport: Map.get(entry, :transport, Map.get(entry, "transport")),
+      client_info: Map.get(entry, :client_info, Map.get(entry, "client_info", %{name: "moto"})),
+      protocol_version: Map.get(entry, :protocol_version, Map.get(entry, "protocol_version")),
+      capabilities: Map.get(entry, :capabilities, Map.get(entry, "capabilities", %{})),
+      timeouts: Map.get(entry, :timeouts, Map.get(entry, "timeouts", %{}))
+    }
+  end
+
+  defp maybe_put_registration(entry, nil), do: entry
+  defp maybe_put_registration(entry, %Endpoint{} = endpoint), do: Map.put(entry, :registration, endpoint)
+
+  defp format_endpoint_error(reason) when is_binary(reason), do: reason
+  defp format_endpoint_error(reason), do: "invalid MCP endpoint definition: #{inspect(reason)}"
+
   defp ensure_unique_endpoint(entry, acc) do
     if Enum.any?(acc, fn existing -> existing.endpoint == entry.endpoint end) do
       {:error, "mcp endpoint #{inspect(entry.endpoint)} is defined more than once"}
@@ -150,9 +292,6 @@ defmodule Moto.MCP do
   end
 
   defp sync_endpoint(entry, agent) do
-    sync_module =
-      Application.get_env(:moto, :mcp_sync_module, Moto.MCP.SyncToolsToAgent)
-
     params =
       %{
         endpoint_id: entry.endpoint,
@@ -162,7 +301,10 @@ defmodule Moto.MCP do
       }
       |> maybe_put_prefix(entry.prefix)
 
-    case sync_module.run(params, %{}) do
+    with :ok <- ensure_registered_endpoint(entry) do
+      sync_module().run(params, %{})
+    end
+    |> case do
       {:ok, %{agent: %Jido.Agent{} = updated_agent}} -> {:ok, updated_agent}
       {:ok, _result} -> {:ok, agent}
       {:error, reason} -> {:error, reason}
@@ -174,6 +316,37 @@ defmodule Moto.MCP do
 
   defp maybe_put_prefix(params, nil), do: params
   defp maybe_put_prefix(params, prefix), do: Map.put(params, :prefix, prefix)
+
+  defp sync_module do
+    Application.get_env(:moto, :mcp_sync_module, Moto.MCP.Sync)
+  end
+
+  defp ensure_registered_endpoint(%{registration: %Endpoint{} = endpoint}) do
+    ensure_endpoint(endpoint)
+    |> case do
+      {:ok, _endpoint} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_registered_endpoint(_entry), do: :ok
+
+  defp ensure_endpoint(%Endpoint{} = endpoint) do
+    case Jido.MCP.register_endpoint(endpoint) do
+      {:ok, endpoint} ->
+        {:ok, endpoint}
+
+      {:error, {:endpoint_already_registered, endpoint_id}} ->
+        case ClientPool.fetch_endpoint(endpoint_id) do
+          {:ok, ^endpoint} -> {:ok, endpoint}
+          {:ok, existing} -> {:error, {:endpoint_conflict, endpoint_id, existing, endpoint}}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 
   defp sync_key(%{endpoint: endpoint, prefix: prefix}), do: {endpoint, prefix}
 

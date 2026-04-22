@@ -65,6 +65,25 @@ defmodule MotoTest.LocalFSMCPAgent do
   end
 end
 
+defmodule MotoTest.InlineMCPAgent do
+  use Moto.Agent
+
+  agent do
+    model(:fast)
+    system_prompt("You can use an inline MCP endpoint.")
+  end
+
+  tools do
+    mcp_tools(
+      endpoint: :inline_fs,
+      prefix: "inline_",
+      transport: {:stdio, command: "echo"},
+      client_info: %{name: "moto-test", version: "0.1.0"},
+      timeouts: %{request_ms: 15_000}
+    )
+  end
+end
+
 defmodule MotoTest.FakeMCPSync do
   def run(params, _context) do
     send(self(), {:mcp_sync_called, params})

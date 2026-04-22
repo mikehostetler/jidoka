@@ -13,7 +13,16 @@ end
 defmodule Moto.Agent.Dsl.MCPTools do
   @moduledoc false
 
-  defstruct [:endpoint, :prefix, :__spark_metadata__]
+  defstruct [
+    :endpoint,
+    :prefix,
+    :transport,
+    :client_info,
+    :protocol_version,
+    :capabilities,
+    :timeouts,
+    :__spark_metadata__
+  ]
 end
 
 defmodule Moto.Agent.Dsl.Plugin do

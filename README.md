@@ -396,7 +396,9 @@ Module-based skills can also contribute action-backed tools through their
 
 ## Sync MCP Tools
 
-Moto can sync remote MCP tools into the agent's tool registry:
+Moto treats MCP servers as a first-class tool source. Tools can be synced from
+configured `jido_mcp` endpoints, runtime-registered endpoints, or inline
+compiled-agent endpoint definitions:
 
 ```elixir
 defmodule MyApp.GitHubAgent do
@@ -413,12 +415,46 @@ defmodule MyApp.GitHubAgent do
 end
 ```
 
+Runtime registration is useful when endpoint configuration belongs in
+application code instead of static config:
+
+```elixir
+{:ok, _endpoint} =
+  Moto.MCP.register_endpoint(:workspace_fs,
+    transport:
+      {:stdio,
+       [
+         command: "npx",
+         args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+       ]},
+    client_info: %{name: "my_app", version: "1.0.0"}
+  )
+```
+
+Compiled agents can also declare an inline endpoint. Moto registers it
+idempotently before the first turn and syncs the tools before the model runs:
+
+```elixir
+tools do
+  mcp_tools endpoint: :workspace_fs,
+            prefix: "fs_",
+            transport:
+              {:stdio,
+               [
+                 command: "npx",
+                 args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+               ]},
+            client_info: %{name: "my_app", version: "1.0.0"}
+end
+```
+
 Moto keeps MCP narrow in this first pass:
 
 - MCP is treated as another tool source
 - tools are synced before the model turn runs
 - Moto does not currently expose raw MCP resources or prompts
-- endpoint configuration still lives in `jido_mcp`
+- imported JSON/YAML specs reference endpoint names only; executable transport
+  configuration stays in code or application config
 
 ## Define A Plugin
 
@@ -934,6 +970,7 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
   - runtime path loading through `skill_paths`
 - `mcp_tools` supports:
   - objects like `%{"endpoint" => "github", "prefix" => "github_"}`
+  - endpoints may come from app config or runtime `Moto.MCP.register_endpoint/2`
 - `hooks` supports:
   - a stage-keyed map like `%{"before_turn" => ["reply_with_final_answer"]}`
   - multiple names per stage

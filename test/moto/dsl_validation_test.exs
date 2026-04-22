@@ -259,6 +259,45 @@ defmodule MotoTest.DslValidationTest do
     end
   end
 
+  test "rejects inline MCP endpoints without atom ids at compile time" do
+    assert_raise Spark.Error.DslError,
+                 ~r/inline MCP endpoint definitions require an atom endpoint id/,
+                 fn ->
+                   Code.compile_string("""
+                   defmodule MotoTest.InvalidInlineMCPAgent do
+                     use Moto.Agent
+
+                     agent do
+                       system_prompt "This should fail."
+                     end
+
+                     tools do
+                       mcp_tools endpoint: "inline_fs", transport: {:stdio, command: "echo"}
+                     end
+                   end
+                   """)
+                 end
+  end
+
+  test "rejects duplicate MCP endpoints at compile time" do
+    assert_raise Spark.Error.DslError, ~r/mcp endpoint :github is defined more than once/, fn ->
+      Code.compile_string("""
+      defmodule MotoTest.DuplicateMCPAgent do
+        use Moto.Agent
+
+        agent do
+          system_prompt "This should fail."
+        end
+
+        tools do
+          mcp_tools endpoint: :github, prefix: "github_"
+          mcp_tools endpoint: :github, prefix: "gh_"
+        end
+      end
+      """)
+    end
+  end
+
   test "rejects invalid subagent modules at compile time" do
     assert_raise Spark.Error.DslError, ~r/not a valid Moto subagent/, fn ->
       Code.compile_string("""

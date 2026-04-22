@@ -1,10 +1,10 @@
-defmodule Moto.MCP.SyncToolsToAgent do
+defmodule Moto.MCP.Sync do
   @moduledoc false
 
   alias Jido.Agent
   alias Jido.Agent.Strategy.State, as: StratState
   alias Jido.AI.ToolAdapter
-  alias Jido.MCP.Config
+  alias Jido.MCP.ClientPool
   alias Jido.MCP.JidoAI.{ProxyGenerator, ProxyRegistry}
 
   @max_tools 200
@@ -17,7 +17,7 @@ defmodule Moto.MCP.SyncToolsToAgent do
   @spec run(map(), map()) :: {:ok, map()} | {:error, term()}
   def run(params, _context) when is_map(params) do
     with :ok <- ensure_jido_ai_loaded(),
-         {:ok, endpoint_id} <- Config.resolve_endpoint_id(params[:endpoint_id]),
+         {:ok, endpoint_id} <- ClientPool.resolve_endpoint_id(params[:endpoint_id]),
          {:ok, response} <- list_tools_with_retry(endpoint_id),
          tools when is_list(tools) <- get_in(response, [:data, "tools"]) || [],
          :ok <- ensure_tool_limit(tools),

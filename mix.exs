@@ -147,7 +147,8 @@ defmodule Moto.MixProject do
           Moto.Plugin,
           Moto.Hook,
           Moto.Guardrail,
-          Moto.Subagent
+          Moto.Subagent,
+          Moto.MCP
         ],
         Errors: [
           Moto.Error

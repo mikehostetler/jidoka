@@ -89,10 +89,11 @@ overrides to keep the graph on current Hex Jido releases.
 
 ### MCP Sync Boundary
 
-Moto now owns `Moto.MCP.SyncToolsToAgent` as the default sync adapter. This was
-necessary because real MCP servers commonly publish JSON Schemas containing
-metadata such as `$schema`, `$id`, and `format`, while the lower-level proxy
-generator rejects those keywords.
+Moto owns `Moto.MCP.Sync` as the default sync adapter and exposes `Moto.MCP` as
+the public facade for configured, runtime-registered, and inline MCP endpoints.
+The adapter remains necessary because real MCP servers commonly publish JSON
+Schemas containing metadata such as `$schema`, `$id`, and `format`, while the
+lower-level proxy generator rejects those keywords.
 
 This is pragmatic, but it is duplicated responsibility with `jido_mcp`. The
 schema compatibility cleanup probably belongs upstream in `jido_mcp` once the
