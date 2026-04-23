@@ -1,24 +1,11 @@
-defmodule Moto.Demo.WorkflowCLI do
+defmodule Moto.Examples.Workflow.Demo do
   @moduledoc false
 
-  alias Moto.Demo.{CLI, Debug, Loader}
+  alias Moto.Demo.CLI
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
-    Loader.load!(:workflow)
-
-    case CLI.parse(argv) do
-      {:ok, %{help?: true}} ->
-        usage()
-
-      {:ok, options} ->
-        Debug.with_log_level(options.log_level, fn log_level ->
-          run(options, log_level)
-        end)
-
-      {:error, message} ->
-        raise Mix.Error, message: message
-    end
+    CLI.run_command(argv, "workflow", fn -> :ok end, &run/2)
   end
 
   @spec usage() :: :ok

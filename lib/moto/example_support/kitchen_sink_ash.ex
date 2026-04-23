@@ -1,18 +1,18 @@
-defmodule Moto.Demo.KitchenSinkAsh.Accounts do
+defmodule Moto.Examples.KitchenSink.Ash.Accounts do
   @moduledoc false
 
   use Ash.Domain, validate_config_inclusion?: false
 
   resources do
-    resource(Moto.Demo.KitchenSinkAsh.User)
+    resource(Moto.Examples.KitchenSink.Ash.User)
   end
 end
 
-defmodule Moto.Demo.KitchenSinkAsh.User do
+defmodule Moto.Examples.KitchenSink.Ash.User do
   @moduledoc false
 
   use Ash.Resource,
-    domain: Moto.Demo.KitchenSinkAsh.Accounts,
+    domain: Moto.Examples.KitchenSink.Ash.Accounts,
     extensions: [AshJido],
     validate_domain_inclusion?: false
 

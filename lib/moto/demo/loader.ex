@@ -1,71 +1,194 @@
 defmodule Moto.Demo.Loader do
   @moduledoc false
 
-  @chat_files [
-    "chat/tools/add_numbers.ex",
-    "chat/plugins/math_plugin.ex",
-    "chat/hooks/reply_with_final_answer.ex",
-    "chat/hooks/tag_after_turn.ex",
-    "chat/hooks/require_approval_for_refunds.ex",
-    "chat/hooks/notify_interrupt.ex",
-    "chat/guardrails/block_secret_prompt.ex",
-    "chat/guardrails/block_unsafe_reply.ex",
-    "chat/guardrails/approve_large_math_tool.ex",
-    "chat/agents/chat_agent.ex"
-  ]
-
-  @orchestrator_files [
-    "orchestrator/subagents/imported_writer_specialist.ex",
-    "orchestrator/agents/research_agent.ex",
-    "orchestrator/agents/manager_agent.ex"
-  ]
-
-  @kitchen_sink_files [
-    "kitchen_sink/prompts/dynamic_prompt.ex",
-    "kitchen_sink/tools/add_numbers.ex",
-    "kitchen_sink/tools/show_context.ex",
-    "kitchen_sink/plugins/showcase_plugin.ex",
-    "kitchen_sink/hooks/shape_turn.ex",
-    "kitchen_sink/hooks/tag_reply.ex",
-    "kitchen_sink/hooks/notify_interrupt.ex",
-    "kitchen_sink/guardrails/block_classified_prompt.ex",
-    "kitchen_sink/guardrails/block_unsafe_reply.ex",
-    "kitchen_sink/guardrails/approve_large_math_tool.ex",
-    "kitchen_sink/agents/research_agent.ex",
-    "kitchen_sink/subagents/imported_editor_specialist.ex",
-    "kitchen_sink/agents/kitchen_sink_agent.ex"
-  ]
-
-  @workflow_files [
-    "workflow/tools/add_amount.ex",
-    "workflow/tools/double_value.ex",
-    "workflow/workflows/math_pipeline.ex"
-  ]
-
   @spec load!(:chat | :orchestrator | :kitchen_sink | :workflow) :: :ok
   def load!(:chat) do
-    require_demo_files(@chat_files)
+    require_example!("chat")
   end
 
   def load!(:orchestrator) do
-    require_demo_files(@orchestrator_files)
+    require_example!("orchestrator")
   end
 
   def load!(:kitchen_sink) do
-    require_demo_files(@kitchen_sink_files)
+    require_example!("kitchen_sink")
   end
 
   def load!(:workflow) do
-    require_demo_files(@workflow_files)
+    require_example!("workflow")
   end
 
-  defp require_demo_files(paths) do
-    example_root = Path.expand("../../../examples", __DIR__)
-
-    paths
-    |> Enum.map(&Path.join(example_root, &1))
-    |> Enum.each(&Code.require_file/1)
+  defp require_example!(name) when is_binary(name) do
+    example_root()
+    |> Path.join(name)
+    |> Path.join("**/*.ex")
+    |> Path.wildcard()
+    |> sort_files()
+    |> Enum.each(&require_file_unless_loaded/1)
 
     :ok
+  end
+
+  defp require_file_unless_loaded(path) do
+    modules = modules_defined_in(path)
+
+    if modules != [] and Enum.all?(modules, &Code.ensure_loaded?/1) do
+      :ok
+    else
+      Code.require_file(path)
+    end
+  end
+
+  defp sort_files(files) do
+    files = Enum.sort(files)
+    modules_by_file = Map.new(files, &{&1, modules_defined_in(&1)})
+
+    module_to_file =
+      modules_by_file
+      |> Enum.flat_map(fn {file, modules} -> Enum.map(modules, &{&1, file}) end)
+      |> Map.new()
+
+    dependencies =
+      Map.new(files, fn file ->
+        dependency_files =
+          file
+          |> module_refs_in()
+          |> Enum.map(&Map.get(module_to_file, &1))
+          |> Enum.reject(&is_nil/1)
+          |> Enum.reject(&(&1 == file))
+          |> Enum.concat(phase_dependencies(file, files))
+          |> Enum.uniq()
+          |> Enum.sort()
+
+        {file, dependency_files}
+      end)
+
+    topo_sort!(dependencies, [])
+  end
+
+  defp topo_sort!(dependencies, acc) when map_size(dependencies) == 0 do
+    Enum.reverse(acc)
+  end
+
+  defp topo_sort!(dependencies, acc) do
+    ready =
+      dependencies
+      |> Enum.filter(fn {_file, deps} -> deps == [] end)
+      |> Enum.map(fn {file, _deps} -> file end)
+      |> Enum.sort()
+
+    case ready do
+      [] ->
+        raise "cyclic or unresolved example dependencies: #{inspect(Map.keys(dependencies))}"
+
+      _ ->
+        ready_set = MapSet.new(ready)
+
+        dependencies =
+          dependencies
+          |> Map.drop(ready)
+          |> Map.new(fn {file, deps} ->
+            {file, Enum.reject(deps, &MapSet.member?(ready_set, &1))}
+          end)
+
+        topo_sort!(dependencies, Enum.reverse(ready) ++ acc)
+    end
+  end
+
+  defp phase_dependencies(file, files) do
+    file_phase = phase(file)
+
+    files
+    |> Enum.filter(&(phase(&1) < file_phase))
+    |> Enum.reject(&(&1 == file))
+  end
+
+  defp phase(file) do
+    segments = Path.split(file)
+    basename = Path.basename(file)
+
+    cond do
+      basename in ["demo.ex", "imported_demo.ex"] -> 90
+      "prompts" in segments -> 10
+      "tools" in segments -> 20
+      "plugins" in segments -> 30
+      "hooks" in segments -> 40
+      "guardrails" in segments -> 50
+      "subagents" in segments -> 60
+      "agents" in segments -> 70
+      "workflows" in segments -> 80
+      true -> 55
+    end
+  end
+
+  defp modules_defined_in(path) do
+    path
+    |> quoted_file!()
+    |> collect_alias_modules(:defmodule)
+    |> Enum.uniq()
+  end
+
+  defp module_refs_in(path) do
+    path
+    |> quoted_file!()
+    |> collect_alias_modules(:ref)
+    |> Enum.filter(&moto_example_module?/1)
+    |> Enum.uniq()
+  end
+
+  defp quoted_file!(path) do
+    path
+    |> File.read!()
+    |> Code.string_to_quoted!(file: path)
+  end
+
+  defp collect_alias_modules(ast, mode) do
+    {_ast, modules} =
+      Macro.prewalk(ast, [], fn
+        {:defmodule, _meta, [module_ast, _block]} = node, acc when mode == :defmodule ->
+          {node, module_ast |> modules_from_alias_ast() |> Enum.concat(acc)}
+
+        {:__aliases__, _meta, _parts} = node, acc when mode == :ref ->
+          {node, node |> modules_from_alias_ast() |> Enum.concat(acc)}
+
+        node, acc ->
+          {node, acc}
+      end)
+
+    modules
+  end
+
+  defp modules_from_alias_ast({:__aliases__, _meta, parts}) do
+    parts
+    |> expand_alias_parts()
+    |> Enum.map(&Module.concat/1)
+  end
+
+  defp modules_from_alias_ast(_ast), do: []
+
+  defp expand_alias_parts(parts) do
+    case Enum.split_while(parts, &(&1 != :{})) do
+      {_prefix, []} ->
+        [parts]
+
+      {prefix, [:{} | grouped]} ->
+        grouped
+        |> List.flatten()
+        |> Enum.map(fn
+          {:__aliases__, _meta, suffix} -> prefix ++ suffix
+          suffix when is_atom(suffix) -> prefix ++ [suffix]
+        end)
+    end
+  end
+
+  defp moto_example_module?(module) do
+    module
+    |> Module.split()
+    |> Enum.take(2)
+    |> Kernel.==(["Moto", "Examples"])
+  end
+
+  defp example_root do
+    Path.expand("../../../examples", __DIR__)
   end
 end

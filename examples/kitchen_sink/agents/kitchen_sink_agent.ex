@@ -24,7 +24,7 @@ defmodule Moto.Examples.KitchenSink.Agents.KitchenSinkAgent do
     skill "kitchen-guidelines"
     load_path "../skills"
     tool Moto.Examples.KitchenSink.Tools.AddNumbers
-    ash_resource Moto.Demo.KitchenSinkAsh.User
+    ash_resource Moto.Examples.KitchenSink.Ash.User
     mcp_tools endpoint: :local_fs, prefix: "fs_"
     plugin Moto.Examples.KitchenSink.Plugins.ShowcasePlugin
 

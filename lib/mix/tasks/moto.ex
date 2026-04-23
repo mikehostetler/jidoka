@@ -16,26 +16,9 @@ defmodule Mix.Tasks.Moto do
 
   @impl true
   def run(argv) do
-    Mix.Task.run("app.start")
-
     case argv do
       [] ->
         usage()
-
-      ["chat" | rest] ->
-        Moto.Demo.ChatCLI.main(rest)
-
-      ["imported" | rest] ->
-        Moto.Demo.ImportedChatCLI.main(rest)
-
-      ["orchestrator" | rest] ->
-        Moto.Demo.OrchestratorCLI.main(rest)
-
-      ["workflow" | rest] ->
-        Moto.Demo.WorkflowCLI.main(rest)
-
-      ["kitchen_sink" | rest] ->
-        Moto.Demo.KitchenSinkCLI.main(rest)
 
       ["--help"] ->
         usage()
@@ -43,10 +26,19 @@ defmodule Mix.Tasks.Moto do
       ["-h"] ->
         usage()
 
-      [other | _rest] ->
-        raise Mix.Error,
-          message:
-            "unknown demo #{inspect(other)}. Expected `chat`, `imported`, `workflow`, `orchestrator`, or `kitchen_sink`."
+      [demo | rest] ->
+        case Moto.Demo.preload(demo) do
+          :ok ->
+            _ = Mix.Task.run("app.start")
+
+            case Moto.Demo.load(demo) do
+              {:ok, module} -> apply(module, :main, [rest])
+              {:error, message} -> raise Mix.Error, message: message
+            end
+
+          {:error, message} ->
+            raise Mix.Error, message: message
+        end
     end
   end
 

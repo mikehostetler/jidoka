@@ -37,6 +37,30 @@ defmodule Moto.Demo.CLI do
     end
   end
 
+  @spec run_command(
+          [String.t()],
+          String.t(),
+          (-> :ok),
+          (options(), Debug.log_level() -> :ok)
+        ) :: :ok | no_return()
+  def run_command(argv, command, load_fun, run_fun)
+      when is_binary(command) and is_function(load_fun, 0) and is_function(run_fun, 2) do
+    load_fun.()
+
+    case parse(argv) do
+      {:ok, %{help?: true}} ->
+        usage(command)
+
+      {:ok, options} ->
+        Debug.with_log_level(options.log_level, fn log_level ->
+          run_fun.(options, log_level)
+        end)
+
+      {:error, message} ->
+        raise Mix.Error, message: message
+    end
+  end
+
   @spec usage(String.t()) :: :ok
   def usage(command) when is_binary(command) do
     IO.puts("mix moto #{command} [--log-level info|debug|trace] [--dry-run] [prompt]")
