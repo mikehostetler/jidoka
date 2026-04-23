@@ -9,6 +9,7 @@ defmodule Mix.Tasks.Moto do
       mix moto chat --dry-run
       mix moto imported -- "Add 17 and 25"
       mix moto chat --log-level debug -- "Add 17 and 25"
+      mix moto support --dry-run
       mix moto workflow --dry-run
       mix moto orchestrator --log-level trace -- "Use the research_agent specialist ..."
       mix moto kitchen_sink --log-level trace --dry-run
@@ -43,8 +44,10 @@ defmodule Mix.Tasks.Moto do
   end
 
   defp usage do
-    Mix.shell().info(
-      "mix moto <chat|imported|workflow|orchestrator|kitchen_sink> [--log-level info|debug|trace] [--dry-run] [prompt]"
-    )
+    demos =
+      Moto.Demo.names()
+      |> Enum.join("|")
+
+    Mix.shell().info("mix moto <#{demos}> [--log-level info|debug|trace] [--dry-run] [prompt]")
   end
 end

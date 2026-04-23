@@ -990,6 +990,20 @@ mix moto orchestrator --log-level trace -- "Use the writer_specialist specialist
 
 Use `--log-level trace` to see subagent config and delegation metadata.
 
+Support example:
+
+```bash
+mix moto support --log-level trace --dry-run
+mix moto support -- "Customer says order ord_damaged arrived broken and wants a refund."
+mix moto support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix moto support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+```
+
+This example keeps the current boundary explicit: the chat agent owns open-ended
+intake and subagent delegation, while workflows own fixed support processes.
+One workflow is tool-only, and one reuses the writer specialist as a bounded
+workflow step.
+
 Kitchen sink showcase:
 
 ```bash
@@ -1004,6 +1018,20 @@ showcase, not the recommended starting point.
 
 The example source modules live under `examples/`. `mix moto` is the canonical
 entrypoint for running them.
+
+## Live Agent Evals
+
+Moto includes a tagged live eval suite for the support example. These tests use
+real provider calls and are excluded from normal `mix test` runs.
+
+```bash
+ANTHROPIC_API_KEY=... mix test --include llm_eval test/evals/support_agent_eval_test.exs
+```
+
+The support evals use the local `jido_eval` checkout as the dataset/result
+harness, then run custom Moto metrics for specialist routing and LLM-judged
+support quality. If the tag is included without a real key, the suite fails
+clearly instead of skipping.
 
 ## Inspection
 

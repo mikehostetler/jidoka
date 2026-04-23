@@ -1,7 +1,7 @@
 defmodule Moto.Demo.Loader do
   @moduledoc false
 
-  @spec load!(:chat | :orchestrator | :kitchen_sink | :workflow) :: :ok
+  @spec load!(:chat | :orchestrator | :kitchen_sink | :support | :workflow) :: :ok
   def load!(:chat) do
     require_example!("chat")
   end
@@ -12,6 +12,10 @@ defmodule Moto.Demo.Loader do
 
   def load!(:kitchen_sink) do
     require_example!("kitchen_sink")
+  end
+
+  def load!(:support) do
+    require_example!("support")
   end
 
   def load!(:workflow) do
@@ -117,7 +121,7 @@ defmodule Moto.Demo.Loader do
       "subagents" in segments -> 60
       "agents" in segments -> 70
       "workflows" in segments -> 80
-      true -> 55
+      true -> 15
     end
   end
 

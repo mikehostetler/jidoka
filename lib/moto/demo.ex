@@ -7,6 +7,7 @@ defmodule Moto.Demo do
     "chat" => %{loader: :chat, module: Moto.Examples.Chat.Demo},
     "imported" => %{loader: :chat, module: Moto.Examples.Chat.ImportedDemo},
     "workflow" => %{loader: :workflow, module: Moto.Examples.Workflow.Demo},
+    "support" => %{loader: :support, module: Moto.Examples.Support.Demo},
     "orchestrator" => %{loader: :orchestrator, module: Moto.Examples.Orchestrator.Demo},
     "kitchen_sink" => %{loader: :kitchen_sink, module: Moto.Examples.KitchenSink.Demo}
   }
