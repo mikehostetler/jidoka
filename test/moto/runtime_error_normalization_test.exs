@@ -16,6 +16,14 @@ defmodule MotoTest.RuntimeErrorNormalizationTest do
 
   alias MotoTest.Workflow.FailingWorkflow
 
+  defmodule StringFailingMCPSync do
+    def run(_params, _context), do: {:error, "sync command failed"}
+  end
+
+  defmodule ExceptionFailingMCPSync do
+    def run(_params, _context), do: {:error, RuntimeError.exception("sync exploded")}
+  end
+
   setup do
     previous_sync_module = Application.get_env(:moto, :mcp_sync_module)
 
@@ -84,6 +92,39 @@ defmodule MotoTest.RuntimeErrorNormalizationTest do
 
       assert error.details.operation == :mcp
       assert error.details.cause == :server_capabilities_not_set
+      assert Moto.format_error(error) == "MCP operation failed."
+    end)
+  end
+
+  test "MCP sync treats string command failures as execution errors" do
+    Application.put_env(:moto, :mcp_sync_module, StringFailingMCPSync)
+
+    with_isolated_mcp_pool(fn ->
+      assert {:error, %Moto.Error.ExecutionError{} = error} =
+               Moto.MCP.sync_tools(
+                 self(),
+                 [endpoint: :runtime_string_error_sync, prefix: "err_", replace_existing: false] ++
+                   runtime_endpoint_attrs()
+               )
+
+      assert error.details.operation == :mcp
+      assert error.details.cause == "sync command failed"
+      assert Moto.format_error(error) == "MCP operation failed."
+    end)
+  end
+
+  test "MCP sync wraps third-party exception structs instead of leaking them" do
+    Application.put_env(:moto, :mcp_sync_module, ExceptionFailingMCPSync)
+
+    with_isolated_mcp_pool(fn ->
+      assert {:error, %Moto.Error.ExecutionError{} = error} =
+               Moto.MCP.sync_tools(
+                 self(),
+                 [endpoint: :runtime_exception_error_sync, prefix: "err_", replace_existing: false] ++
+                   runtime_endpoint_attrs()
+               )
+
+      assert %RuntimeError{message: "sync exploded"} = error.details.cause
       assert Moto.format_error(error) == "MCP operation failed."
     end)
   end

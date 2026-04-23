@@ -7,7 +7,9 @@ defmodule Moto.Error.Normalize do
 
   @spec chat_error(term(), context()) :: Exception.t()
   def chat_error(reason, context \\ %{})
-  def chat_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def chat_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "Moto chat failed.", :chat, context)
 
   def chat_error(:not_found, context) do
     Error.validation_error("Moto agent could not be found.",
@@ -34,7 +36,9 @@ defmodule Moto.Error.Normalize do
 
   @spec chat_option_error(term(), context()) :: Exception.t()
   def chat_option_error(reason, context \\ %{})
-  def chat_option_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def chat_option_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_validation(error, "Invalid chat options.", :chat_options, context)
 
   def chat_option_error({:invalid_hook_spec, message}, context) when is_binary(message) do
     Error.validation_error(message,
@@ -92,11 +96,20 @@ defmodule Moto.Error.Normalize do
     )
   end
 
-  def chat_option_error(reason, context), do: validation("Invalid chat options.", :chat_options, reason, context)
+  def chat_option_error(reason, context),
+    do:
+      validation(
+        "Invalid chat options.",
+        :chat_options,
+        reason,
+        Map.put(to_map(context), :operation, :prepare_chat_opts)
+      )
 
   @spec workflow_error(term(), context()) :: Exception.t()
   def workflow_error(reason, context \\ %{})
-  def workflow_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def workflow_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "Workflow execution failed.", :workflow, context)
 
   def workflow_error({:missing_imported_agent, key}, context) do
     Error.validation_error("Missing imported workflow agent `#{key}`.",
@@ -127,7 +140,9 @@ defmodule Moto.Error.Normalize do
 
   @spec subagent_error(term(), context()) :: Exception.t()
   def subagent_error(reason, context \\ %{})
-  def subagent_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def subagent_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "Subagent failed.", :subagent, context)
 
   def subagent_error({:invalid_task, :expected_non_empty_string} = reason, context) do
     Error.validation_error("Subagent task must be a non-empty string.",
@@ -196,7 +211,9 @@ defmodule Moto.Error.Normalize do
 
   @spec mcp_error(term(), context()) :: Exception.t()
   def mcp_error(reason, context \\ %{})
-  def mcp_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def mcp_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "MCP operation failed.", :mcp, context)
 
   def mcp_error(:jido_ai_not_available = reason, context) do
     Error.config_error("MCP tool sync requires Jido.AI to be available.",
@@ -246,18 +263,31 @@ defmodule Moto.Error.Normalize do
   end
 
   def mcp_error(reason, context) when is_binary(reason) do
-    Error.validation_error(reason,
-      field: detail(context, :field, :mcp_tools),
-      value: detail(context, :value),
-      details: details(context, %{operation: :mcp, cause: reason})
-    )
+    case detail(context, :operation) do
+      operation when operation in [:sync_tools, :endpoint_status] ->
+        execution("MCP operation failed.", :mcp, reason, context)
+
+      _operation ->
+        Error.validation_error(reason,
+          field: detail(context, :field, :mcp_tools),
+          value: detail(context, :value),
+          details: details(context, %{operation: :mcp, cause: reason})
+        )
+    end
   end
 
   def mcp_error(reason, context), do: execution("MCP operation failed.", :mcp, reason, context)
 
   @spec memory_error(atom(), term(), context()) :: Exception.t()
   def memory_error(phase, reason, context \\ %{})
-  def memory_error(_phase, %_{} = error, _context) when is_exception(error), do: error
+
+  def memory_error(phase, %_{} = error, context) when is_exception(error) do
+    if moto_error?(error) do
+      error
+    else
+      memory_exception_error(phase, error, context)
+    end
+  end
 
   def memory_error(:retrieve, reason, context) do
     execution("Moto memory retrieval failed.", :memory, reason, context, %{phase: :memory_retrieve})
@@ -273,7 +303,17 @@ defmodule Moto.Error.Normalize do
 
   @spec hook_error(atom(), term(), context()) :: Exception.t()
   def hook_error(stage, reason, context \\ %{})
-  def hook_error(_stage, %_{} = error, _context) when is_exception(error), do: error
+
+  def hook_error(stage, %_{} = error, context) when is_exception(error) do
+    if moto_error?(error) do
+      error
+    else
+      Error.execution_error("Hook #{stage} failed.",
+        phase: :hook,
+        details: details(context, %{operation: :hook, stage: stage, cause: error})
+      )
+    end
+  end
 
   def hook_error(stage, reason, context) do
     Error.execution_error("Hook #{stage} failed.",
@@ -284,7 +324,17 @@ defmodule Moto.Error.Normalize do
 
   @spec guardrail_error(atom(), term(), term(), context()) :: Exception.t()
   def guardrail_error(stage, label, reason, context \\ %{})
-  def guardrail_error(_stage, _label, %_{} = error, _context) when is_exception(error), do: error
+
+  def guardrail_error(stage, label, %_{} = error, context) when is_exception(error) do
+    if moto_error?(error) do
+      error
+    else
+      Error.execution_error("Guardrail #{label} blocked #{stage}.",
+        phase: :guardrail,
+        details: details(context, %{operation: :guardrail, stage: stage, label: label, cause: error})
+      )
+    end
+  end
 
   def guardrail_error(stage, label, reason, context) do
     Error.execution_error("Guardrail #{label} blocked #{stage}.",
@@ -295,7 +345,9 @@ defmodule Moto.Error.Normalize do
 
   @spec debug_error(term(), context()) :: Exception.t()
   def debug_error(reason, context \\ %{})
-  def debug_error(%_{} = error, _context) when is_exception(error), do: error
+
+  def debug_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "Moto debug lookup failed.", :debug, context)
 
   def debug_error(:request_not_found = reason, context) do
     Error.validation_error("Moto request could not be found.",
@@ -320,6 +372,34 @@ defmodule Moto.Error.Normalize do
       value: detail(context, :value),
       details: details(context, %{cause: reason})
     )
+  end
+
+  defp passthrough_or_validation(error, message, field, context) do
+    if moto_error?(error) do
+      error
+    else
+      validation(message, field, error, context)
+    end
+  end
+
+  defp passthrough_or_execution(error, message, phase, context) do
+    if moto_error?(error) do
+      error
+    else
+      execution(message, phase, error, context)
+    end
+  end
+
+  defp memory_exception_error(:retrieve, error, context) do
+    execution("Moto memory retrieval failed.", :memory, error, context, %{phase: :memory_retrieve})
+  end
+
+  defp memory_exception_error(:capture, error, context) do
+    execution("Moto memory capture failed.", :memory, error, context, %{phase: :memory_capture})
+  end
+
+  defp memory_exception_error(phase, error, context) do
+    execution("Moto memory failed.", :memory, error, context, %{phase: phase})
   end
 
   defp execution(message, phase, reason, context, extra \\ %{}) do
@@ -374,4 +454,14 @@ defmodule Moto.Error.Normalize do
   defp drop_nil_values(map) do
     Map.reject(map, fn {_key, value} -> is_nil(value) end)
   end
+
+  defp moto_error?(%Error.ValidationError{}), do: true
+  defp moto_error?(%Error.ConfigError{}), do: true
+  defp moto_error?(%Error.ExecutionError{}), do: true
+  defp moto_error?(%Error.Internal.UnknownError{}), do: true
+  defp moto_error?(%Error.Invalid{}), do: true
+  defp moto_error?(%Error.Config{}), do: true
+  defp moto_error?(%Error.Execution{}), do: true
+  defp moto_error?(%Error.Internal{}), do: true
+  defp moto_error?(_error), do: false
 end
