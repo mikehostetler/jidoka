@@ -5,6 +5,7 @@ defmodule Bagu.Agent.RequestTransformer do
 
   @spec transform_request(
           Bagu.Agent.SystemPrompt.spec() | nil,
+          Bagu.Character.spec(),
           Bagu.Skill.config() | nil,
           map(),
           State.t(),
@@ -13,6 +14,7 @@ defmodule Bagu.Agent.RequestTransformer do
         ) :: {:ok, %{messages: [map()]}} | {:error, term()}
   def transform_request(
         system_prompt_spec,
+        character_spec,
         skills_config,
         request,
         %State{} = state,
@@ -28,10 +30,23 @@ defmodule Bagu.Agent.RequestTransformer do
     }
 
     with {:ok, prompt} <- resolve_base_prompt(system_prompt_spec, input),
-         combined <- combine_prompt_sections(prompt, skills_config, runtime_context) do
+         {:ok, character_prompt} <- resolve_character_prompt(character_spec, input, runtime_context),
+         combined <- combine_prompt_sections(character_prompt, prompt, skills_config, runtime_context) do
       Bagu.Debug.record_prompt_preview(runtime_context, combined, request)
       {:ok, %{messages: apply_prompt(Map.get(request, :messages, []), combined)}}
     end
+  end
+
+  @spec transform_request(
+          Bagu.Agent.SystemPrompt.spec() | nil,
+          Bagu.Skill.config() | nil,
+          map(),
+          State.t(),
+          Config.t(),
+          map()
+        ) :: {:ok, %{messages: [map()]}} | {:error, term()}
+  def transform_request(system_prompt_spec, skills_config, request, state, config, runtime_context) do
+    transform_request(system_prompt_spec, nil, skills_config, request, state, config, runtime_context)
   end
 
   defp resolve_base_prompt(nil, %{request: request}),
@@ -39,9 +54,20 @@ defmodule Bagu.Agent.RequestTransformer do
 
   defp resolve_base_prompt(spec, input), do: Bagu.Agent.SystemPrompt.resolve(spec, input)
 
-  defp combine_prompt_sections(prompt, skills_config, runtime_context) do
+  defp resolve_character_prompt(character_spec, input, runtime_context) do
+    runtime_context
+    |> Bagu.Character.runtime_override()
+    |> case do
+      nil -> character_spec
+      override -> override
+    end
+    |> Bagu.Character.resolve(input)
+  end
+
+  defp combine_prompt_sections(character_prompt, prompt, skills_config, runtime_context) do
     sections =
       [
+        normalize_prompt(character_prompt),
         normalize_prompt(prompt),
         skills_prompt(skills_config, runtime_context),
         Bagu.Memory.prompt_text(runtime_context)

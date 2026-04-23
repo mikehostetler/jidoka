@@ -312,6 +312,9 @@ Scope:
 
 Goal: add persona/voice composition without bloating `Bagu.Agent`.
 
+Status: basic Bagu integration done; direct dependency on `jido_character`
+remains deferred until the package is published or pinned.
+
 Candidate package:
 
 - `jido_character` exists at `https://github.com/agentjido/jido_character`.
@@ -322,16 +325,20 @@ Candidate package:
 
 Likely Bagu scope:
 
-- Add `defaults.character MyApp.Characters.SupportAdvisor` or similar.
-- Compose rendered character output with `defaults.instructions`.
+- Add `defaults.character MyApp.Characters.SupportAdvisor` or similar. Done.
+- Compose rendered character output with `defaults.instructions`. Done.
+- Support per-call `character:` overrides. Done.
+- Support imported `defaults.character` inline maps and `available_characters`
+  refs. Done.
 - Define precedence between static instructions, dynamic instructions, and
-  character-rendered prompt sections.
+  character-rendered prompt sections. Done: character first, instructions
+  second, skills and memory afterward.
 - Keep character memory distinct from `jido_memory` until the model is clear.
 
 Risk:
 
 - Character rendering touches prompt composition, which is public and easy to
-  overfit. Do a small spike before adding public DSL.
+  overfit. Continue refining through examples before expanding the DSL.
 
 ### 7. Handoffs
 

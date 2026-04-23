@@ -6,6 +6,7 @@ defmodule Bagu.Agent.Chat do
   def prepare_chat_opts(opts, nil) when is_list(opts) do
     with :ok <- reject_tool_context(opts),
          {:ok, context} <- normalize_request_context(opts, %{}, nil),
+         {:ok, context} <- attach_runtime_character(opts, context),
          {:ok, context} <- attach_runtime_extensions(opts, context) do
       {:ok, finalize_chat_opts(opts, context)}
     end
@@ -18,6 +19,7 @@ defmodule Bagu.Agent.Chat do
 
     with :ok <- reject_tool_context(opts),
          {:ok, context} <- normalize_request_context(opts, default_context, context_schema),
+         {:ok, context} <- attach_runtime_character(opts, context),
          {:ok, context} <- attach_runtime_extensions(opts, context),
          {:ok, context} <- maybe_prepare_ash_context(context, ash_tool_config) do
       {:ok, finalize_chat_opts(opts, context)}
@@ -42,6 +44,26 @@ defmodule Bagu.Agent.Chat do
     Bagu.Context.normalize(Keyword.get(opts, :context, %{}), context_schema)
   end
 
+  defp attach_runtime_character(opts, context) do
+    case Keyword.fetch(opts, :character) do
+      {:ok, character} ->
+        case Bagu.Character.normalize(nil, character, label: "character") do
+          {:ok, normalized} ->
+            {:ok, Map.put(context, Bagu.Character.context_key(), normalized)}
+
+          {:error, reason} ->
+            {:error,
+             Bagu.Error.Normalize.chat_option_error({:invalid_character, reason},
+               field: :character,
+               value: character
+             )}
+        end
+
+      :error ->
+        {:ok, context}
+    end
+  end
+
   defp attach_runtime_extensions(opts, context) do
     with {:ok, hooks} <- Bagu.Hooks.normalize_request_hooks(Keyword.get(opts, :hooks, nil)),
          {:ok, guardrails} <-
@@ -57,7 +79,7 @@ defmodule Bagu.Agent.Chat do
 
   defp finalize_chat_opts(opts, context) do
     opts
-    |> Keyword.drop([:context, :hooks, :guardrails])
+    |> Keyword.drop([:context, :character, :hooks, :guardrails])
     |> Keyword.put(:tool_context, context)
   end
 

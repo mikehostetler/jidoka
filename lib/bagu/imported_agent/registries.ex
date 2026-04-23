@@ -3,6 +3,7 @@ defmodule Bagu.ImportedAgent.Registries do
 
   @type t :: %{
           tools: Bagu.Tool.registry(),
+          characters: Bagu.Character.registry(),
           skills: Bagu.Skill.registry(),
           subagents: Bagu.Subagent.registry(),
           workflows: Bagu.Workflow.Capability.registry(),
@@ -21,6 +22,7 @@ defmodule Bagu.ImportedAgent.Registries do
   @spec normalize(keyword()) :: {:ok, t()} | {:error, String.t()}
   def normalize(opts) when is_list(opts) do
     with {:ok, tool_registry} <- available_tool_registry(opts),
+         {:ok, character_registry} <- available_character_registry(opts),
          {:ok, skill_registry} <- available_skill_registry(opts),
          {:ok, subagent_registry} <- available_subagent_registry(opts),
          {:ok, workflow_registry} <- available_workflow_registry(opts),
@@ -30,6 +32,7 @@ defmodule Bagu.ImportedAgent.Registries do
       {:ok,
        %{
          tools: tool_registry,
+         characters: character_registry,
          skills: skill_registry,
          subagents: subagent_registry,
          workflows: workflow_registry,
@@ -46,6 +49,7 @@ defmodule Bagu.ImportedAgent.Registries do
       {:ok,
        opts
        |> Keyword.put(:available_tools, registries.tools)
+       |> Keyword.put(:available_characters, registries.characters)
        |> Keyword.put(:available_skills, registries.skills)
        |> Keyword.put(:available_subagents, registries.subagents)
        |> Keyword.put(:available_workflows, registries.workflows)
@@ -136,6 +140,12 @@ defmodule Bagu.ImportedAgent.Registries do
     opts
     |> Keyword.get(:available_tools, [])
     |> Bagu.Tool.normalize_available_tools()
+  end
+
+  defp available_character_registry(opts) do
+    opts
+    |> Keyword.get(:available_characters, %{})
+    |> Bagu.Character.normalize_available_characters()
   end
 
   defp available_skill_registry(opts) do

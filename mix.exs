@@ -148,6 +148,7 @@ defmodule Bagu.MixProject do
           Bagu.Interrupt
         ],
         Extensions: [
+          Bagu.Character,
           Bagu.Tool,
           Bagu.Plugin,
           Bagu.Hook,

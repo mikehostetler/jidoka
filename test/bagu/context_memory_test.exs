@@ -185,7 +185,7 @@ defmodule BaguTest.ContextMemoryTest do
                 }}
              )
 
-    assert ContextMemoryAgent.request_transformer() == nil
+    assert ContextMemoryAgent.request_transformer() == BaguTest.ContextMemoryAgent.RuntimeRequestTransformer
     assert %{namespace: _, records: [_user, _assistant]} = params.tool_context[:memory]
   end
 

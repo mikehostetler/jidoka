@@ -29,6 +29,7 @@ defmodule Bagu.Agent do
   - `agent.schema` as an optional Zoi map/object schema for runtime context
   - `defaults.model`
   - `defaults.instructions` as a string, module callback, or MFA tuple
+  - `defaults.character` as an optional prompt/persona source
   - `capabilities` for tools, Ash resources, MCP tools, skills, plugins, subagents, and workflows
   - `lifecycle` for memory, hooks, and guardrails
 
@@ -42,6 +43,9 @@ defmodule Bagu.Agent do
   Workflow entries compile deterministic `Bagu.Workflow` modules into
   tool-like capabilities while keeping ordered business processes in the
   workflow runtime.
+  Character entries render structured persona data into the effective system
+  prompt before `instructions`; per-request `character:` overrides can be
+  supplied through `Bagu.chat/3` or generated `Agent.chat/3`.
   Plugin entries accept `Bagu.Plugin` modules and merge their declared
   action-backed tools into the same LLM-visible tool registry.
   """

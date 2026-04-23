@@ -15,6 +15,7 @@ defmodule BaguTest.ImportedAgentTest do
     ReviewSpecialist,
     SafePromptGuardrail,
     SafeReplyGuardrail,
+    SupportCharacter,
     WorkflowCapability
   }
 
@@ -99,6 +100,76 @@ defmodule BaguTest.ImportedAgentTest do
     assert {:ok, encoded_json} = Bagu.encode_agent(agent, format: :json)
     assert encoded_json =~ "\"skills\""
     assert encoded_json =~ "\"mcp_tools\""
+  end
+
+  test "imports inline character maps" do
+    assert {:ok, %ImportedAgent{} = agent} =
+             Bagu.import_agent(
+               imported_spec("inline_character_agent",
+                 character: %{
+                   "name" => "Imported Advisor",
+                   "identity" => %{"role" => "Billing support"},
+                   "instructions" => ["Use the imported character."]
+                 }
+               )
+             )
+
+    assert agent.spec.character["name"] == "Imported Advisor"
+    assert {:static, prompt} = agent.character_spec
+    assert prompt =~ "Name: Imported Advisor"
+    assert prompt =~ "Role: Billing support"
+
+    assert {:ok, encoded_json} = Bagu.encode_agent(agent, format: :json)
+    assert encoded_json =~ "\"character\""
+
+    assert {:ok, encoded_yaml} = Bagu.encode_agent(agent, format: :yaml)
+    assert encoded_yaml =~ "character:"
+    assert encoded_yaml =~ "Imported Advisor"
+  end
+
+  test "imports character refs through available_characters" do
+    assert {:ok, %ImportedAgent{} = agent} =
+             Bagu.import_agent(
+               imported_spec("character_ref_agent", character: "support_advisor"),
+               available_characters: %{"support_advisor" => SupportCharacter}
+             )
+
+    assert agent.spec.character == "support_advisor"
+    assert {:dynamic, SupportCharacter} = agent.character_spec
+
+    request = react_request([%{role: :user, content: "hello"}])
+    state = react_state()
+    transformer = agent.runtime_module.__bagu_definition__().request_transformer
+    config = react_config(transformer)
+
+    assert {:ok, %{messages: [%{role: :system, content: prompt}, %{role: :user, content: "hello"}]}} =
+             transformer.transform_request(
+               request,
+               state,
+               config,
+               %{tier: "vip"}
+             )
+
+    assert prompt =~ "Name: Support Advisor"
+    assert prompt =~ "Tier: vip"
+    assert prompt =~ "You are concise."
+  end
+
+  test "rejects imported character refs without an available registry" do
+    assert {:error, reason} =
+             Bagu.import_agent(imported_spec("missing_character_registry_agent", character: "support_advisor"))
+
+    assert reason =~ "available_characters registry"
+  end
+
+  test "rejects unknown imported character refs" do
+    assert {:error, reason} =
+             Bagu.import_agent(
+               imported_spec("unknown_character_agent", character: "unknown"),
+               available_characters: %{"support_advisor" => SupportCharacter}
+             )
+
+    assert reason =~ "unknown character"
   end
 
   test "imports runtime skill paths relative to the spec file" do
@@ -943,10 +1014,14 @@ defmodule BaguTest.ImportedAgentTest do
         "id" => id,
         "context" => Keyword.get(opts, :context, %{})
       },
-      "defaults" => %{
-        "model" => Keyword.get(opts, :model, "fast"),
-        "instructions" => Keyword.get(opts, :instructions, "You are concise.")
-      },
+      "defaults" =>
+        %{
+          "model" => Keyword.get(opts, :model, "fast"),
+          "instructions" => Keyword.get(opts, :instructions, "You are concise."),
+          "character" => Keyword.get(opts, :character)
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new(),
       "capabilities" => Keyword.get(opts, :capabilities, %{}),
       "lifecycle" => Keyword.get(opts, :lifecycle, %{})
     }

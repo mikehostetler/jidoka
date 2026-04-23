@@ -142,7 +142,7 @@ end
 The DSL currently supports:
 
 - `agent do`: required `id`, optional `description`, optional Zoi `schema`
-- `defaults do`: required `instructions`, optional `model`
+- `defaults do`: required `instructions`, optional `model`, optional `character`
 - `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `skill`, `load_path`, `plugin`, `subagent`, and `workflow`
 - `lifecycle do`: `memory`, hooks, and guardrails
 
@@ -229,6 +229,62 @@ end
 
 Dynamic instructions resolve once per turn through Jido.AI's request
 transformer hook, using the current runtime context.
+
+## Characters
+
+Characters are structured persona inputs rendered into the effective system
+prompt before `defaults.instructions`. They shape voice, identity, knowledge,
+and behavioral style; they do not replace tools, memory, workflows, or
+handoffs.
+
+Compile-time character:
+
+```elixir
+defmodule MyApp.SupportAgent do
+  use Bagu.Agent
+
+  agent do
+    id :support_agent
+  end
+
+  defaults do
+    model :fast
+
+    character %{
+      name: "Support Advisor",
+      identity: %{role: "Billing support specialist"},
+      voice: %{tone: :professional, style: "Clear and direct"},
+      instructions: ["Stay within published policy."]
+    }
+
+    instructions "Answer with the relevant policy first."
+  end
+end
+```
+
+Runtime character override:
+
+```elixir
+Bagu.chat(pid, "Can I get a refund?",
+  character: %{
+    name: "Escalation Advisor",
+    voice: %{tone: :warm},
+    instructions: ["Be brief and empathetic."]
+  }
+)
+```
+
+Character sources can be:
+
+- an inline map
+- a rendered prompt string
+- a module implementing `Bagu.Character.render_character/1`
+- an MFA tuple like `{MyApp.Characters, :render, ["support"]}`
+- a `jido_character` module/map when that package is available
+
+The prompt order is character first, then `defaults.instructions`, then Bagu
+skill and memory sections. Per-request `character:` overrides the compile-time
+character for that turn.
 
 ## Define A Workflow
 
@@ -1184,6 +1240,8 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
 - `agent.context` as a plain default map
 - `defaults.model`
 - `defaults.instructions`
+- `defaults.character` as an inline character map or string ref resolved
+  through `available_characters`
 - published tool, skill, MCP, plugin, subagent, and workflow declarations under `capabilities`
 - memory, hook, and guardrail declarations under `lifecycle`
 - `model` supports:
@@ -1208,6 +1266,10 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
   - string names like `["refund_review"]`
   - objects like `%{"workflow" => "refund_review", "as" => "review_refund"}`
   - explicit resolution through `available_workflows: [MyApp.Workflows.RefundReview]`
+- `character` supports:
+  - inline character maps under `defaults.character`
+  - string refs like `"support_advisor"`
+  - explicit resolution through `available_characters: %{"support_advisor" => MyApp.Characters.SupportAdvisor}`
 - `hooks` supports:
   - a stage-keyed map like `%{"before_turn" => ["reply_with_final_answer"]}`
   - multiple names per stage
@@ -1223,7 +1285,8 @@ It also does not support dynamic `instructions` callbacks yet, because the
 constrained JSON/YAML format intentionally avoids executable Elixir references.
 Imported workflow capabilities are supported through `capabilities.workflows`,
 but workflow names must resolve through an explicit `available_workflows`
-registry.
+registry. Imported character refs must resolve through an explicit
+`available_characters` registry; inline character maps are portable.
 
 The top-level helpers are:
 
@@ -1238,13 +1301,15 @@ The top-level helpers are:
 - `Bagu.Agent` uses a very small Spark DSL and generates a nested runtime module.
 - Workflow capabilities let agents call deterministic Bagu workflows; raw Runic
   authoring remains internal.
+- Characters render structured persona data into the effective system prompt
+  before `defaults.instructions`.
 - `Bagu.Tool` is a thin wrapper over `Jido.Action`, but it restricts tool schemas to Zoi.
 - `Bagu.Plugin` is a thin wrapper over `Jido.Plugin` and currently focuses on contributing tools.
 - `Bagu.Hook` is a thin wrapper for turn-scoped hook modules and interrupt-aware callbacks.
 - `Bagu.Guardrail` is a thin wrapper for input/output/tool validation modules.
 - `Bagu.model/1` resolves Bagu-owned aliases first, then delegates to Jido.AI.
 - Dynamic imports use a hidden runtime module generated from a validated Zoi spec.
-- Imported tools, plugins, hooks, and guardrails are constrained to explicit allowlist registries.
+- Imported tools, characters, plugins, hooks, and guardrails are constrained to explicit allowlist registries.
 - Imported skills can resolve through `available_skills`, runtime `skill_paths`, or both.
 - The nested runtime module still uses `Jido.AI.Agent` underneath.
 - Internal beta development can use local `jido_runic` and `jido_eval` path

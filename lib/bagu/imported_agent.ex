@@ -11,6 +11,7 @@ defmodule Bagu.ImportedAgent do
 
   @enforce_keys [
     :spec,
+    :character_spec,
     :runtime_module,
     :tool_modules,
     :skill_refs,
@@ -23,6 +24,7 @@ defmodule Bagu.ImportedAgent do
   ]
   defstruct [
     :spec,
+    :character_spec,
     :runtime_module,
     :tool_modules,
     :skill_refs,
@@ -36,6 +38,7 @@ defmodule Bagu.ImportedAgent do
 
   @type t :: %__MODULE__{
           spec: struct(),
+          character_spec: Bagu.Character.spec(),
           runtime_module: module(),
           tool_modules: [module()],
           skill_refs: [term()],
@@ -100,6 +103,7 @@ defmodule Bagu.ImportedAgent do
     definition_map(
       agent.spec,
       agent.runtime_module,
+      agent.character_spec,
       agent.tool_modules,
       agent.skill_refs,
       agent.mcp_tools,
@@ -124,6 +128,7 @@ defmodule Bagu.ImportedAgent do
   defp build(
          %Spec{} = spec,
          tool_registry,
+         character_registry,
          skill_registry,
          subagent_registry,
          workflow_registry,
@@ -132,6 +137,7 @@ defmodule Bagu.ImportedAgent do
          guardrail_registry
        ) do
     with {:ok, direct_tool_modules} <- Bagu.Tool.resolve_tool_names(spec.tools, tool_registry),
+         {:ok, character_spec} <- resolve_character(spec.character, character_registry),
          {:ok, skill_refs} <- Registries.resolve_skills(spec.skills, skill_registry),
          {:ok, resolved_subagents} <-
            Registries.resolve_subagents(spec.subagents, subagent_registry),
@@ -168,6 +174,7 @@ defmodule Bagu.ImportedAgent do
          {:ok, runtime_module} <-
            ensure_runtime_module(
              spec,
+             character_spec,
              tool_modules,
              skill_refs,
              spec.mcp_tools,
@@ -180,6 +187,7 @@ defmodule Bagu.ImportedAgent do
       {:ok,
        %__MODULE__{
          spec: spec,
+         character_spec: character_spec,
          runtime_module: runtime_module,
          tool_modules: tool_modules,
          skill_refs: skill_refs,
@@ -210,6 +218,7 @@ defmodule Bagu.ImportedAgent do
 
   defp ensure_runtime_module(
          %Spec{} = spec,
+         character_spec,
          tool_modules,
          skill_refs,
          mcp_tools,
@@ -224,6 +233,7 @@ defmodule Bagu.ImportedAgent do
     runtime_module =
       generated_module(
         spec,
+        character_spec,
         tool_modules,
         skill_refs,
         mcp_tools,
@@ -240,6 +250,7 @@ defmodule Bagu.ImportedAgent do
       create_runtime_module(
         runtime_module,
         spec,
+        character_spec,
         tool_modules,
         skill_refs,
         mcp_tools,
@@ -255,6 +266,7 @@ defmodule Bagu.ImportedAgent do
 
   defp generated_module(
          %Spec{} = spec,
+         character_spec,
          tool_modules,
          skill_refs,
          mcp_tools,
@@ -267,6 +279,7 @@ defmodule Bagu.ImportedAgent do
     suffix =
       %{
         spec: Spec.to_external_map(spec),
+        character: inspect(character_spec),
         tools: Enum.map(tool_modules, &inspect/1),
         skills:
           Enum.map(skill_refs, fn
@@ -311,6 +324,7 @@ defmodule Bagu.ImportedAgent do
   defp create_runtime_module(
          runtime_module,
          %Spec{} = spec,
+         character_spec,
          tool_modules,
          skill_refs,
          mcp_tools,
@@ -324,13 +338,7 @@ defmodule Bagu.ImportedAgent do
     request_transformer_module = Module.concat(runtime_module, RequestTransformer)
     skill_config = %{refs: skill_refs, load_paths: spec.skill_paths}
 
-    effective_request_transformer =
-      if Bagu.Memory.requires_request_transformer?(spec.memory) or
-           Bagu.Skill.requires_request_transformer?(skill_config) do
-        request_transformer_module
-      else
-        nil
-      end
+    effective_request_transformer = request_transformer_module
 
     subagent_tool_modules =
       subagents
@@ -358,12 +366,14 @@ defmodule Bagu.ImportedAgent do
             @behaviour Jido.AI.Reasoning.ReAct.RequestTransformer
 
             @system_prompt_spec unquote(Macro.escape(spec.instructions))
+            @character_spec unquote(Macro.escape(character_spec))
             @skills_config unquote(Macro.escape(skill_config))
 
             @impl true
             def transform_request(request, state, config, runtime_context) do
               Bagu.Agent.RequestTransformer.transform_request(
                 @system_prompt_spec,
+                @character_spec,
                 @skills_config,
                 request,
                 state,
@@ -409,6 +419,7 @@ defmodule Bagu.ImportedAgent do
               definition_map(
                 spec,
                 runtime_module,
+                character_spec,
                 tool_modules,
                 skill_refs,
                 mcp_tools,
@@ -459,21 +470,26 @@ defmodule Bagu.ImportedAgent do
 
   defp runtime_plugins(plugin_modules, _memory_config), do: [Bagu.Plugins.RuntimeCompat | plugin_modules]
 
-  defp request_transformer(%Spec{} = spec, runtime_module) do
-    if Bagu.Memory.requires_request_transformer?(spec.memory) or
-         Bagu.Skill.requires_request_transformer?(%{
-           refs: spec.skills,
-           load_paths: spec.skill_paths
-         }) do
-      Module.concat(runtime_module, RequestTransformer)
-    else
-      nil
+  defp request_transformer(%Spec{}, runtime_module) do
+    Module.concat(runtime_module, RequestTransformer)
+  end
+
+  defp resolve_character(nil, _character_registry), do: {:ok, nil}
+
+  defp resolve_character(character, _character_registry) when is_map(character) do
+    Bagu.Character.normalize(nil, character, label: "character")
+  end
+
+  defp resolve_character(character, character_registry) when is_binary(character) do
+    with {:ok, source} <- Bagu.Character.resolve_character_name(character, character_registry) do
+      Bagu.Character.normalize(nil, source, label: "character #{inspect(character)}")
     end
   end
 
   defp definition_map(
          %Spec{} = spec,
          runtime_module,
+         character_spec,
          tool_modules,
          skill_refs,
          mcp_tools,
@@ -494,6 +510,8 @@ defmodule Bagu.ImportedAgent do
       name: spec.id,
       description: spec.description,
       instructions: spec.instructions,
+      character: spec.character,
+      character_spec: character_spec,
       request_transformer: request_transformer,
       configured_model: spec.model,
       model: Bagu.model(spec.model),
@@ -535,6 +553,7 @@ defmodule Bagu.ImportedAgent do
 
   defp build_from_source(source, %{
          tools: tool_registry,
+         characters: character_registry,
          skills: skill_registry,
          subagents: subagent_registry,
          workflows: workflow_registry,
@@ -545,6 +564,7 @@ defmodule Bagu.ImportedAgent do
     with {:ok, spec} <-
            Spec.new(source,
              available_tools: tool_registry,
+             available_characters: character_registry,
              available_skills: skill_registry,
              available_subagents: subagent_registry,
              available_workflows: workflow_registry,
@@ -555,6 +575,7 @@ defmodule Bagu.ImportedAgent do
       build(
         spec,
         tool_registry,
+        character_registry,
         skill_registry,
         subagent_registry,
         workflow_registry,

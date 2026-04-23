@@ -127,6 +127,7 @@ defmodule Bagu.ImportedAgent.Codec do
       indent_lines(encode_yaml_context(spec.context), 2),
       "defaults:",
       encode_yaml_model(spec.model),
+      encode_yaml_character(spec.character),
       "  instructions: |-",
       instructions_block,
       "capabilities:",
@@ -171,6 +172,23 @@ defmodule Bagu.ImportedAgent.Codec do
       |> Enum.map(fn {key, value} -> "    #{key}: #{Jason.encode!(value)}" end)
 
     Enum.join(["  model:" | lines], "\n")
+  end
+
+  defp encode_yaml_character(nil), do: nil
+
+  defp encode_yaml_character(character) when is_binary(character) do
+    "  character: #{Jason.encode!(character)}"
+  end
+
+  defp encode_yaml_character(%{} = character) do
+    rendered =
+      character
+      |> Ymlr.document!()
+      |> String.split("\n", trim: true)
+      |> Enum.reject(&(&1 == "---"))
+      |> Enum.join("\n")
+
+    "  character:\n" <> indent_lines(rendered, 2)
   end
 
   defp maybe_yaml_agent_description(nil), do: nil

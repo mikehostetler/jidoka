@@ -16,8 +16,10 @@ defmodule Bagu.Agent.Definition do
     configured_model = Spark.Dsl.Extension.get_opt(owner_module, [:defaults], :model, :fast)
     resolved_model = resolve_model!(owner_module, configured_model)
     configured_instructions = Spark.Dsl.Extension.get_opt(owner_module, [:defaults], :instructions)
+    configured_character = Spark.Dsl.Extension.get_opt(owner_module, [:defaults], :character)
 
     require_instructions!(owner_module, configured_instructions)
+    character_spec = resolve_character!(owner_module, configured_character)
 
     {runtime_system_prompt, dynamic_system_prompt} =
       case resolve_instructions!(owner_module, configured_instructions) do
@@ -154,15 +156,7 @@ defmodule Bagu.Agent.Definition do
     request_transformer_module = Module.concat(owner_module, RuntimeRequestTransformer)
 
     request_transformer_system_prompt = dynamic_system_prompt || runtime_system_prompt
-
-    effective_request_transformer =
-      if is_nil(dynamic_system_prompt) and
-           not Bagu.Memory.requires_request_transformer?(configured_memory) and
-           not Bagu.Skill.requires_request_transformer?(configured_skills) do
-        nil
-      else
-        request_transformer_module
-      end
+    effective_request_transformer = request_transformer_module
 
     ash_tool_config = ash_tool_config(ash_resource_info)
 
@@ -174,6 +168,8 @@ defmodule Bagu.Agent.Definition do
       name: id,
       description: description,
       instructions: configured_instructions,
+      character: configured_character,
+      character_spec: character_spec,
       request_transformer: effective_request_transformer,
       configured_model: configured_model,
       model: resolved_model,
@@ -210,6 +206,8 @@ defmodule Bagu.Agent.Definition do
       model: resolved_model,
       configured_model: configured_model,
       configured_instructions: configured_instructions,
+      configured_character: configured_character,
+      character_spec: character_spec,
       context_schema: configured_context_schema,
       context: configured_context,
       memory: configured_memory,
@@ -363,6 +361,24 @@ defmodule Bagu.Agent.Definition do
                 path: [:defaults, :instructions],
                 value: instructions,
                 hint: "Use a non-empty string, a module implementing `resolve_system_prompt/1`, or an MFA tuple.",
+                module: owner_module
+              )
+    end
+  end
+
+  defp resolve_character!(_owner_module, nil), do: nil
+
+  defp resolve_character!(owner_module, character) do
+    case Bagu.Character.normalize(owner_module, character, label: "character") do
+      {:ok, normalized} ->
+        normalized
+
+      {:error, message} ->
+        raise Bagu.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:defaults, :character],
+                value: character,
+                hint: "Use a renderable character map, string, module, MFA tuple, or `jido_character` module.",
                 module: owner_module
               )
     end

@@ -96,6 +96,14 @@ defmodule Bagu.Error.Normalize do
     )
   end
 
+  def chat_option_error({:invalid_character, message}, context) when is_binary(message) do
+    Error.validation_error(message,
+      field: :character,
+      value: detail(context, :value),
+      details: details(context, %{operation: :prepare_chat_opts, reason: :invalid_character, cause: message})
+    )
+  end
+
   def chat_option_error(reason, context),
     do:
       validation(

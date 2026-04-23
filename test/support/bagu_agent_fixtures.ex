@@ -82,6 +82,16 @@ defmodule BaguTest.PromptCallbacks do
   end
 end
 
+defmodule BaguTest.SupportCharacter do
+  @behaviour Bagu.Character
+
+  @impl true
+  def render_character(%{context: context}) do
+    tier = Map.get(context, :tier, Map.get(context, "tier", "standard"))
+    "Character\nName: Support Advisor\nTier: #{tier}"
+  end
+end
+
 defmodule BaguTest.ModulePromptAgent do
   use Bagu.Agent
 
@@ -105,6 +115,41 @@ defmodule BaguTest.MfaPromptAgent do
   defaults do
     model :fast
     instructions {BaguTest.PromptCallbacks, :build, ["Serve tenant"]}
+  end
+end
+
+defmodule BaguTest.CharacterAgent do
+  use Bagu.Agent
+
+  agent do
+    id :character_agent
+  end
+
+  defaults do
+    model :fast
+
+    character(%{
+      name: "Policy Advisor",
+      identity: %{role: "Support policy specialist"},
+      voice: %{tone: :professional, style: "Clear and direct"},
+      instructions: ["Stay within published policy."]
+    })
+
+    instructions "Answer with the support policy first."
+  end
+end
+
+defmodule BaguTest.ModuleCharacterAgent do
+  use Bagu.Agent
+
+  agent do
+    id :module_character_agent
+  end
+
+  defaults do
+    model :fast
+    character(BaguTest.SupportCharacter)
+    instructions "Adapt the response to the account tier."
   end
 end
 

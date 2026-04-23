@@ -58,12 +58,14 @@ defmodule Bagu.Agent.Codegen do
         @behaviour Jido.AI.Reasoning.ReAct.RequestTransformer
 
         @system_prompt_spec unquote(Macro.escape(definition.request_transformer_system_prompt))
+        @character_spec unquote(Macro.escape(definition.character_spec))
         @skills_config unquote(Macro.escape(definition.skills))
 
         @impl true
         def transform_request(request, state, config, runtime_context) do
           Bagu.Agent.RequestTransformer.transform_request(
             @system_prompt_spec,
+            @character_spec,
             @skills_config,
             request,
             state,
@@ -161,6 +163,12 @@ defmodule Bagu.Agent.Codegen do
       """
       @spec instructions() :: Bagu.Agent.SystemPrompt.spec()
       def instructions, do: unquote(Macro.escape(definition.configured_instructions))
+
+      @doc """
+      Returns the configured character source, if any.
+      """
+      @spec character() :: Bagu.Character.source() | nil
+      def character, do: unquote(Macro.escape(definition.configured_character))
 
       @doc false
       @spec request_transformer() :: module() | nil

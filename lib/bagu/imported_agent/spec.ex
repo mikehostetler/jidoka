@@ -15,6 +15,11 @@ defmodule Bagu.ImportedAgent.Spec do
     |> Zoi.max(50_000)
   ]
 
+  @character_name_schema Zoi.string()
+                         |> Zoi.trim()
+                         |> Zoi.min(1)
+                         |> Zoi.max(128)
+
   @tool_name_schema Zoi.string()
                     |> Zoi.trim()
                     |> Zoi.min(1)
@@ -296,7 +301,8 @@ defmodule Bagu.ImportedAgent.Spec do
   @defaults_schema Zoi.object(
                      %{
                        model: @model_schema |> Zoi.default("fast"),
-                       instructions: hd(@instructions_schema)
+                       instructions: hd(@instructions_schema),
+                       character: Zoi.union([@character_name_schema, Zoi.map()]) |> Zoi.optional()
                      },
                      coerce: true,
                      unrecognized_keys: :error
@@ -349,6 +355,7 @@ defmodule Bagu.ImportedAgent.Spec do
           id: String.t(),
           description: String.t() | nil,
           instructions: String.t(),
+          character: String.t() | map() | nil,
           model: model_input(),
           context: map(),
           memory: Bagu.Memory.config() | nil,
@@ -376,6 +383,7 @@ defmodule Bagu.ImportedAgent.Spec do
     :id,
     :description,
     :instructions,
+    :character,
     :model,
     context: %{},
     memory: @default_memory,
@@ -397,6 +405,7 @@ defmodule Bagu.ImportedAgent.Spec do
   def new(%__MODULE__{} = spec, opts) do
     with :ok <- validate_context(spec.context),
          {:ok, normalized_memory} <- Bagu.Memory.normalize_imported(spec.memory),
+         {:ok, _character_spec} <- validate_character(spec.character, Keyword.get(opts, :available_characters, %{})),
          {:ok, normalized_skills} <- Bagu.Skill.normalize_imported(spec.skills, spec.skill_paths),
          {:ok, normalized_mcp_tools} <- Bagu.MCP.normalize_imported(spec.mcp_tools),
          {:ok, spec} <- validate_tools(spec, Keyword.get(opts, :available_tools, %{})),
@@ -425,6 +434,7 @@ defmodule Bagu.ImportedAgent.Spec do
          :ok <- validate_model(normalized_model),
          :ok <- validate_context(spec.context),
          {:ok, normalized_memory} <- Bagu.Memory.normalize_imported(spec.memory),
+         {:ok, _character_spec} <- validate_character(spec.character, Keyword.get(opts, :available_characters, %{})),
          {:ok, normalized_skills} <- Bagu.Skill.normalize_imported(spec.skills, spec.skill_paths),
          {:ok, normalized_mcp_tools} <- Bagu.MCP.normalize_imported(spec.mcp_tools),
          {:ok, normalized_spec} <-
@@ -493,10 +503,14 @@ defmodule Bagu.ImportedAgent.Spec do
         }
         |> Enum.reject(fn {_key, value} -> is_nil(value) end)
         |> Map.new(),
-      "defaults" => %{
-        "model" => externalize_model(spec.model),
-        "instructions" => spec.instructions
-      },
+      "defaults" =>
+        %{
+          "model" => externalize_model(spec.model),
+          "instructions" => spec.instructions,
+          "character" => spec.character
+        }
+        |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+        |> Map.new(),
       "capabilities" => %{
         "tools" => spec.tools,
         "skills" => spec.skills,
@@ -533,6 +547,7 @@ defmodule Bagu.ImportedAgent.Spec do
       id: Map.fetch!(agent, :id),
       description: Map.get(agent, :description),
       instructions: Map.fetch!(defaults, :instructions),
+      character: Map.get(defaults, :character),
       model: Map.get(defaults, :model, "fast"),
       context: Map.get(agent, :context, %{}),
       memory: Map.get(lifecycle, :memory),
@@ -597,6 +612,28 @@ defmodule Bagu.ImportedAgent.Spec do
       :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
+  end
+
+  defp validate_character(nil, _available_characters), do: {:ok, nil}
+
+  defp validate_character(character, _available_characters) when is_map(character) do
+    Bagu.Character.normalize(nil, character, label: "character")
+  end
+
+  defp validate_character(character, available_characters) when is_binary(character) and is_map(available_characters) do
+    cond do
+      map_size(available_characters) == 0 ->
+        {:error, "character refs require an available_characters registry when importing Bagu agents"}
+
+      true ->
+        with {:ok, source} <- Bagu.Character.resolve_character_name(character, available_characters) do
+          Bagu.Character.normalize(nil, source, label: "character #{inspect(character)}")
+        end
+    end
+  end
+
+  defp validate_character(character, _available_characters) do
+    {:error, "character must be an inline map or a string ref, got: #{inspect(character)}"}
   end
 
   defp alias_atom(name) do

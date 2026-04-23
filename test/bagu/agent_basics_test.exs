@@ -2,6 +2,7 @@ defmodule BaguTest.AgentBasicsTest do
   use BaguTest.Support.Case, async: false
 
   alias BaguTest.{
+    CharacterAgent,
     ChatAgent,
     ContextAgent,
     InlineMapModelAgent,
@@ -12,9 +13,11 @@ defmodule BaguTest.AgentBasicsTest do
     RuntimeSkillAgent,
     SkillAgent,
     ModulePromptAgent,
+    ModuleCharacterAgent,
     PromptCallbacks,
     StringModelAgent,
     StructModelAgent,
+    SupportCharacter,
     TenantPrompt
   }
 
@@ -35,7 +38,8 @@ defmodule BaguTest.AgentBasicsTest do
 
   test "exposes the configured instructions" do
     assert ChatAgent.instructions() == "You are a concise assistant."
-    assert ChatAgent.request_transformer() == nil
+    assert ChatAgent.character() == nil
+    assert ChatAgent.request_transformer() == BaguTest.ChatAgent.RuntimeRequestTransformer
   end
 
   test "exposes the configured default context" do
@@ -139,6 +143,81 @@ defmodule BaguTest.AgentBasicsTest do
              %{role: :system, content: "Serve tenant beta."},
              %{role: :user, content: "hello"}
            ]
+  end
+
+  test "composes compile-time map characters before instructions" do
+    assert CharacterAgent.character().name == "Policy Advisor"
+    assert CharacterAgent.request_transformer() == BaguTest.CharacterAgent.RuntimeRequestTransformer
+
+    request = react_request([%{role: :user, content: "hello"}])
+    state = react_state()
+    config = react_config(CharacterAgent.request_transformer())
+
+    assert {:ok, %{messages: [%{role: :system, content: prompt}, %{role: :user, content: "hello"}]}} =
+             CharacterAgent.request_transformer().transform_request(request, state, config, %{})
+
+    assert prompt =~ "Character"
+    assert prompt =~ "Name: Policy Advisor"
+    assert prompt =~ "Role: Support policy specialist"
+    assert prompt =~ "Tone: professional"
+    assert prompt =~ "Stay within published policy."
+    assert prompt =~ "Answer with the support policy first."
+  end
+
+  test "composes compile-time module characters with runtime context" do
+    assert ModuleCharacterAgent.character() == SupportCharacter
+
+    request = react_request([%{role: :user, content: "hello"}])
+    state = react_state()
+    config = react_config(ModuleCharacterAgent.request_transformer())
+
+    assert {:ok, %{messages: [%{role: :system, content: prompt}, %{role: :user, content: "hello"}]}} =
+             ModuleCharacterAgent.request_transformer().transform_request(
+               request,
+               state,
+               config,
+               %{tier: "enterprise"}
+             )
+
+    assert prompt =~ "Name: Support Advisor"
+    assert prompt =~ "Tier: enterprise"
+    assert prompt =~ "Adapt the response to the account tier."
+  end
+
+  test "supports runtime character overrides in chat options" do
+    assert {:ok, opts} =
+             Bagu.Agent.prepare_chat_opts(
+               [
+                 character: %{
+                   name: "Runtime Advisor",
+                   voice: %{tone: :warm},
+                   instructions: ["Use runtime persona."]
+                 }
+               ],
+               %{context: %{}, context_schema: nil}
+             )
+
+    runtime_context = Keyword.fetch!(opts, :tool_context)
+
+    request = react_request([%{role: :user, content: "hello"}])
+    state = react_state()
+    config = react_config(ChatAgent.request_transformer())
+
+    assert {:ok, %{messages: [%{role: :system, content: prompt}, %{role: :user, content: "hello"}]}} =
+             ChatAgent.request_transformer().transform_request(request, state, config, runtime_context)
+
+    assert prompt =~ "Name: Runtime Advisor"
+    assert prompt =~ "Tone: warm"
+    assert prompt =~ "Use runtime persona."
+    assert prompt =~ "You are a concise assistant."
+  end
+
+  test "rejects invalid runtime characters" do
+    assert {:error, %Bagu.Error.ValidationError{} = error} =
+             Bagu.Agent.prepare_chat_opts([character: 42], nil)
+
+    assert error.field == :character
+    assert error.details.reason == :invalid_character
   end
 
   test "appends retrieved memory to the effective system prompt" do
