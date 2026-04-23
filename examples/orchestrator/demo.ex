@@ -1,7 +1,7 @@
-defmodule Moto.Examples.Orchestrator.Demo do
+defmodule Bagu.Examples.Orchestrator.Demo do
   @moduledoc false
 
-  alias Moto.Demo.{AgentSession, CLI, Debug, Inventory}
+  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory}
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -25,10 +25,10 @@ defmodule Moto.Examples.Orchestrator.Demo do
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Moto orchestrator demo", agent_module(), log_level,
+    Inventory.print_compiled("Bagu orchestrator demo", agent_module(), log_level,
       try: [
-        ~s(mix moto orchestrator -- "Use the research_agent specialist to explain vector databases."),
-        ~s(mix moto orchestrator -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now.")
+        ~s(mix bagu orchestrator -- "Use the research_agent specialist to explain vector databases."),
+        ~s(mix bagu orchestrator -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now.")
       ]
     )
   end
@@ -50,6 +50,6 @@ defmodule Moto.Examples.Orchestrator.Demo do
   end
 
   defp agent_module do
-    Module.concat([Moto, Examples, Orchestrator, Agents, ManagerAgent])
+    Module.concat([Bagu, Examples, Orchestrator, Agents, ManagerAgent])
   end
 end

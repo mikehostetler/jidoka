@@ -1,5 +1,5 @@
-defmodule Moto.Examples.KitchenSink.Prompts.DynamicPrompt do
-  @behaviour Moto.Agent.SystemPrompt
+defmodule Bagu.Examples.KitchenSink.Prompts.DynamicPrompt do
+  @behaviour Bagu.Agent.SystemPrompt
 
   @impl true
   def resolve_system_prompt(%{context: context}) do
@@ -8,7 +8,7 @@ defmodule Moto.Examples.KitchenSink.Prompts.DynamicPrompt do
 
     {:ok,
      """
-     You are the Moto kitchen sink showcase agent.
+     You are the Bagu kitchen sink showcase agent.
      You are serving tenant #{tenant} for actor #{inspect(actor)}.
      Prefer tools and specialists when they apply.
      Keep final replies concise and explain only the user-visible result.

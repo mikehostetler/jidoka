@@ -1,6 +1,6 @@
-# Moto Support Example
+# Bagu Support Example
 
-This example is for teasing apart the current Moto boundary between chat agents
+This example is for teasing apart the current Bagu boundary between chat agents
 and workflows.
 
 It intentionally keeps both surfaces visible:
@@ -9,7 +9,7 @@ It intentionally keeps both surfaces visible:
 - explicit workflows for fixed support processes
 
 The current example does **not** pretend that workflows are embedded inside the
-agent runtime. Instead it shows the honest shape Moto has today:
+agent runtime. Instead it shows the honest shape Bagu has today:
 
 - chat agent owns open-ended intake and delegation
 - workflows own deterministic support processes
@@ -48,18 +48,18 @@ before the LLM or any specialist subagent is called.
 Dry-run:
 
 ```bash
-mix moto support --log-level trace --dry-run
+mix bagu support --log-level trace --dry-run
 ```
 
 Chat path:
 
 ```bash
-mix moto support -- "Customer says order ord_damaged arrived broken and wants a refund."
+mix bagu support -- "Customer says order ord_damaged arrived broken and wants a refund."
 ```
 
 Workflow path:
 
 ```bash
-mix moto support -- "/refund acct_vip ord_damaged Damaged on arrival"
-mix moto support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
 ```

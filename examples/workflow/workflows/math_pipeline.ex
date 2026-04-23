@@ -1,9 +1,9 @@
-defmodule Moto.Examples.Workflow.Workflows.MathPipeline do
+defmodule Bagu.Examples.Workflow.Workflows.MathPipeline do
   @moduledoc false
 
-  use Moto.Workflow
+  use Bagu.Workflow
 
-  alias Moto.Examples.Workflow.Tools.{AddAmount, DoubleValue}
+  alias Bagu.Examples.Workflow.Tools.{AddAmount, DoubleValue}
 
   workflow do
     id :math_pipeline

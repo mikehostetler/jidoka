@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Support.Tools.ClassifyEscalation do
-  use Moto.Tool,
+defmodule Bagu.Examples.Support.Tools.ClassifyEscalation do
+  use Bagu.Tool,
     description: "Classifies a support issue into a deterministic escalation queue.",
     schema:
       Zoi.object(%{
@@ -7,7 +7,7 @@ defmodule Moto.Examples.Support.Tools.ClassifyEscalation do
         issue: Zoi.string()
       })
 
-  alias Moto.Examples.Support.SupportData
+  alias Bagu.Examples.Support.SupportData
 
   @impl true
   def run(%{customer: customer, issue: issue}, _context) do

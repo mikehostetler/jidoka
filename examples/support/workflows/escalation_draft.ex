@@ -1,11 +1,11 @@
-defmodule Moto.Examples.Support.Workflows.EscalationDraft do
+defmodule Bagu.Examples.Support.Workflows.EscalationDraft do
   @moduledoc false
 
-  use Moto.Workflow
+  use Bagu.Workflow
 
-  alias Moto.Examples.Support.Agents.WriterSpecialistAgent
-  alias Moto.Examples.Support.SupportFns
-  alias Moto.Examples.Support.Tools.{ClassifyEscalation, LoadCustomerProfile}
+  alias Bagu.Examples.Support.Agents.WriterSpecialistAgent
+  alias Bagu.Examples.Support.SupportFns
+  alias Bagu.Examples.Support.Tools.{ClassifyEscalation, LoadCustomerProfile}
 
   workflow do
     id :escalation_draft

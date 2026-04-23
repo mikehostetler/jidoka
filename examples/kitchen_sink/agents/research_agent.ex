@@ -1,5 +1,5 @@
-defmodule Moto.Examples.KitchenSink.Agents.ResearchAgent do
-  use Moto.Agent
+defmodule Bagu.Examples.KitchenSink.Agents.ResearchAgent do
+  use Bagu.Agent
 
   @context_fields %{
     tenant: Zoi.string() |> Zoi.optional(),
@@ -18,7 +18,7 @@ defmodule Moto.Examples.KitchenSink.Agents.ResearchAgent do
     model :fast
 
     instructions """
-    You are a research specialist used by the Moto kitchen sink showcase.
+    You are a research specialist used by the Bagu kitchen sink showcase.
     Return concise factual notes.
     Do not mention orchestration internals.
     """

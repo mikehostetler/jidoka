@@ -1,7 +1,7 @@
-defmodule Moto.Examples.Support.Demo do
+defmodule Bagu.Examples.Support.Demo do
   @moduledoc false
 
-  alias Moto.Demo.{AgentSession, CLI, Debug, Inventory, Markdown}
+  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory, Markdown}
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -114,24 +114,24 @@ defmodule Moto.Examples.Support.Demo do
         Markdown.print_reply("workflow", inspect(output))
 
       {:error, reason} ->
-        IO.puts("error> #{Moto.format_error(reason)}")
+        IO.puts("error> #{Bagu.format_error(reason)}")
     end
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Moto support demo", agent_module(), log_level,
+    Inventory.print_compiled("Bagu support demo", agent_module(), log_level,
       notice: "This example keeps the current boundary explicit: chat agents and workflows are adjacent entrypoints.",
       try: [
-        ~s(mix moto support -- "Customer says order ord_damaged arrived broken and wants a refund."),
-        ~s(mix moto support -- "/refund acct_vip ord_damaged Damaged on arrival"),
-        ~s(mix moto support -- "/escalate acct_trial Customer is locked out and threatening to cancel")
+        ~s(mix bagu support -- "Customer says order ord_damaged arrived broken and wants a refund."),
+        ~s(mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"),
+        ~s(mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel")
       ]
     )
 
     IO.puts("Deterministic workflows")
 
     Enum.each(workflow_summaries(), fn {purpose, module} ->
-      {:ok, inspection} = Moto.inspect_workflow(module)
+      {:ok, inspection} = Bagu.inspect_workflow(module)
       step_line = Enum.map_join(inspection.steps, " -> ", &format_step/1)
       IO.puts("  #{inspection.id}  #{purpose}")
       IO.puts("    steps: #{step_line}")
@@ -224,14 +224,14 @@ defmodule Moto.Examples.Support.Demo do
   defp workflow_requires_api_key?(module), do: module == escalation_workflow_module()
 
   defp agent_module do
-    Module.concat([Moto, Examples, Support, Agents, SupportRouterAgent])
+    Module.concat([Bagu, Examples, Support, Agents, SupportRouterAgent])
   end
 
   defp refund_workflow_module do
-    Module.concat([Moto, Examples, Support, Workflows, RefundReview])
+    Module.concat([Bagu, Examples, Support, Workflows, RefundReview])
   end
 
   defp escalation_workflow_module do
-    Module.concat([Moto, Examples, Support, Workflows, EscalationDraft])
+    Module.concat([Bagu, Examples, Support, Workflows, EscalationDraft])
   end
 end

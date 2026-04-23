@@ -1,4 +1,4 @@
-defmodule Moto.Examples.Support.SupportFns do
+defmodule Bagu.Examples.Support.SupportFns do
   @moduledoc false
 
   @spec finalize_refund_decision(map(), map()) :: map()

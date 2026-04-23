@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Chat.Agents.ChatAgent do
-  use Moto.Agent
+defmodule Bagu.Examples.Chat.Agents.ChatAgent do
+  use Bagu.Agent
 
   @context_fields %{
     tenant: Zoi.string() |> Zoi.default("demo"),
@@ -26,7 +26,7 @@ defmodule Moto.Examples.Chat.Agents.ChatAgent do
   capabilities do
     skill "math-discipline"
     load_path "../skills"
-    plugin Moto.Examples.Chat.Plugins.MathPlugin
+    plugin Bagu.Examples.Chat.Plugins.MathPlugin
   end
 
   lifecycle do
@@ -38,13 +38,13 @@ defmodule Moto.Examples.Chat.Agents.ChatAgent do
       inject :instructions
     end
 
-    before_turn Moto.Examples.Chat.Hooks.ReplyWithFinalAnswer
-    after_turn Moto.Examples.Chat.Hooks.TagAfterTurn
-    after_turn Moto.Examples.Chat.Hooks.RequireApprovalForRefunds
-    on_interrupt Moto.Examples.Chat.Hooks.NotifyInterrupt
+    before_turn Bagu.Examples.Chat.Hooks.ReplyWithFinalAnswer
+    after_turn Bagu.Examples.Chat.Hooks.TagAfterTurn
+    after_turn Bagu.Examples.Chat.Hooks.RequireApprovalForRefunds
+    on_interrupt Bagu.Examples.Chat.Hooks.NotifyInterrupt
 
-    input_guardrail Moto.Examples.Chat.Guardrails.BlockSecretPrompt
-    output_guardrail Moto.Examples.Chat.Guardrails.BlockUnsafeReply
-    tool_guardrail Moto.Examples.Chat.Guardrails.ApproveLargeMathTool
+    input_guardrail Bagu.Examples.Chat.Guardrails.BlockSecretPrompt
+    output_guardrail Bagu.Examples.Chat.Guardrails.BlockUnsafeReply
+    tool_guardrail Bagu.Examples.Chat.Guardrails.ApproveLargeMathTool
   end
 end

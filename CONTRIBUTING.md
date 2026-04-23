@@ -1,6 +1,6 @@
-# Contributing to Moto
+# Contributing to Bagu
 
-Moto is an experimental package built on top of Jido and Jido.AI. The current
+Bagu is an experimental package built on top of Jido and Jido.AI. The current
 goal is to find the smallest useful public API for common LLM agent patterns.
 
 ## Development
@@ -17,7 +17,7 @@ automation environments remain safe.
 
 ## Quality Bar
 
-Moto follows the Jido package quality standards:
+Bagu follows the Jido package quality standards:
 
 - use conventional commits
 - keep examples outside shipped library internals
@@ -37,4 +37,4 @@ Moto follows the Jido package quality standards:
 
 ## Release Status
 
-Moto is not released. Any API may change before the first Hex package.
+Bagu is not released. Any API may change before the first Hex package.

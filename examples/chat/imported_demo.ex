@@ -1,16 +1,16 @@
-defmodule Moto.Examples.Chat.ImportedDemo do
+defmodule Bagu.Examples.Chat.ImportedDemo do
   @moduledoc false
 
-  alias Moto.Demo.{AgentSession, CLI, Debug, Inventory}
+  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory}
 
-  alias Moto.Examples.Chat.Guardrails.{
+  alias Bagu.Examples.Chat.Guardrails.{
     ApproveLargeMathTool,
     BlockSecretPrompt,
     BlockUnsafeReply
   }
 
-  alias Moto.Examples.Chat.Hooks.ReplyWithFinalAnswer
-  alias Moto.Examples.Chat.Tools.AddNumbers
+  alias Bagu.Examples.Chat.Hooks.ReplyWithFinalAnswer
+  alias Bagu.Examples.Chat.Tools.AddNumbers
   require Logger
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -27,23 +27,23 @@ defmodule Moto.Examples.Chat.ImportedDemo do
     available_hooks = [ReplyWithFinalAnswer]
     available_guardrails = [BlockSecretPrompt, BlockUnsafeReply, ApproveLargeMathTool]
     available_skills = []
-    {:ok, tool_registry} = Moto.Tool.normalize_available_tools(available_tools)
-    {:ok, hook_registry} = Moto.Hook.normalize_available_hooks(available_hooks)
+    {:ok, tool_registry} = Bagu.Tool.normalize_available_tools(available_tools)
+    {:ok, hook_registry} = Bagu.Hook.normalize_available_hooks(available_hooks)
 
     {:ok, guardrail_registry} =
-      Moto.Guardrail.normalize_available_guardrails(available_guardrails)
+      Bagu.Guardrail.normalize_available_guardrails(available_guardrails)
 
     Logger.configure(level: :error)
 
     agent =
-      Moto.import_agent_file!(spec_path,
+      Bagu.import_agent_file!(spec_path,
         available_tools: available_tools,
         available_skills: available_skills,
         available_hooks: available_hooks,
         available_guardrails: available_guardrails
       )
 
-    Inventory.print_imported("Moto imported-agent demo", agent, log_level,
+    Inventory.print_imported("Bagu imported-agent demo", agent, log_level,
       source: spec_path,
       registries: %{
         tools: Map.keys(tool_registry),
@@ -52,8 +52,8 @@ defmodule Moto.Examples.Chat.ImportedDemo do
         guardrails: Map.keys(guardrail_registry)
       },
       try: [
-        ~s(mix moto imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."),
-        ~s(mix moto imported --log-level trace -- "Use the add_numbers tool to add 8 and 13.")
+        ~s(mix bagu imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."),
+        ~s(mix bagu imported --log-level trace -- "Use the add_numbers tool to add 8 and 13.")
       ]
     )
 
@@ -62,7 +62,7 @@ defmodule Moto.Examples.Chat.ImportedDemo do
     CLI.with_started_agent(
       options,
       log_level,
-      fn -> Moto.start_agent(agent, id: "imported-script-chat-agent") end,
+      fn -> Bagu.start_agent(agent, id: "imported-script-chat-agent") end,
       fn pid, level -> AgentSession.interactive_loop(pid, level, session_opts()) end,
       fn pid, prompt, level -> AgentSession.one_shot(pid, prompt, level, session_opts()) end
     )
@@ -81,7 +81,7 @@ defmodule Moto.Examples.Chat.ImportedDemo do
       chat: fn pid, prompt, level, mode ->
         session = if mode == :interactive, do: "imported-interactive", else: "imported-cli"
 
-        Moto.chat(pid, prompt,
+        Bagu.chat(pid, prompt,
           context: %{"session" => session, "notify_pid" => self()},
           log_level: Debug.request_log_level(level)
         )

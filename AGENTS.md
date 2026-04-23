@@ -1,23 +1,23 @@
-# AGENTS.md - Moto Package Guide
+# AGENTS.md - Bagu Package Guide
 
 ## Intent
 
-This directory contains the `moto` Elixir package.
+This directory contains the `bagu` Elixir package.
 
-`moto` is a thin, opinionated layer over Jido and Jido.AI for building
+`bagu` is a thin, opinionated harness over Jido and Jido.AI for building
 developer-friendly LLM agents with a narrow public API.
 
 The package currently has two public authoring paths:
 
-- the compile-time Elixir DSL via `use Moto.Agent`
+- the compile-time Elixir DSL via `use Bagu.Agent`
 - the runtime import path for constrained JSON/YAML agent specs
 
-Both paths describe the same conceptual Moto agent.
+Both paths describe the same conceptual Bagu agent.
 
 ## Working Rules
 
 - Prefer changes in this package over changes in vendored dependencies.
-- Keep the public Moto API small, explicit, and biased toward common agent use
+- Keep the public Bagu API small, explicit, and biased toward common agent use
   cases.
 - Hide low-level Jido/Jido.AI concepts by default unless there is a clear DX
   reason to expose them.
@@ -26,12 +26,12 @@ Both paths describe the same conceptual Moto agent.
 
 ## Parity Rule
 
-Imported agents are not a side path. They are a first-class Moto surface.
+Imported agents are not a side path. They are a first-class Bagu surface.
 
-When adding a new public Moto agent feature, evaluate both authoring paths at
+When adding a new public Bagu agent feature, evaluate both authoring paths at
 the same time:
 
-- `Moto.Agent` should gain the feature in the Elixir DSL when appropriate.
+- `Bagu.Agent` should gain the feature in the Elixir DSL when appropriate.
 - imported JSON/YAML agents should gain the same feature when it can be
   represented safely in the constrained spec format.
 - if the imported-agent path cannot support the feature yet, document that gap
@@ -45,14 +45,13 @@ accidental divergence.
 
 Right now the shared public agent shape is intentionally minimal:
 
-- `name`
-- `model`
-- `system_prompt`
-- `context`
-- `tools`
-- `plugins`
-- `hooks`
-- `guardrails`
+- `agent.id`
+- optional `agent.description`
+- optional compiled context `schema`
+- `defaults.instructions`
+- optional `defaults.model`
+- `capabilities`
+- `lifecycle`
 
 The Elixir DSL may expose richer compile-time ergonomics, but the imported
 agent format should stay aligned on capability as features are added.
@@ -68,6 +67,5 @@ Run package commands from this directory:
 
 ## References
 
-- [/Users/mhostetler/Source/Moto/AGENTS.md](/Users/mhostetler/Source/Moto/AGENTS.md:1)
-- [README.md](/Users/mhostetler/Source/Moto/moto/README.md:1)
-- [TODO.md](/Users/mhostetler/Source/Moto/moto/TODO.md:1)
+- `README.md`
+- `TODO.md`

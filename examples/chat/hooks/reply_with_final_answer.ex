@@ -1,8 +1,8 @@
-defmodule Moto.Examples.Chat.Hooks.ReplyWithFinalAnswer do
-  use Moto.Hook, name: "reply_with_final_answer"
+defmodule Bagu.Examples.Chat.Hooks.ReplyWithFinalAnswer do
+  use Bagu.Hook, name: "reply_with_final_answer"
 
   @impl true
-  def call(%Moto.Hooks.BeforeTurn{} = input) do
+  def call(%Bagu.Hooks.BeforeTurn{} = input) do
     tenant = Map.get(input.context, :tenant, Map.get(input.context, "tenant"))
 
     tenant_instruction =

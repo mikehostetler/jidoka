@@ -1,0 +1,181 @@
+defmodule BaguTest.Workflow.AddAmount do
+  @moduledoc false
+
+  use Bagu.Tool,
+    name: "workflow_add_amount",
+    description: "Adds a fixed amount to a workflow value.",
+    schema:
+      Zoi.object(%{
+        value: Zoi.integer(),
+        amount: Zoi.integer() |> Zoi.default(1)
+      })
+
+  @impl true
+  def run(%{value: value, amount: amount}, _context) do
+    {:ok, %{value: value + amount}}
+  end
+end
+
+defmodule BaguTest.Workflow.DoubleValue do
+  @moduledoc false
+
+  use Bagu.Tool,
+    name: "workflow_double_value",
+    description: "Doubles a workflow value.",
+    schema: Zoi.object(%{value: Zoi.integer()})
+
+  @impl true
+  def run(%{value: value}, _context) do
+    {:ok, %{value: value * 2}}
+  end
+end
+
+defmodule BaguTest.Workflow.Fail do
+  @moduledoc false
+
+  use Bagu.Tool,
+    name: "workflow_fail",
+    description: "Fails with a caller-provided reason.",
+    schema: Zoi.object(%{reason: Zoi.string()})
+
+  @impl true
+  def run(%{reason: reason}, _context) do
+    {:error, reason}
+  end
+end
+
+defmodule BaguTest.Workflow.Fns do
+  @moduledoc false
+
+  def normalize(%{topic: topic, suffix: suffix}, _context) do
+    {:ok, %{prompt: "#{topic}:#{suffix}"}}
+  end
+
+  def build_prompt(%{topic: topic}, _context) do
+    {:ok, %{prompt: "draft #{topic}"}}
+  end
+end
+
+defmodule BaguTest.Workflow.EchoAgent do
+  @moduledoc false
+
+  defmodule Runtime do
+    @moduledoc false
+
+    use Jido.Agent,
+      name: "workflow_echo_agent_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def start_link(opts \\ []), do: Bagu.start_agent(Runtime, opts)
+
+  def chat(_pid, message, opts \\ []) do
+    context = Keyword.get(opts, :context, %{})
+    topic = Map.get(context, :topic, Map.get(context, "topic", "none"))
+    {:ok, "echo:#{message}:topic=#{topic}"}
+  end
+end
+
+defmodule BaguTest.Workflow.ToolOnlyWorkflow do
+  @moduledoc false
+
+  use Bagu.Workflow
+
+  alias BaguTest.Workflow.{AddAmount, DoubleValue}
+
+  workflow do
+    id :tool_only_workflow
+    description("Adds and doubles a value.")
+    input Zoi.object(%{value: Zoi.integer()})
+  end
+
+  steps do
+    tool :add, AddAmount,
+      input: %{
+        value: input(:value),
+        amount: value(1)
+      }
+
+    tool :double, DoubleValue, input: from(:add)
+  end
+
+  output from(:double)
+end
+
+defmodule BaguTest.Workflow.FunctionWorkflow do
+  @moduledoc false
+
+  use Bagu.Workflow
+
+  workflow do
+    id :function_workflow
+    input Zoi.object(%{topic: Zoi.string()})
+  end
+
+  steps do
+    function :normalize, {BaguTest.Workflow.Fns, :normalize, 2},
+      input: %{
+        topic: input(:topic),
+        suffix: context(:suffix)
+      }
+  end
+
+  output from(:normalize, :prompt)
+end
+
+defmodule BaguTest.Workflow.AgentWorkflow do
+  @moduledoc false
+
+  use Bagu.Workflow
+
+  workflow do
+    id :agent_workflow
+    input Zoi.object(%{topic: Zoi.string()})
+  end
+
+  steps do
+    function :build_prompt, {BaguTest.Workflow.Fns, :build_prompt, 2}, input: %{topic: input(:topic)}
+
+    agent :draft, BaguTest.Workflow.EchoAgent,
+      prompt: from(:build_prompt, :prompt),
+      context: %{topic: input(:topic)}
+  end
+
+  output from(:draft)
+end
+
+defmodule BaguTest.Workflow.ImportedAgentWorkflow do
+  @moduledoc false
+
+  use Bagu.Workflow
+
+  workflow do
+    id :imported_agent_workflow
+    input Zoi.object(%{topic: Zoi.string()})
+  end
+
+  steps do
+    agent :review, {:imported, :reviewer},
+      prompt: value("review draft"),
+      context: %{topic: input(:topic)}
+  end
+
+  output from(:review)
+end
+
+defmodule BaguTest.Workflow.FailingWorkflow do
+  @moduledoc false
+
+  use Bagu.Workflow
+
+  workflow do
+    id :failing_workflow
+    input Zoi.object(%{reason: Zoi.string()})
+  end
+
+  steps do
+    tool :fail, BaguTest.Workflow.Fail, input: %{reason: input(:reason)}
+  end
+
+  output from(:fail)
+end

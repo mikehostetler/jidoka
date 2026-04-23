@@ -1,5 +1,5 @@
-defmodule Moto.Examples.KitchenSink.Tools.AddNumbers do
-  use Moto.Tool,
+defmodule Bagu.Examples.KitchenSink.Tools.AddNumbers do
+  use Bagu.Tool,
     description: "Adds two integers together.",
     schema: Zoi.object(%{a: Zoi.integer(), b: Zoi.integer()})
 

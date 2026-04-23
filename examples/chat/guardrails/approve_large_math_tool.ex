@@ -1,10 +1,10 @@
-defmodule Moto.Examples.Chat.Guardrails.ApproveLargeMathTool do
-  use Moto.Guardrail, name: "approve_large_math_tool"
+defmodule Bagu.Examples.Chat.Guardrails.ApproveLargeMathTool do
+  use Bagu.Guardrail, name: "approve_large_math_tool"
 
   @threshold 100
 
   @impl true
-  def call(%Moto.Guardrails.Tool{tool_name: "add_numbers", arguments: arguments, context: context}) do
+  def call(%Bagu.Guardrails.Tool{tool_name: "add_numbers", arguments: arguments, context: context}) do
     a = Map.get(arguments, :a, Map.get(arguments, "a", 0))
     b = Map.get(arguments, :b, Map.get(arguments, "b", 0))
 
@@ -23,5 +23,5 @@ defmodule Moto.Examples.Chat.Guardrails.ApproveLargeMathTool do
     end
   end
 
-  def call(%Moto.Guardrails.Tool{}), do: :ok
+  def call(%Bagu.Guardrails.Tool{}), do: :ok
 end

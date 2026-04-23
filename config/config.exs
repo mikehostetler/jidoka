@@ -1,6 +1,6 @@
 import Config
 
-config :moto,
+config :bagu,
   model_aliases: %{
     fast: "anthropic:claude-haiku-4-5"
   }
@@ -20,11 +20,11 @@ config :jido_mcp, :endpoints,
          args: [
            "-c",
            "exec npx -y @modelcontextprotocol/server-filesystem \"$1\" 2>/dev/null",
-           "moto-fs-mcp",
+           "bagu-fs-mcp",
            mcp_sandbox
          ]
        ]},
-    client_info: %{name: "moto-demo", version: "0.1.0"},
+    client_info: %{name: "bagu-demo", version: "0.1.0"},
     timeouts: %{request_ms: 60_000}
   }
 

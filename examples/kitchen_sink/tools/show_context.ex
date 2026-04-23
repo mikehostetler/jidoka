@@ -1,11 +1,11 @@
-defmodule Moto.Examples.KitchenSink.Tools.ShowContext do
-  use Moto.Tool,
+defmodule Bagu.Examples.KitchenSink.Tools.ShowContext do
+  use Bagu.Tool,
     description: "Summarizes the public runtime context keys visible to tools.",
     schema: Zoi.object(%{})
 
   @impl true
   def run(_params, context) do
-    public_context = Moto.Context.sanitize_for_subagent(context)
+    public_context = Bagu.Context.sanitize_for_subagent(context)
 
     {:ok,
      %{

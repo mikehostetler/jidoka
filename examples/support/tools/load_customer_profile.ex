@@ -1,9 +1,9 @@
-defmodule Moto.Examples.Support.Tools.LoadCustomerProfile do
-  use Moto.Tool,
+defmodule Bagu.Examples.Support.Tools.LoadCustomerProfile do
+  use Bagu.Tool,
     description: "Loads a deterministic support customer profile.",
     schema: Zoi.object(%{account_id: Zoi.string()})
 
-  alias Moto.Examples.Support.SupportData
+  alias Bagu.Examples.Support.SupportData
 
   @impl true
   def run(%{account_id: account_id}, _context) do

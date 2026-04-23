@@ -1,10 +1,10 @@
-# Moto
+# Bagu
 
-Minimal layer over Jido and Jido.AI for defining and starting chat agents.
+Minimal harness layer over Jido and Jido.AI for defining and starting chat agents.
 
 ## Status
 
-`moto` is currently an experimental spike only.
+`bagu` is currently an experimental spike only.
 
 It is a design/prototyping repo, not a stable package. The API is expected to
 change, large parts may be rewritten, and the repository may disappear entirely
@@ -16,58 +16,58 @@ declared in separate sections.
 
 ## Installation
 
-Moto is not published to Hex yet. For local spike work, use the repository
+Bagu is not published to Hex yet. For local spike work, use the repository
 directly:
 
 ```elixir
 def deps do
   [
-    {:moto, git: "https://github.com/mikehostetler/moto.git", branch: "main"}
+    {:bagu, git: "https://github.com/mikehostetler/bagu.git", branch: "main"}
   ]
 end
 ```
 
-When Moto is published, this section will be replaced with the Hex dependency
+When Bagu is published, this section will be replaced with the Hex dependency
 and any Igniter installer instructions.
 
 ## Overview
 
-Moto currently gives you a narrow, developer-friendly way to build chat-style
+Bagu currently gives you a narrow, developer-friendly way to build chat-style
 LLM agents on top of Jido and Jido.AI.
 
-Today, Moto can:
+Today, Bagu can:
 
-- define agents with a small Spark DSL via `use Moto.Agent`
+- define agents with a small Spark DSL via `use Bagu.Agent`
 - configure agent `id`, runtime context `schema`, runtime `defaults`,
   `capabilities`, and `lifecycle`
-- resolve models through Moto-owned aliases like `:fast`, direct model strings,
+- resolve models through Bagu-owned aliases like `:fast`, direct model strings,
   inline maps, and `%LLMDB.Model{}`
 - support static or dynamic instructions through strings, module callbacks,
   and MFA tuples
-- define tools with `use Moto.Tool` as a thin, Zoi-only wrapper over `Jido.Action`
+- define tools with `use Bagu.Tool` as a thin, Zoi-only wrapper over `Jido.Action`
 - compose prompt-level agent skills from Jido.AI skills, including runtime
   `SKILL.md` files
 - sync remote MCP tool catalogs into an agent with `mcp_tools`
 - attach tools directly or expose all generated `AshJido` actions for an Ash
   resource with `ash_resource`
-- define plugins with `use Moto.Plugin` and let them contribute tools into the
+- define plugins with `use Bagu.Plugin` and let them contribute tools into the
   agent's visible tool registry
-- define reusable `Moto.Hook` modules and attach them as default turn hooks or
+- define reusable `Bagu.Hook` modules and attach them as default turn hooks or
   per-request overrides
-- define reusable `Moto.Guardrail` modules and attach them as default
+- define reusable `Bagu.Guardrail` modules and attach them as default
   input/output/tool validation stages or per-request overrides
 - enable conversation-first memory with bounded retrieval and opt-in
   auto-capture on top of `jido_memory`
 - start many runtime instances from the same agent module under the shared
-  `Moto.Runtime`
-- define explicit deterministic workflows with `use Moto.Workflow`, backed by
+  `Bagu.Runtime`
+- define explicit deterministic workflows with `use Bagu.Workflow`, backed by
   `jido_runic`, for multi-step tool/function/agent pipelines
 - import constrained agents from JSON or YAML at runtime with explicit
   allowlists for tools, plugins, hooks, and guardrails, including default
   imported context and memory settings
 - run local demo scripts that exercise full LLM + tool-call loops
 
-Moto is intentionally opinionated. It keeps the public surface focused on
+Bagu is intentionally opinionated. It keeps the public surface focused on
 common agent authoring and hides most low-level Jido runtime machinery by
 default.
 
@@ -81,10 +81,10 @@ export ANTHROPIC_API_KEY=sk-ant-...
 
 Or copy `.env.example` to `.env` and fill in the key.
 
-`moto` uses `dotenvy` in `config/runtime.exs` to load `.env` automatically at
+`bagu` uses `dotenvy` in `config/runtime.exs` to load `.env` automatically at
 runtime. Shell environment variables still win over `.env` values.
 
-`moto` owns its model aliases under `config :moto, :model_aliases`.
+`bagu` owns its model aliases under `config :bagu, :model_aliases`.
 By default, `:fast` maps to `anthropic:claude-haiku-4-5`.
 
 For package development:
@@ -99,7 +99,7 @@ mix quality
 warnings, Credo, Dialyzer, and documentation coverage.
 
 Coverage is enforced with ExCoveralls at the current spike baseline of 70%.
-The Jido package target is 90%; Moto should raise this before any stable
+The Jido package target is 90%; Bagu should raise this before any stable
 release instead of pretending the spike is already there.
 
 The generated runtime currently uses:
@@ -112,14 +112,14 @@ The generated runtime currently uses:
 
 Model configuration lives in:
 
-- `config/config.exs` maps `:fast` under `config :moto, :model_aliases`
+- `config/config.exs` maps `:fast` under `config :bagu, :model_aliases`
 - `config/runtime.exs` loads `.env` and configures `:req_llm`
 
 ## Define An Agent
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :chat_agent
@@ -155,7 +155,7 @@ Example with all three:
 
 ```elixir
 defmodule MyApp.SupportAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :support_agent
@@ -178,7 +178,7 @@ Module-based dynamic prompt:
 
 ```elixir
 defmodule MyApp.SupportPrompt do
-  @behaviour Moto.Agent.SystemPrompt
+  @behaviour Bagu.Agent.SystemPrompt
 
   @impl true
   def resolve_system_prompt(%{context: context}) do
@@ -188,7 +188,7 @@ defmodule MyApp.SupportPrompt do
 end
 
 defmodule MyApp.SupportAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :support_agent
@@ -212,7 +212,7 @@ defmodule MyApp.SupportPrompts do
 end
 
 defmodule MyApp.SupportAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :support_agent
@@ -237,7 +237,7 @@ turn; workflows coordinate app-owned steps.
 
 ```elixir
 defmodule MyApp.Workflows.MathPipeline do
-  use Moto.Workflow
+  use Bagu.Workflow
 
   workflow do
     id :math_pipeline
@@ -270,7 +270,7 @@ Run a workflow through either API:
 {:ok, output} = MyApp.Workflows.MathPipeline.run(%{value: 5})
 
 {:ok, debug} =
-  Moto.Workflow.run(MyApp.Workflows.MathPipeline, %{value: 5},
+  Bagu.Workflow.run(MyApp.Workflows.MathPipeline, %{value: 5},
     agents: %{reviewer: reviewer_agent},
     return: :debug
   )
@@ -283,7 +283,7 @@ Workflow refs are explicit:
 - `context(:key)` reads runtime side-band context from `opts[:context]`.
 - `value(term)` marks a static value.
 
-`Moto.inspect_workflow/1` returns a stable definition map with step
+`Bagu.inspect_workflow/1` returns a stable definition map with step
 dependencies and the internal `jido_runic` graph data.
 
 ## Default Context
@@ -292,7 +292,7 @@ Agents can define a runtime context schema directly in the `agent` block:
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :chat_agent
@@ -321,7 +321,7 @@ remain available as agent defaults:
 
 ```elixir
 defmodule MyApp.BillingAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :billing_agent
@@ -341,10 +341,10 @@ end
 MyApp.BillingAgent.context()
 #=> %{tenant: "demo"}
 
-{:error, %Moto.Error.ValidationError{} = reason} =
+{:error, %Bagu.Error.ValidationError{} = reason} =
   MyApp.BillingAgent.chat(pid, "Show my invoice.")
 
-Moto.format_error(reason)
+Bagu.format_error(reason)
 #=> "Invalid context:\n- account_id: is required"
 
 {:ok, reply} =
@@ -355,10 +355,10 @@ Moto.format_error(reason)
 
 ## Runtime Errors
 
-Moto runtime APIs return structured Moto/Splode errors:
+Bagu runtime APIs return structured Bagu/Splode errors:
 
 ```elixir
-case Moto.chat("missing-agent", "Hello") do
+case Bagu.chat("missing-agent", "Hello") do
   {:ok, reply} ->
     reply
 
@@ -366,27 +366,27 @@ case Moto.chat("missing-agent", "Hello") do
     interrupt
 
   {:error, reason} ->
-    Moto.format_error(reason)
+    Bagu.format_error(reason)
 end
 ```
 
 Common runtime failures use one of:
 
-- `%Moto.Error.ValidationError{}` for invalid inputs or missing runtime data
-- `%Moto.Error.ConfigError{}` for invalid runtime configuration
-- `%Moto.Error.ExecutionError{}` for failed tools, workflows, memory, MCP,
+- `%Bagu.Error.ValidationError{}` for invalid inputs or missing runtime data
+- `%Bagu.Error.ConfigError{}` for invalid runtime configuration
+- `%Bagu.Error.ExecutionError{}` for failed tools, workflows, memory, MCP,
   hooks, guardrails, or subagents
 
 Original low-level causes are preserved in `reason.details.cause` for debugging.
 
 ## Memory
 
-Moto memory is conversation-first and opt-in. It is implemented on top of
-`jido_memory`, but Moto keeps the public surface narrow:
+Bagu memory is conversation-first and opt-in. It is implemented on top of
+`jido_memory`, but Bagu keeps the public surface narrow:
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :chat_agent
@@ -436,7 +436,7 @@ Memory is opt-in:
 
 ```elixir
 defmodule MyApp.Tools.AddNumbers do
-  use Moto.Tool,
+  use Bagu.Tool,
     description: "Adds two integers together.",
     schema: Zoi.object(%{a: Zoi.integer(), b: Zoi.integer()})
 
@@ -447,18 +447,18 @@ defmodule MyApp.Tools.AddNumbers do
 end
 ```
 
-`Moto.Tool` is a thin wrapper over `Jido.Action`. It defaults the published
+`Bagu.Tool` is a thin wrapper over `Jido.Action`. It defaults the published
 tool name from the module name and keeps the runtime contract as a plain Jido
 action module.
 
-Moto tools are Zoi-only for `schema` and `output_schema`. NimbleOptions and raw
-JSON Schema maps are intentionally not supported through the Moto API.
+Bagu tools are Zoi-only for `schema` and `output_schema`. NimbleOptions and raw
+JSON Schema maps are intentionally not supported through the Bagu API.
 
 ## Attach Tools To An Agent
 
 ```elixir
 defmodule MyApp.MathAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :math_agent
@@ -479,7 +479,7 @@ You can also expose all generated `AshJido` actions for a resource:
 
 ```elixir
 defmodule MyApp.UserAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :user_agent
@@ -496,7 +496,7 @@ defmodule MyApp.UserAgent do
 end
 ```
 
-For `ash_resource` tools, Moto will:
+For `ash_resource` tools, Bagu will:
 
 - expand the resource into its generated `AshJido` action modules
 - inject the resource's Ash domain into the agent runtime context
@@ -513,7 +513,7 @@ Example:
 
 ## Attach Skills To An Agent
 
-Moto skills are built on top of `Jido.AI.Skill`.
+Bagu skills are built on top of `Jido.AI.Skill`.
 
 You can attach:
 
@@ -522,7 +522,7 @@ You can attach:
 
 ```elixir
 defmodule MyApp.MathAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :math_agent
@@ -540,7 +540,7 @@ defmodule MyApp.MathAgent do
 end
 ```
 
-Moto uses skills in two ways:
+Bagu uses skills in two ways:
 
 - renders skill prompt text into the effective system prompt
 - narrows the visible tool set when the skill declares `allowed-tools`
@@ -550,13 +550,13 @@ Module-based skills can also contribute action-backed tools through their
 
 ## Sync MCP Tools
 
-Moto treats MCP servers as a first-class tool source. Tools can be synced from
+Bagu treats MCP servers as a first-class tool source. Tools can be synced from
 configured `jido_mcp` endpoints, runtime-registered endpoints, or inline
 compiled-agent endpoint definitions:
 
 ```elixir
 defmodule MyApp.GitHubAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :github_agent
@@ -578,7 +578,7 @@ application code instead of static config:
 
 ```elixir
 {:ok, _endpoint} =
-  Moto.MCP.register_endpoint(:workspace_fs,
+  Bagu.MCP.register_endpoint(:workspace_fs,
     transport:
       {:stdio,
        [
@@ -589,7 +589,7 @@ application code instead of static config:
   )
 ```
 
-Compiled agents can also declare an inline endpoint. Moto registers it
+Compiled agents can also declare an inline endpoint. Bagu registers it
 idempotently before the first turn and syncs the tools before the model runs:
 
 ```elixir
@@ -606,11 +606,11 @@ capabilities do
 end
 ```
 
-Moto keeps MCP narrow in this first pass:
+Bagu keeps MCP narrow in this first pass:
 
 - MCP is treated as another tool source
 - tools are synced before the model turn runs
-- Moto does not currently expose raw MCP resources or prompts
+- Bagu does not currently expose raw MCP resources or prompts
 - imported JSON/YAML specs reference endpoint names only; executable transport
   configuration stays in code or application config
 
@@ -618,24 +618,24 @@ Moto keeps MCP narrow in this first pass:
 
 ```elixir
 defmodule MyApp.Plugins.Math do
-  use Moto.Plugin,
+  use Bagu.Plugin,
     description: "Provides extra math tools.",
     tools: [MyApp.Tools.MultiplyNumbers]
 end
 ```
 
-`Moto.Plugin` is a thin wrapper over `Jido.Plugin`. In this first pass, the
-Moto-facing plugin contract is intentionally small:
+`Bagu.Plugin` is a thin wrapper over `Jido.Plugin`. In this first pass, the
+Bagu-facing plugin contract is intentionally small:
 
 - publish a stable plugin name
 - register action-backed tools
-- let Moto merge those tools into the agent's LLM-visible tool registry
+- let Bagu merge those tools into the agent's LLM-visible tool registry
 
 ## Attach Plugins To An Agent
 
 ```elixir
 defmodule MyApp.MathAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :math_agent
@@ -660,32 +660,32 @@ the underlying Jido.AI runtime just like tools registered directly in the
 
 ```elixir
 defmodule MyApp.Hooks.ReplyWithFinalAnswer do
-  use Moto.Hook, name: "reply_with_final_answer"
+  use Bagu.Hook, name: "reply_with_final_answer"
 
   @impl true
-  def call(%Moto.Hooks.BeforeTurn{} = input) do
+  def call(%Bagu.Hooks.BeforeTurn{} = input) do
     {:ok, %{message: "#{input.message}\n\nReply with only the final answer."}}
   end
 end
 ```
 
-`Moto.Hook` is a thin wrapper for turn-scoped callouts. A hook publishes a
+`Bagu.Hook` is a thin wrapper for turn-scoped callouts. A hook publishes a
 stable name and exposes a single `call/1` callback.
 
-Moto currently supports three hook stages:
+Bagu currently supports three hook stages:
 
 - `before_turn`
 - `after_turn`
 - `on_interrupt`
 
-DSL hooks accept Moto hook modules or MFA tuples. Request-scoped `chat/3`
+DSL hooks accept Bagu hook modules or MFA tuples. Request-scoped `chat/3`
 hooks also accept anonymous arity-1 functions.
 
 ## Attach Hooks To An Agent
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :chat_agent
@@ -705,7 +705,7 @@ defmodule MyApp.ChatAgent do
 end
 ```
 
-Multiple hooks are allowed per stage. Moto stores them stage-by-stage and runs:
+Multiple hooks are allowed per stage. Bagu stores them stage-by-stage and runs:
 
 - `before_turn` hooks in declaration order
 - `after_turn` hooks in reverse order
@@ -722,10 +722,10 @@ Generated agents expose:
 
 ```elixir
 defmodule MyApp.Guardrails.SafePrompt do
-  use Moto.Guardrail, name: "safe_prompt"
+  use Bagu.Guardrail, name: "safe_prompt"
 
   @impl true
-  def call(%Moto.Guardrails.Input{message: message}) do
+  def call(%Bagu.Guardrails.Input{message: message}) do
     if String.contains?(String.downcase(message), "secret") do
       {:error, :unsafe_prompt}
     else
@@ -735,10 +735,10 @@ defmodule MyApp.Guardrails.SafePrompt do
 end
 ```
 
-`Moto.Guardrail` is a thin wrapper for validation-only turn boundaries. A
+`Bagu.Guardrail` is a thin wrapper for validation-only turn boundaries. A
 guardrail publishes a stable name and exposes a single `call/1` callback.
 
-Moto currently supports three guardrail stages:
+Bagu currently supports three guardrail stages:
 
 - `input`
 - `output`
@@ -756,7 +756,7 @@ Hooks remain the place for rewrites and enrichment.
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Moto.Agent
+  use Bagu.Agent
 
   agent do
     id :chat_agent
@@ -775,7 +775,7 @@ defmodule MyApp.ChatAgent do
 end
 ```
 
-Multiple guardrails are allowed per stage. Moto runs them in declaration order
+Multiple guardrails are allowed per stage. Bagu runs them in declaration order
 and short-circuits on the first block or interrupt.
 
 Generated agents expose:
@@ -794,7 +794,7 @@ do not control tool exposure and do not inspect tool results in v1.
 You can also pass hooks directly to `chat/3`:
 
 ```elixir
-runtime_before_turn = fn %Moto.Hooks.BeforeTurn{} = input ->
+runtime_before_turn = fn %Bagu.Hooks.BeforeTurn{} = input ->
   {:ok, %{context: Map.put(input.context, :tenant, "acme")}}
 end
 
@@ -813,10 +813,10 @@ end
 ```
 
 `chat/3` hook overrides append to the agent's default DSL hooks for that turn.
-If a hook interrupts the turn, Moto returns:
+If a hook interrupts the turn, Bagu returns:
 
 ```elixir
-{:interrupt, %Moto.Interrupt{}}
+{:interrupt, %Bagu.Interrupt{}}
 ```
 
 ## Per-Turn Guardrail Overrides
@@ -824,7 +824,7 @@ If a hook interrupts the turn, Moto returns:
 You can also pass guardrails directly to `chat/3`:
 
 ```elixir
-runtime_input_guardrail = fn %Moto.Guardrails.Input{} = input ->
+runtime_input_guardrail = fn %Bagu.Guardrails.Input{} = input ->
   if Map.get(input.context, :tenant) == "blocked" do
     {:error, :blocked_tenant}
   else
@@ -847,23 +847,23 @@ end
 ```
 
 `chat/3` guardrail overrides append to the agent's default DSL guardrails for
-that turn. When a guardrail blocks, Moto returns:
+that turn. When a guardrail blocks, Bagu returns:
 
 ```elixir
-{:error, %Moto.Error.ExecutionError{} = reason}
-Moto.format_error(reason)
+{:error, %Bagu.Error.ExecutionError{} = reason}
+Bagu.format_error(reason)
 #=> "Guardrail safe_prompt blocked input."
 ```
 
-When a guardrail interrupts, Moto returns:
+When a guardrail interrupts, Bagu returns:
 
 ```elixir
-{:interrupt, %Moto.Interrupt{}}
+{:interrupt, %Bagu.Interrupt{}}
 ```
 
 ## Runtime Context
 
-Moto uses `context:` as the public name for request-scoped runtime data.
+Bagu uses `context:` as the public name for request-scoped runtime data.
 
 ```elixir
 {:ok, pid} = MyApp.ChatAgent.start_link(id: "chat-1")
@@ -886,7 +886,7 @@ over it.
 - distinct from internal agent state
 - distinct from model-visible conversation context
 
-Moto does not automatically inject `context` into prompts or messages. If you
+Bagu does not automatically inject `context` into prompts or messages. If you
 want the model to see part of it, project it explicitly through a hook, tool,
 or dynamic instructions.
 
@@ -897,17 +897,17 @@ or dynamic instructions.
 {:ok, reply} = MyApp.ChatAgent.chat(pid, "Write a one-line haiku about Elixir.")
 ```
 
-Or through the top-level Moto runtime facade:
+Or through the top-level Bagu runtime facade:
 
 ```elixir
 {:ok, pid} = MyApp.ChatAgent.start_link(id: "chat-1")
-{:ok, reply} = Moto.chat(pid, "Write a one-line haiku about Elixir.")
+{:ok, reply} = Bagu.chat(pid, "Write a one-line haiku about Elixir.")
 ```
 
 Or use the shared runtime facade directly:
 
 ```elixir
-{:ok, pid} = Moto.start_agent(MyApp.ChatAgent.runtime_module(), id: "chat-2")
+{:ok, pid} = Bagu.start_agent(MyApp.ChatAgent.runtime_module(), id: "chat-2")
 {:ok, reply} = MyApp.ChatAgent.chat(pid, "Say hello.")
 ```
 
@@ -930,10 +930,10 @@ end
 
 `target` can be `:ephemeral`, `{:peer, "running-agent-id"}`, or
 `{:peer, {:context, :agent_id_key}}`. Persistent peers must already be running;
-Moto does not auto-start them.
+Bagu does not auto-start them.
 
 `forward_context` controls what public runtime context reaches the child:
-`:public`, `:none`, `{:only, keys}`, or `{:except, keys}`. Moto internal keys
+`:public`, `:none`, `{:only, keys}`, or `{:except, keys}`. Bagu internal keys
 and `memory` are never forwarded.
 
 `result: :text` returns `%{result: child_text}` to the parent model.
@@ -944,7 +944,7 @@ The runnable orchestrator example shows:
 
 - a compiled manager agent
 - a compiled `research_agent` subagent using `timeout`, `forward_context`, and `result: :structured`
-- an imported JSON `writer_specialist` subagent using `Moto.ImportedAgent.Subagent`
+- an imported JSON `writer_specialist` subagent using `Bagu.ImportedAgent.Subagent`
 
 The imported manager reference spec at
 `examples/orchestrator/imported/sample_manager_agent.json` shows the equivalent
@@ -955,7 +955,7 @@ JSON `subagents` shape.
 Interactive:
 
 ```bash
-mix moto chat
+mix bagu chat
 ```
 
 This starts the demo agent in a simple REPL immediately. Type `exit` to quit.
@@ -965,17 +965,17 @@ full config and event detail.
 One-shot:
 
 ```bash
-mix moto chat -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
-mix moto chat --log-level debug -- "Remember that my favorite color is blue."
-mix moto chat --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix bagu chat -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix bagu chat --log-level debug -- "Remember that my favorite color is blue."
+mix bagu chat --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
 ```
 
 Imported JSON agent:
 
 ```bash
-mix moto imported
-mix moto imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
-mix moto imported --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix bagu imported
+mix bagu imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix bagu imported --log-level trace -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
 ```
 
 The sample imported agent spec lives at `examples/chat/imported/sample_math_agent.json`.
@@ -983,9 +983,9 @@ The sample imported agent spec lives at `examples/chat/imported/sample_math_agen
 Orchestrator demo:
 
 ```bash
-mix moto orchestrator
-mix moto orchestrator -- "Use the research_agent specialist to explain vector databases."
-mix moto orchestrator --log-level trace -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now."
+mix bagu orchestrator
+mix bagu orchestrator -- "Use the research_agent specialist to explain vector databases."
+mix bagu orchestrator --log-level trace -- "Use the writer_specialist specialist to rewrite this copy: our setup is easier now."
 ```
 
 Use `--log-level trace` to see subagent config and delegation metadata.
@@ -993,10 +993,10 @@ Use `--log-level trace` to see subagent config and delegation metadata.
 Support example:
 
 ```bash
-mix moto support --log-level trace --dry-run
-mix moto support -- "Customer says order ord_damaged arrived broken and wants a refund."
-mix moto support -- "/refund acct_vip ord_damaged Damaged on arrival"
-mix moto support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+mix bagu support --log-level trace --dry-run
+mix bagu support -- "Customer says order ord_damaged arrived broken and wants a refund."
+mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
 ```
 
 This example keeps the current boundary explicit: the chat agent owns open-ended
@@ -1007,8 +1007,8 @@ workflow step.
 Kitchen sink showcase:
 
 ```bash
-mix moto kitchen_sink --log-level trace --dry-run
-mix moto kitchen_sink -- "Use the research_agent specialist to explain embeddings."
+mix bagu kitchen_sink --log-level trace --dry-run
+mix bagu kitchen_sink -- "Use the research_agent specialist to explain embeddings."
 ```
 
 The kitchen sink demo intentionally combines schema, dynamic prompts, tools,
@@ -1016,12 +1016,12 @@ Ash resource expansion, skills, MCP tool sync, plugins, hooks, guardrails,
 memory, compiled subagents, and imported JSON subagents in one place. It is a
 showcase, not the recommended starting point.
 
-The example source modules live under `examples/`. `mix moto` is the canonical
+The example source modules live under `examples/`. `mix bagu` is the canonical
 entrypoint for running them.
 
 ## Live Agent Evals
 
-Moto includes a tagged live eval suite for the support example. These tests use
+Bagu includes a tagged live eval suite for the support example. These tests use
 real provider calls and are excluded from normal `mix test` runs.
 
 ```bash
@@ -1029,30 +1029,30 @@ ANTHROPIC_API_KEY=... mix test --include llm_eval test/evals/support_agent_eval_
 ```
 
 The support evals use the local `jido_eval` checkout as the dataset/result
-harness, then run custom Moto metrics for specialist routing and LLM-judged
+harness, then run custom Bagu metrics for specialist routing and LLM-judged
 support quality. If the tag is included without a real key, the suite fails
 clearly instead of skipping.
 
 ## Inspection
 
-Moto exposes a small inspection surface for definitions and runs:
+Bagu exposes a small inspection surface for definitions and runs:
 
 ```elixir
-{:ok, definition} = Moto.inspect_agent(MyApp.ChatAgent)
-{:ok, imported} = Moto.inspect_agent(imported_agent)
-{:ok, running} = Moto.inspect_agent(pid)
+{:ok, definition} = Bagu.inspect_agent(MyApp.ChatAgent)
+{:ok, imported} = Bagu.inspect_agent(imported_agent)
+{:ok, running} = Bagu.inspect_agent(pid)
 
-{:ok, latest_request} = Moto.inspect_request(pid)
-{:ok, specific_request} = Moto.inspect_request(pid, "req-123")
+{:ok, latest_request} = Bagu.inspect_request(pid)
+{:ok, specific_request} = Bagu.inspect_request(pid, "req-123")
 ```
 
-Compiled Moto agents publish `__moto__/0` internally, and generated runtime
-modules publish `__moto_definition__/0`, but `Moto.inspect_agent/1` is the
+Compiled Bagu agents publish `__bagu__/0` internally, and generated runtime
+modules publish `__bagu_definition__/0`, but `Bagu.inspect_agent/1` is the
 public entrypoint.
 
 ## Imported Agents
 
-Moto also supports a constrained runtime import path for the same minimal agent
+Bagu also supports a constrained runtime import path for the same minimal agent
 shape.
 
 JSON:
@@ -1090,7 +1090,7 @@ json = ~S"""
 """
 
 {:ok, agent} =
-  Moto.import_agent(
+  Bagu.import_agent(
     json,
     available_plugins: [MyApp.Plugins.Math],
     available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer],
@@ -1101,8 +1101,8 @@ json = ~S"""
     ]
   )
 
-{:ok, pid} = Moto.start_agent(agent, id: "json-agent")
-{:ok, reply} = Moto.chat(pid, "Say hello.")
+{:ok, pid} = Bagu.start_agent(agent, id: "json-agent")
+{:ok, reply} = Bagu.chat(pid, "Say hello.")
 ```
 
 YAML:
@@ -1140,7 +1140,7 @@ lifecycle:
       - "approve_refund_tool"
 """
 
-{:ok, agent} = Moto.import_agent(yaml,
+{:ok, agent} = Bagu.import_agent(yaml,
   format: :yaml,
   available_plugins: [MyApp.Plugins.Math],
   available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer],
@@ -1177,7 +1177,7 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
   - runtime path loading through `skill_paths`
 - `mcp_tools` supports:
   - objects like `%{"endpoint" => "github", "prefix" => "github_"}`
-  - endpoints may come from app config or runtime `Moto.MCP.register_endpoint/2`
+  - endpoints may come from app config or runtime `Bagu.MCP.register_endpoint/2`
 - `hooks` supports:
   - a stage-keyed map like `%{"before_turn" => ["reply_with_final_answer"]}`
   - multiple names per stage
@@ -1194,20 +1194,20 @@ constrained JSON/YAML format intentionally avoids executable Elixir references.
 
 The top-level helpers are:
 
-- `Moto.import_agent/2`
-- `Moto.import_agent_file/2`
-- `Moto.encode_agent/2`
-- `Moto.chat/3`
+- `Bagu.import_agent/2`
+- `Bagu.import_agent_file/2`
+- `Bagu.encode_agent/2`
+- `Bagu.chat/3`
 
 ## Notes
 
-- The shared runtime lives in `Moto.Runtime` and is started by the application supervisor.
-- `Moto.Agent` uses a very small Spark DSL and generates a nested runtime module.
-- `Moto.Tool` is a thin wrapper over `Jido.Action`, but it restricts tool schemas to Zoi.
-- `Moto.Plugin` is a thin wrapper over `Jido.Plugin` and currently focuses on contributing tools.
-- `Moto.Hook` is a thin wrapper for turn-scoped hook modules and interrupt-aware callbacks.
-- `Moto.Guardrail` is a thin wrapper for input/output/tool validation modules.
-- `Moto.model/1` resolves Moto-owned aliases first, then delegates to Jido.AI.
+- The shared runtime lives in `Bagu.Runtime` and is started by the application supervisor.
+- `Bagu.Agent` uses a very small Spark DSL and generates a nested runtime module.
+- `Bagu.Tool` is a thin wrapper over `Jido.Action`, but it restricts tool schemas to Zoi.
+- `Bagu.Plugin` is a thin wrapper over `Jido.Plugin` and currently focuses on contributing tools.
+- `Bagu.Hook` is a thin wrapper for turn-scoped hook modules and interrupt-aware callbacks.
+- `Bagu.Guardrail` is a thin wrapper for input/output/tool validation modules.
+- `Bagu.model/1` resolves Bagu-owned aliases first, then delegates to Jido.AI.
 - Dynamic imports use a hidden runtime module generated from a validated Zoi spec.
 - Imported tools, plugins, hooks, and guardrails are constrained to explicit allowlist registries.
 - Imported skills can resolve through `available_skills`, runtime `skill_paths`, or both.

@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Orchestrator.Agents.ResearchAgent do
-  use Moto.Agent
+defmodule Bagu.Examples.Orchestrator.Agents.ResearchAgent do
+  use Bagu.Agent
 
   @context_fields %{
     specialty: Zoi.string() |> Zoi.default("research"),

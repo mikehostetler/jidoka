@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Support.Agents.SupportRouterAgent do
-  use Moto.Agent
+defmodule Bagu.Examples.Support.Agents.SupportRouterAgent do
+  use Bagu.Agent
 
   @context_fields %{
     channel: Zoi.string() |> Zoi.default("support_chat"),
@@ -29,23 +29,23 @@ defmodule Moto.Examples.Support.Agents.SupportRouterAgent do
   end
 
   capabilities do
-    subagent Moto.Examples.Support.Agents.BillingSpecialistAgent,
+    subagent Bagu.Examples.Support.Agents.BillingSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id, :order_id]},
       result: :structured
 
-    subagent Moto.Examples.Support.Agents.OperationsSpecialistAgent,
+    subagent Bagu.Examples.Support.Agents.OperationsSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id, :order_id]},
       result: :structured
 
-    subagent Moto.Examples.Support.Agents.WriterSpecialistAgent,
+    subagent Bagu.Examples.Support.Agents.WriterSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id]},
       result: :text
   end
 
   lifecycle do
-    input_guardrail Moto.Examples.Support.Guardrails.SensitiveDataGuardrail
+    input_guardrail Bagu.Examples.Support.Guardrails.SensitiveDataGuardrail
   end
 end

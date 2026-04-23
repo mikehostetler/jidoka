@@ -1,5 +1,5 @@
-defmodule MotoTest.Support.AshResourceAgent do
-  use Moto.Agent
+defmodule BaguTest.Support.AshResourceAgent do
+  use Bagu.Agent
 
   agent do
     id :ash_resource_agent
@@ -11,6 +11,6 @@ defmodule MotoTest.Support.AshResourceAgent do
   end
 
   capabilities do
-    ash_resource MotoTest.Support.User
+    ash_resource BaguTest.Support.User
   end
 end

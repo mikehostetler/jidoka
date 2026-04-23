@@ -1,10 +1,10 @@
-defmodule Moto.Examples.Support.Workflows.RefundReview do
+defmodule Bagu.Examples.Support.Workflows.RefundReview do
   @moduledoc false
 
-  use Moto.Workflow
+  use Bagu.Workflow
 
-  alias Moto.Examples.Support.SupportFns
-  alias Moto.Examples.Support.Tools.{EvaluateRefundPolicy, LoadCustomerProfile, LoadOrder}
+  alias Bagu.Examples.Support.SupportFns
+  alias Bagu.Examples.Support.Tools.{EvaluateRefundPolicy, LoadCustomerProfile, LoadOrder}
 
   workflow do
     id :refund_review

@@ -1,7 +1,7 @@
-defmodule Moto.Examples.Workflow.Tools.AddAmount do
+defmodule Bagu.Examples.Workflow.Tools.AddAmount do
   @moduledoc false
 
-  use Moto.Tool,
+  use Bagu.Tool,
     name: "workflow_demo_add_amount",
     description: "Adds a fixed amount to a value.",
     schema:

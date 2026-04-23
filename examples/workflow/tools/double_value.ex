@@ -1,7 +1,7 @@
-defmodule Moto.Examples.Workflow.Tools.DoubleValue do
+defmodule Bagu.Examples.Workflow.Tools.DoubleValue do
   @moduledoc false
 
-  use Moto.Tool,
+  use Bagu.Tool,
     name: "workflow_demo_double_value",
     description: "Doubles a value.",
     schema: Zoi.object(%{value: Zoi.integer()})

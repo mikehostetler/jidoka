@@ -1,4 +1,4 @@
-defmodule Moto.Examples.Support.SupportData do
+defmodule Bagu.Examples.Support.SupportData do
   @moduledoc false
 
   @spec customer_profile(String.t()) :: map()

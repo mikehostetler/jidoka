@@ -1,21 +1,21 @@
-# Moto Project Review
+# Bagu Project Review
 
 Date: 2026-04-21
 
 Baseline commit: `9b9db9a test: add live filesystem mcp coverage`
 
-Dependency check: Moto now compiles and passes tests against Hex `jido 2.2.0`
+Dependency check: Bagu now compiles and passes tests against Hex `jido 2.2.0`
 and Hex `jido_ai 2.1.0`. `ash_jido` is sourced from GitHub rather than the
 local reference checkout.
 
 ## Executive Summary
 
-Moto has crossed from concept spike into a coherent first-pass package. The
+Bagu has crossed from concept spike into a coherent first-pass package. The
 current codebase supports the main agent authoring path we set out to prove:
 compiled Spark DSL agents, imported JSON/YAML agents, tools, skills, MCP tool
 sync, plugins, hooks, guardrails, context, memory, subagents, and inspection.
 
-The most important conclusion is that Moto should not broaden again yet. The
+The most important conclusion is that Bagu should not broaden again yet. The
 right next phase is runtime polish and hardening around the current surface. The
 core concepts are present, but several are still first-pass integrations that
 need simpler edges, better failure modes, and clearer docs before the package
@@ -33,17 +33,17 @@ The current baseline is clean and testable.
 | Jido dependency source | Hex `jido 2.2.0` with override |
 | Jido.AI dependency source | Hex `jido_ai 2.1.0` with override |
 | Ash Jido dependency source | GitHub `agentjido/ash_jido` |
-| Live MCP coverage | filesystem MCP server syncs tools into a running Moto agent |
+| Live MCP coverage | filesystem MCP server syncs tools into a running Bagu agent |
 
 ## TODO Alignment
 
-The high-level checklist in `TODO.md` is accurate. Moto has a real first-pass
+The high-level checklist in `TODO.md` is accurate. Bagu has a real first-pass
 implementation for every item currently marked as complete.
 
 | TODO Item | Status | Review |
 | --- | --- | --- |
 | `model` | Implemented | Model aliases and Jido.AI resolution are working. |
-| `tools` | Implemented | `Moto.Tool` provides a narrow wrapper over `Jido.Action`. |
+| `tools` | Implemented | `Bagu.Tool` provides a narrow wrapper over `Jido.Action`. |
 | `plugins` | Implemented | Plugins are first-class and can contribute tools. |
 | `dynamic system_prompt` | Implemented | String, module, and MFA paths are supported. |
 | `hooks` | Implemented | DSL defaults and per-turn overrides are supported. |
@@ -59,7 +59,7 @@ implementation for every item currently marked as complete.
 
 ## What Is Strong
 
-Moto now has a clear public mental model. The package feels like an agent
+Bagu now has a clear public mental model. The package feels like an agent
 authoring layer instead of a thin collection of helper functions.
 
 The strongest design choices are:
@@ -70,7 +70,7 @@ The strongest design choices are:
 - Subagents use the manager pattern first, which avoids premature workflow or swarm complexity.
 - Imported agents are constrained by explicit registries, which is safer than arbitrary runtime code in JSON/YAML.
 - MCP is currently scoped as another tool source, which is the right first MCP layer.
-- The debug story is now Moto-shaped instead of raw Jido log spam.
+- The debug story is now Bagu-shaped instead of raw Jido log spam.
 
 ## Current Risks
 
@@ -78,18 +78,18 @@ The main risks are not missing features. They are boundary clarity and runtime r
 
 ### Dependency Boundary
 
-Moto now depends on Hex releases for `jido` and `jido_ai`. This is healthier
+Bagu now depends on Hex releases for `jido` and `jido_ai`. This is healthier
 than the local vendored dependency baseline and should remain the default.
 
 `ash_jido` is sourced from GitHub because there is no Hex package available.
 `jido_mcp` and `jido_memory` are also git dependencies. `jido_memory` currently
 declares older Jido/Jido.AI constraints (`jido ~> 2.0.0-rc.5` and
-`jido_ai == 2.0.0-rc.0`), so Moto still needs direct `jido` and `jido_ai`
+`jido_ai == 2.0.0-rc.0`), so Bagu still needs direct `jido` and `jido_ai`
 overrides to keep the graph on current Hex Jido releases.
 
 ### MCP Sync Boundary
 
-Moto owns `Moto.MCP.Sync` as the default sync adapter and exposes `Moto.MCP` as
+Bagu owns `Bagu.MCP.Sync` as the default sync adapter and exposes `Bagu.MCP` as
 the public facade for configured, runtime-registered, and inline MCP endpoints.
 The adapter remains necessary because real MCP servers commonly publish JSON
 Schemas containing metadata such as `$schema`, `$id`, and `format`, while the
@@ -115,7 +115,7 @@ clear failure shapes.
 
 ### Feature Surface Density
 
-Moto now has many first-pass concepts. That is acceptable for a spike, but entry
+Bagu now has many first-pass concepts. That is acceptable for a spike, but entry
 level Elixir developers need strong bumpers. Docs and examples need to keep
 showing the simplest path first.
 
@@ -126,12 +126,12 @@ The next phase should remain `runtime polish`.
 1. Reconcile dependency patches.
 
 Keep `jido` and `jido_ai` on Hex releases. Move any required `jido_mcp` and
-`jido_memory` compatibility fixes upstream, then reduce Moto-owned shims where
+`jido_memory` compatibility fixes upstream, then reduce Bagu-owned shims where
 possible.
 
 2. Harden MCP as a client/tool source.
 
-Keep the scope narrow: configured MCP endpoints sync tools into Moto agents.
+Keep the scope narrow: configured MCP endpoints sync tools into Bagu agents.
 Add better errors for missing endpoint config, server startup failure, schema
 rejection, and partial registration.
 
@@ -143,7 +143,7 @@ inspection metadata.
 
 4. Improve observability without adding concepts.
 
-Keep improving `Moto.inspect_agent/1`, `Moto.inspect_request/1`, and `mix moto
+Keep improving `Bagu.inspect_agent/1`, `Bagu.inspect_request/1`, and `mix bagu
 --log-level`. Avoid introducing raw telemetry or signal concepts into the public
 surface unless there is a very clear developer-facing story.
 
@@ -182,7 +182,7 @@ Suggested categories:
 
 These should remain out of scope until the current runtime is more boring:
 
-- Moto as an MCP server
+- Bagu as an MCP server
 - Workflow graphs
 - Handoffs
 - Peer mesh or swarm orchestration
@@ -194,7 +194,7 @@ These should remain out of scope until the current runtime is more boring:
 
 ## Baseline Assessment
 
-Moto is ready for a serious baseline review. It is not ready to be treated as a
+Bagu is ready for a serious baseline review. It is not ready to be treated as a
 stable package. The spike has proven the core design direction: a narrow,
 developer-friendly agent DSL can sit on top of Jido/Jido.AI without exposing most
 of the low-level runtime machinery.

@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Support.Guardrails.SensitiveDataGuardrail do
-  use Moto.Guardrail, name: "support_sensitive_data"
+defmodule Bagu.Examples.Support.Guardrails.SensitiveDataGuardrail do
+  use Bagu.Guardrail, name: "support_sensitive_data"
 
   @sensitive_terms [
     "api key",
@@ -32,7 +32,7 @@ defmodule Moto.Examples.Support.Guardrails.SensitiveDataGuardrail do
   ]
 
   @impl true
-  def call(%Moto.Guardrails.Input{message: message}) when is_binary(message) do
+  def call(%Bagu.Guardrails.Input{message: message}) when is_binary(message) do
     normalized = String.downcase(message)
 
     if unsafe_request?(normalized) do
@@ -42,7 +42,7 @@ defmodule Moto.Examples.Support.Guardrails.SensitiveDataGuardrail do
     end
   end
 
-  def call(%Moto.Guardrails.Input{}), do: :ok
+  def call(%Bagu.Guardrails.Input{}), do: :ok
 
   defp unsafe_request?(message) do
     contains_any?(message, @bypass_phrases) or

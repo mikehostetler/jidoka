@@ -1,14 +1,14 @@
-defmodule MotoTest.Support.Accounts do
+defmodule BaguTest.Support.Accounts do
   use Ash.Domain, validate_config_inclusion?: false
 
   resources do
-    resource(MotoTest.Support.User)
+    resource(BaguTest.Support.User)
   end
 end
 
-defmodule MotoTest.Support.User do
+defmodule BaguTest.Support.User do
   use Ash.Resource,
-    domain: MotoTest.Support.Accounts,
+    domain: BaguTest.Support.Accounts,
     extensions: [AshJido],
     validate_domain_inclusion?: false
 

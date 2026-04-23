@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Support.Agents.BillingSpecialistAgent do
-  use Moto.Agent
+defmodule Bagu.Examples.Support.Agents.BillingSpecialistAgent do
+  use Bagu.Agent
 
   @context_fields %{
     channel: Zoi.string() |> Zoi.default("support_chat"),

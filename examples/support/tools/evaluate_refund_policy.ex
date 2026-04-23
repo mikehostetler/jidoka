@@ -1,5 +1,5 @@
-defmodule Moto.Examples.Support.Tools.EvaluateRefundPolicy do
-  use Moto.Tool,
+defmodule Bagu.Examples.Support.Tools.EvaluateRefundPolicy do
+  use Bagu.Tool,
     description: "Applies a deterministic refund policy to a support case.",
     schema:
       Zoi.object(%{
@@ -8,7 +8,7 @@ defmodule Moto.Examples.Support.Tools.EvaluateRefundPolicy do
         reason: Zoi.string()
       })
 
-  alias Moto.Examples.Support.SupportData
+  alias Bagu.Examples.Support.SupportData
 
   @impl true
   def run(%{customer: customer, order: order, reason: reason}, _context) do

@@ -1,7 +1,7 @@
-defmodule Moto.Examples.Workflow.Demo do
+defmodule Bagu.Examples.Workflow.Demo do
   @moduledoc false
 
-  alias Moto.Demo.CLI
+  alias Bagu.Demo.CLI
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -26,7 +26,7 @@ defmodule Moto.Examples.Workflow.Demo do
           IO.puts("workflow> steps=#{inspect(debug.steps)}")
 
         {:error, reason} ->
-          IO.puts("error> #{Moto.format_error(reason)}")
+          IO.puts("error> #{Bagu.format_error(reason)}")
       end
     end
 
@@ -34,9 +34,9 @@ defmodule Moto.Examples.Workflow.Demo do
   end
 
   defp print_header(log_level) do
-    {:ok, inspection} = Moto.inspect_workflow(workflow_module())
+    {:ok, inspection} = Bagu.inspect_workflow(workflow_module())
 
-    IO.puts("Moto workflow demo")
+    IO.puts("Bagu workflow demo")
     IO.puts("Workflow: #{inspection.id}")
     IO.puts("Steps: #{Enum.map_join(inspection.steps, ", ", &Atom.to_string(&1.name))}")
 
@@ -62,6 +62,6 @@ defmodule Moto.Examples.Workflow.Demo do
   end
 
   defp workflow_module do
-    Module.concat([Moto, Examples, Workflow, Workflows, MathPipeline])
+    Module.concat([Bagu, Examples, Workflow, Workflows, MathPipeline])
   end
 end

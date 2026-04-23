@@ -1,21 +1,21 @@
-defmodule Moto.MixProject do
+defmodule Bagu.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/mikehostetler/moto"
-  @description "Experimental developer-friendly LLM agent DSL built on Jido and Jido.AI."
+  @source_url "https://github.com/mikehostetler/bagu"
+  @description "Experimental developer-friendly LLM agent harness built on Jido and Jido.AI."
   @coverage_threshold 70
 
   def project do
     [
-      app: :moto,
+      app: :bagu,
       version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      name: "Moto",
+      name: "Bagu",
       description: @description,
       source_url: @source_url,
       homepage_url: @source_url,
@@ -25,7 +25,7 @@ defmodule Moto.MixProject do
         tool: ExCoveralls,
         summary: [threshold: @coverage_threshold],
         export: "cov",
-        ignore_modules: [~r/^MotoTest\./]
+        ignore_modules: [~r/^BaguTest\./]
       ],
       dialyzer: [
         plt_add_apps: [:mix, :llm_db],
@@ -48,7 +48,7 @@ defmodule Moto.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {Moto.Application, []}
+      mod: {Bagu.Application, []}
     ]
   end
 
@@ -113,8 +113,8 @@ defmodule Moto.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
-        "Documentation" => "https://hexdocs.pm/moto",
-        "Changelog" => "https://hexdocs.pm/moto/changelog.html",
+        "Documentation" => "https://hexdocs.pm/bagu",
+        "Changelog" => "https://hexdocs.pm/bagu/changelog.html",
         "Website" => "https://jido.run"
       }
     ]
@@ -135,28 +135,28 @@ defmodule Moto.MixProject do
       ],
       groups_for_modules: [
         Agents: [
-          Moto.Agent,
-          Moto.ImportedAgent,
-          Moto.ImportedAgent.Subagent
+          Bagu.Agent,
+          Bagu.ImportedAgent,
+          Bagu.ImportedAgent.Subagent
         ],
         Workflows: [
-          Moto.Workflow
+          Bagu.Workflow
         ],
         Runtime: [
-          Moto,
-          Moto.Runtime,
-          Moto.Interrupt
+          Bagu,
+          Bagu.Runtime,
+          Bagu.Interrupt
         ],
         Extensions: [
-          Moto.Tool,
-          Moto.Plugin,
-          Moto.Hook,
-          Moto.Guardrail,
-          Moto.Subagent,
-          Moto.MCP
+          Bagu.Tool,
+          Bagu.Plugin,
+          Bagu.Hook,
+          Bagu.Guardrail,
+          Bagu.Subagent,
+          Bagu.MCP
         ],
         Errors: [
-          Moto.Error
+          Bagu.Error
         ]
       ]
     ]
