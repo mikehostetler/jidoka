@@ -1,0 +1,139 @@
+# Examples
+
+Bagu includes examples under `examples/` and exposes them through `mix bagu`.
+Use dry-runs first to inspect the configuration without provider calls.
+
+## Chat
+
+```bash
+mix bagu chat --dry-run
+mix bagu chat -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+```
+
+Source:
+
+- `examples/chat/agents/chat_agent.ex`
+- `examples/chat/tools/add_numbers.ex`
+- `examples/chat/hooks/*`
+- `examples/chat/guardrails/*`
+- `examples/chat/plugins/math_plugin.ex`
+
+This is the best starting point for a single compiled agent with tools, hooks,
+guardrails, plugins, and memory.
+
+## Imported
+
+```bash
+mix bagu imported --dry-run
+mix bagu imported -- "Use the add_numbers tool to add 17 and 25."
+```
+
+Source:
+
+- `examples/chat/imported/sample_math_agent.json`
+- `examples/chat/imported_demo.ex`
+
+This shows the constrained JSON import path and explicit registries for runtime
+resolution.
+
+## Orchestrator
+
+```bash
+mix bagu orchestrator --dry-run
+mix bagu orchestrator -- "Use the research_agent specialist to explain vector databases."
+```
+
+Source:
+
+- `examples/orchestrator/agents/manager_agent.ex`
+- `examples/orchestrator/agents/research_agent.ex`
+- `examples/orchestrator/imported/sample_writer_specialist.json`
+
+This demonstrates subagents: a manager delegates bounded work while keeping
+control of the conversation.
+
+## Workflow
+
+```bash
+mix bagu workflow --dry-run
+mix bagu workflow
+```
+
+Source:
+
+- `examples/workflow/workflows/math_pipeline.ex`
+- `examples/workflow/tools/add_amount.ex`
+- `examples/workflow/tools/double_value.ex`
+
+This is the smallest deterministic workflow: add one, then double.
+
+## Support
+
+```bash
+mix bagu support --dry-run --log-level trace
+mix bagu support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."
+mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+```
+
+Source:
+
+- `examples/support/agents/support_router_agent.ex`
+- `examples/support/agents/billing_specialist_agent.ex`
+- `examples/support/agents/operations_specialist_agent.ex`
+- `examples/support/agents/writer_specialist_agent.ex`
+- `examples/support/workflows/refund_review.ex`
+- `examples/support/workflows/escalation_draft.ex`
+
+This is the decision fixture for Bagu orchestration:
+
+- chat agent owns open-ended intake
+- subagents handle one-off specialist tasks
+- workflows own fixed processes
+- workflow capabilities let the agent choose a deterministic process
+- handoffs transfer future turns in a conversation
+- guardrails block unsafe input before model calls
+
+## Kitchen Sink
+
+```bash
+mix bagu kitchen_sink --dry-run --log-level trace
+mix bagu kitchen_sink -- "Use the research_agent specialist to explain embeddings."
+```
+
+Source:
+
+- `examples/kitchen_sink/agents/kitchen_sink_agent.ex`
+- `examples/kitchen_sink/README.md`
+
+The kitchen sink combines schema, dynamic prompts, tools, Ash resource
+expansion, skills, MCP sync, plugins, hooks, guardrails, memory, compiled
+subagents, and imported subagents. It is a showcase, not the recommended first
+copy/paste target.
+
+## Turning Dry-Runs Into Live Sessions
+
+Dry-runs do not start agents or execute workflows. Remove `--dry-run` and set a
+provider key for live agent runs:
+
+```bash
+export ANTHROPIC_API_KEY=sk-ant-...
+mix bagu support
+```
+
+Use `--log-level debug` for compact traces and `--log-level trace` for detailed
+configuration and event output.
+
+## Copying Patterns
+
+Copy from examples by intent:
+
+- need one agent with a tool: start from `examples/chat`
+- need imported JSON: start from `examples/chat/imported`
+- need manager delegation: start from `examples/orchestrator`
+- need deterministic steps: start from `examples/workflow`
+- need all orchestration boundaries: start from `examples/support`
+
+Avoid copying demo-only CLI wiring into application code. Keep application
+agents under your app modules and call them through `Bagu.start_agent/2`,
+generated `start_link/1`, `Bagu.chat/3`, and `Bagu.Workflow.run/3`.

@@ -74,6 +74,25 @@ Bagu is intentionally opinionated. It keeps the public surface focused on
 common agent authoring and hides most low-level Jido runtime machinery by
 default.
 
+## Guides
+
+The ExDoc guides under `guides/` are the recommended onboarding path:
+
+- [Bagu Guides](guides/overview.md)
+- [Getting Started](guides/getting-started.md)
+- [Agents](guides/agents.md)
+- [Context And Schema](guides/context-and-schema.md)
+- [Tools And Capabilities](guides/tools-and-capabilities.md)
+- [Subagents, Workflows, And Handoffs](guides/subagents-workflows-handoffs.md)
+- [Memory](guides/memory.md)
+- [Characters](guides/characters.md)
+- [Imported Agents](guides/imported-agents.md)
+- [Errors And Debugging](guides/errors-and-debugging.md)
+- [Evals](guides/evals.md)
+- [Examples](guides/examples.md)
+- [Phoenix LiveView](guides/phoenix-liveview.md)
+- [Production](guides/production.md)
+
 ## Setup
 
 Set your Anthropic API key:

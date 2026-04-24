@@ -103,6 +103,7 @@ defmodule Bagu.MixProject do
       files: [
         "lib",
         "examples",
+        "guides",
         "mix.exs",
         "README.md",
         "CHANGELOG.md",
@@ -125,18 +126,28 @@ defmodule Bagu.MixProject do
     [
       main: "readme",
       source_ref: "v#{@version}",
-      extras: [
-        "README.md",
-        "CHANGELOG.md",
-        "CONTRIBUTING.md",
-        "usage-rules.md"
-      ],
+      extras:
+        [
+          "README.md"
+        ] ++
+          guide_extras() ++
+          [
+            "CHANGELOG.md",
+            "CONTRIBUTING.md",
+            "usage-rules.md"
+          ],
       groups_for_extras: [
-        Guides: ["usage-rules.md"]
+        Guides: guide_extras(),
+        Reference: [
+          "usage-rules.md",
+          "CHANGELOG.md",
+          "CONTRIBUTING.md"
+        ]
       ],
       groups_for_modules: [
         Agents: [
           Bagu.Agent,
+          Bagu.Agent.View,
           Bagu.ImportedAgent,
           Bagu.ImportedAgent.Subagent
         ],
@@ -163,6 +174,25 @@ defmodule Bagu.MixProject do
           Bagu.Error
         ]
       ]
+    ]
+  end
+
+  defp guide_extras do
+    [
+      "guides/overview.md",
+      "guides/getting-started.md",
+      "guides/agents.md",
+      "guides/context-and-schema.md",
+      "guides/tools-and-capabilities.md",
+      "guides/subagents-workflows-handoffs.md",
+      "guides/memory.md",
+      "guides/characters.md",
+      "guides/imported-agents.md",
+      "guides/errors-and-debugging.md",
+      "guides/evals.md",
+      "guides/examples.md",
+      "guides/phoenix-liveview.md",
+      "guides/production.md"
     ]
   end
 end

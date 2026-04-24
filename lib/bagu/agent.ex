@@ -45,7 +45,7 @@ defmodule Bagu.Agent do
   workflow runtime.
   Character entries render structured persona data into the effective system
   prompt before `instructions`; per-request `character:` overrides can be
-  supplied through `Bagu.chat/3` or generated `Agent.chat/3`.
+  supplied through `Bagu.chat/3` or the generated agent `chat/3` function.
   Plugin entries accept `Bagu.Plugin` modules and merge their declared
   action-backed tools into the same LLM-visible tool registry.
   """

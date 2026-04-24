@@ -46,8 +46,8 @@ defmodule Bagu.ImportedAgent do
           skill_refs: [term()],
           mcp_tools: [map()],
           subagents: [Bagu.Subagent.t()],
-          workflows: [Bagu.Workflow.Capability.t()],
-          handoffs: [Bagu.Handoff.Capability.t()],
+          workflows: [struct()],
+          handoffs: [struct()],
           plugin_modules: [module()],
           hook_modules: map(),
           guardrail_modules: map()
