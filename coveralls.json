@@ -6,7 +6,7 @@
     "^deps/",
     "^examples/",
     "^lib/mix/tasks/",
-    "^lib/moto/demo/",
+    "^lib/jidoka/demo/",
     "^test/support/"
   ],
   "terminal_options": {

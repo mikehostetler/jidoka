@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.Orchestrator.Agents.ManagerAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.Orchestrator.Agents.ManagerAgent do
+  use Jidoka.Agent
 
   @context_fields %{
     tenant: Zoi.string() |> Zoi.default("demo"),
@@ -27,12 +27,12 @@ defmodule Bagu.Examples.Orchestrator.Agents.ManagerAgent do
   end
 
   capabilities do
-    subagent Bagu.Examples.Orchestrator.Agents.ResearchAgent,
+    subagent Jidoka.Examples.Orchestrator.Agents.ResearchAgent,
       timeout: 30_000,
       forward_context: {:only, [:tenant, :channel, :session]},
       result: :structured
 
-    subagent Bagu.Examples.Orchestrator.Subagents.ImportedWriterSpecialist,
+    subagent Jidoka.Examples.Orchestrator.Subagents.ImportedWriterSpecialist,
       description: "Ask the writing specialist to draft or rewrite polished copy",
       timeout: 30_000,
       forward_context: {:except, [:session]},

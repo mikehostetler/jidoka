@@ -1,11 +1,11 @@
-defmodule Bagu.Examples.Support.Workflows.EscalationDraft do
+defmodule Jidoka.Examples.Support.Workflows.EscalationDraft do
   @moduledoc false
 
-  use Bagu.Workflow
+  use Jidoka.Workflow
 
-  alias Bagu.Examples.Support.Agents.WriterSpecialistAgent
-  alias Bagu.Examples.Support.SupportFns
-  alias Bagu.Examples.Support.Tools.{ClassifyEscalation, LoadCustomerProfile}
+  alias Jidoka.Examples.Support.Agents.WriterSpecialistAgent
+  alias Jidoka.Examples.Support.SupportFns
+  alias Jidoka.Examples.Support.Tools.{ClassifyEscalation, LoadCustomerProfile}
 
   workflow do
     id :escalation_draft

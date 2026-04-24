@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.Support.Demo do
+defmodule Jidoka.Examples.Support.Demo do
   @moduledoc false
 
-  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory, Markdown}
+  alias Jidoka.Demo.{AgentSession, CLI, Debug, Inventory, Markdown}
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -114,24 +114,24 @@ defmodule Bagu.Examples.Support.Demo do
         Markdown.print_reply("workflow", inspect(output))
 
       {:error, reason} ->
-        IO.puts("error> #{Bagu.format_error(reason)}")
+        IO.puts("error> #{Jidoka.format_error(reason)}")
     end
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Bagu support demo", agent_module(), log_level,
+    Inventory.print_compiled("Jidoka support demo", agent_module(), log_level,
       notice: "This example keeps the boundary explicit: chat agents coordinate, workflows run fixed processes.",
       try: [
-        ~s(mix bagu support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."),
-        ~s(mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"),
-        ~s(mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel")
+        ~s(mix jidoka support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."),
+        ~s(mix jidoka support -- "/refund acct_vip ord_damaged Damaged on arrival"),
+        ~s(mix jidoka support -- "/escalate acct_trial Customer is locked out and threatening to cancel")
       ]
     )
 
     IO.puts("Deterministic workflows")
 
     Enum.each(workflow_summaries(), fn {purpose, module} ->
-      {:ok, inspection} = Bagu.inspect_workflow(module)
+      {:ok, inspection} = Jidoka.inspect_workflow(module)
       step_line = Enum.map_join(inspection.steps, " -> ", &format_step/1)
       IO.puts("  #{inspection.id}  #{purpose}")
       IO.puts("    steps: #{step_line}")
@@ -227,14 +227,14 @@ defmodule Bagu.Examples.Support.Demo do
   defp workflow_requires_api_key?(module), do: module == escalation_workflow_module()
 
   defp agent_module do
-    Module.concat([Bagu, Examples, Support, Agents, SupportRouterAgent])
+    Module.concat([Jidoka, Examples, Support, Agents, SupportRouterAgent])
   end
 
   defp refund_workflow_module do
-    Module.concat([Bagu, Examples, Support, Workflows, RefundReview])
+    Module.concat([Jidoka, Examples, Support, Workflows, RefundReview])
   end
 
   defp escalation_workflow_module do
-    Module.concat([Bagu, Examples, Support, Workflows, EscalationDraft])
+    Module.concat([Jidoka, Examples, Support, Workflows, EscalationDraft])
   end
 end

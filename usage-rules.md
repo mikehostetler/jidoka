@@ -1,19 +1,19 @@
-# Bagu Usage Rules
+# Jidoka Usage Rules
 
-Use these rules when generating Bagu code or reviewing Bagu examples.
+Use these rules when generating Jidoka code or reviewing Jidoka examples.
 
 ## Agent DSL
 
-- Define agents with `use Bagu.Agent`.
+- Define agents with `use Jidoka.Agent`.
 - Put core configuration inside `agent do ... end`.
 - Use `schema Zoi.object(...)` for runtime context validation.
-- Prefer `context:` at runtime. Do not pass `tool_context:` to Bagu public APIs.
+- Prefer `context:` at runtime. Do not pass `tool_context:` to Jidoka public APIs.
 - Use `defaults.character` for structured persona/voice data backed by
   `jido_character`. Use `defaults.instructions` for task, policy, and safety
   instructions.
 - Use per-call `character:` only when a request should override the configured
   character for that turn.
-- Keep prompts explicit. Bagu does not automatically inject context into model
+- Keep prompts explicit. Jidoka does not automatically inject context into model
   prompts unless a system prompt, hook, tool, or memory configuration does so.
 
 ## Extensions
@@ -30,7 +30,7 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 
 ## Workflow DSL
 
-- Define deterministic workflows with `use Bagu.Workflow`.
+- Define deterministic workflows with `use Jidoka.Workflow`.
 - Put stable workflow identity and input schema inside `workflow do ... end`.
 - Use `steps do` for `tool`, `function`, and `agent` steps.
 - Use `output from(:step)` at module top level.
@@ -42,18 +42,18 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 - Workflows may call agents as bounded steps, and agents may expose workflows
   as tool-like capabilities. Keep the boundary explicit: agents decide intent;
   workflows run fixed processes.
-- Keep raw Runic concepts out of public Bagu code. Do not expose facts,
+- Keep raw Runic concepts out of public Jidoka code. Do not expose facts,
   directives, strategy state, or Runic nodes in user-authored workflows.
 
 ## Imported Agents
 
-- Use `Bagu.import_agent/2` or `Bagu.import_agent_file/2` for JSON/YAML specs.
+- Use `Jidoka.import_agent/2` or `Jidoka.import_agent_file/2` for JSON/YAML specs.
 - Resolve imported tools, characters, hooks, guardrails, plugins, skills,
   subagents, workflows, and handoffs through explicit `available_*` registries.
 - Prefer inline `defaults.character` maps that parse through `Jido.Character`
   for portable imported specs; use string character refs only when the
   importing application provides `available_characters`.
-- Use `Bagu.ImportedAgent.Subagent` when an Elixir manager agent delegates to a
+- Use `Jidoka.ImportedAgent.Subagent` when an Elixir manager agent delegates to a
   JSON/YAML-authored specialist.
 
 ## Examples
@@ -65,9 +65,9 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 ## Runtime Errors
 
 - Public runtime APIs should return `{:ok, value}`, `{:interrupt, interrupt}`,
-  `{:handoff, handoff}`, or `{:error, %Bagu.Error.*{}}`.
+  `{:handoff, handoff}`, or `{:error, %Jidoka.Error.*{}}`.
 - Do not expose raw internal error tuples from chat, workflow, subagent,
   handoff, MCP, memory, hook, or guardrail runtime boundaries.
-- Use `Bagu.format_error/1` when printing errors in docs, demos, and CLIs.
+- Use `Jidoka.format_error/1` when printing errors in docs, demos, and CLIs.
 - Preserve low-level causes in `error.details.cause`; do not require users to
   pattern-match on those causes.

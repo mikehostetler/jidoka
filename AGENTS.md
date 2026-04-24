@@ -1,23 +1,23 @@
-# AGENTS.md - Bagu Package Guide
+# AGENTS.md - Jidoka Package Guide
 
 ## Intent
 
-This directory contains the `bagu` Elixir package.
+This directory contains the `jidoka` Elixir package.
 
-`bagu` is a thin, opinionated harness over Jido and Jido.AI for building
+`jidoka` is a thin, opinionated harness over Jido and Jido.AI for building
 developer-friendly LLM agents with a narrow public API.
 
 The package currently has two public authoring paths:
 
-- the compile-time Elixir DSL via `use Bagu.Agent`
+- the compile-time Elixir DSL via `use Jidoka.Agent`
 - the runtime import path for constrained JSON/YAML agent specs
 
-Both paths describe the same conceptual Bagu agent.
+Both paths describe the same conceptual Jidoka agent.
 
 ## Working Rules
 
 - Prefer changes in this package over changes in vendored dependencies.
-- Keep the public Bagu API small, explicit, and biased toward common agent use
+- Keep the public Jidoka API small, explicit, and biased toward common agent use
   cases.
 - Hide low-level Jido/Jido.AI concepts by default unless there is a clear DX
   reason to expose them.
@@ -26,12 +26,12 @@ Both paths describe the same conceptual Bagu agent.
 
 ## Parity Rule
 
-Imported agents are not a side path. They are a first-class Bagu surface.
+Imported agents are not a side path. They are a first-class Jidoka surface.
 
-When adding a new public Bagu agent feature, evaluate both authoring paths at
+When adding a new public Jidoka agent feature, evaluate both authoring paths at
 the same time:
 
-- `Bagu.Agent` should gain the feature in the Elixir DSL when appropriate.
+- `Jidoka.Agent` should gain the feature in the Elixir DSL when appropriate.
 - imported JSON/YAML agents should gain the same feature when it can be
   represented safely in the constrained spec format.
 - if the imported-agent path cannot support the feature yet, document that gap

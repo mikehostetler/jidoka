@@ -1,5 +1,5 @@
-defmodule BaguTest.Support.AshResourceAgent do
-  use Bagu.Agent
+defmodule JidokaTest.Support.AshResourceAgent do
+  use Jidoka.Agent
 
   agent do
     id :ash_resource_agent
@@ -11,6 +11,6 @@ defmodule BaguTest.Support.AshResourceAgent do
   end
 
   capabilities do
-    ash_resource BaguTest.Support.User
+    ash_resource JidokaTest.Support.User
   end
 end

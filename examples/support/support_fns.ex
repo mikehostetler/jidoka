@@ -1,4 +1,4 @@
-defmodule Bagu.Examples.Support.SupportFns do
+defmodule Jidoka.Examples.Support.SupportFns do
   @moduledoc false
 
   @spec finalize_refund_decision(map(), map()) :: map()

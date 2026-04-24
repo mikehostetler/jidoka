@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.Support.Tools.EvaluateRefundPolicy do
-  use Bagu.Tool,
+defmodule Jidoka.Examples.Support.Tools.EvaluateRefundPolicy do
+  use Jidoka.Tool,
     description: "Applies a deterministic refund policy to a support case.",
     schema:
       Zoi.object(%{
@@ -8,7 +8,7 @@ defmodule Bagu.Examples.Support.Tools.EvaluateRefundPolicy do
         reason: Zoi.string()
       })
 
-  alias Bagu.Examples.Support.SupportData
+  alias Jidoka.Examples.Support.SupportData
 
   @impl true
   def run(%{customer: customer, order: order, reason: reason}, _context) do

@@ -1,9 +1,9 @@
-defmodule Bagu.Examples.Support.Tools.LoadOrder do
-  use Bagu.Tool,
+defmodule Jidoka.Examples.Support.Tools.LoadOrder do
+  use Jidoka.Tool,
     description: "Loads a deterministic order snapshot for a support request.",
     schema: Zoi.object(%{account_id: Zoi.string(), order_id: Zoi.string()})
 
-  alias Bagu.Examples.Support.SupportData
+  alias Jidoka.Examples.Support.SupportData
 
   @impl true
   def run(%{account_id: account_id, order_id: order_id}, _context) do

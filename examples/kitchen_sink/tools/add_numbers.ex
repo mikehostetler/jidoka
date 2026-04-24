@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.KitchenSink.Tools.AddNumbers do
-  use Bagu.Tool,
+defmodule Jidoka.Examples.KitchenSink.Tools.AddNumbers do
+  use Jidoka.Tool,
     description: "Adds two integers together.",
     schema: Zoi.object(%{a: Zoi.integer(), b: Zoi.integer()})
 

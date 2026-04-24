@@ -17,15 +17,15 @@ capabilities do
 end
 ```
 
-Bagu validates that published capability names do not conflict.
+Jidoka validates that published capability names do not conflict.
 
 ## Direct Tools
 
-Use `Bagu.Tool` for deterministic application functions:
+Use `Jidoka.Tool` for deterministic application functions:
 
 ```elixir
 defmodule MyApp.Tools.AddNumbers do
-  use Bagu.Tool,
+  use Jidoka.Tool,
     description: "Adds two integers together.",
     schema: Zoi.object(%{a: Zoi.integer(), b: Zoi.integer()}),
     output_schema: Zoi.object(%{sum: Zoi.integer()})
@@ -45,7 +45,7 @@ capabilities do
 end
 ```
 
-Bagu tools are Zoi-only for `schema` and `output_schema`. They compile to plain
+Jidoka tools are Zoi-only for `schema` and `output_schema`. They compile to plain
 Jido action modules underneath.
 
 ## Ash Resources
@@ -58,7 +58,7 @@ capabilities do
 end
 ```
 
-For Ash resource tools, Bagu:
+For Ash resource tools, Jidoka:
 
 - expands the resource into generated action modules
 - injects the resource domain into runtime context
@@ -93,7 +93,7 @@ capabilities do
 end
 ```
 
-Bagu uses skills to:
+Jidoka uses skills to:
 
 - render skill prompt text into effective instructions
 - narrow visible tools when the skill declares `allowed-tools`
@@ -105,7 +105,7 @@ Plugins package reusable tool sets:
 
 ```elixir
 defmodule MyApp.Plugins.Math do
-  use Bagu.Plugin,
+  use Jidoka.Plugin,
     description: "Provides extra math tools.",
     tools: [MyApp.Tools.MultiplyNumbers]
 end
@@ -157,7 +157,7 @@ end
 ```
 
 The generated tool schema is the workflow input schema. Runtime execution goes
-through `Bagu.Workflow.run/3`. The model sees a bounded result such as
+through `Jidoka.Workflow.run/3`. The model sees a bounded result such as
 `%{output: output}` or structured metadata when `result: :structured`.
 
 ## Handoffs
@@ -181,12 +181,12 @@ The handoff tool accepts:
 - `summary`, optional
 - `reason`, optional
 
-On success, `Bagu.chat/3` returns `{:handoff, %Bagu.Handoff{}}` and records the
+On success, `Jidoka.chat/3` returns `{:handoff, %Jidoka.Handoff{}}` and records the
 conversation owner.
 
 ## Name Conflicts
 
-Bagu rejects duplicate published names across:
+Jidoka rejects duplicate published names across:
 
 - direct tools
 - Ash-generated tools

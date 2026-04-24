@@ -1,6 +1,6 @@
-# Bagu Support Example
+# Jidoka Support Example
 
-This example is for teasing apart the current Bagu boundary between chat
+This example is for teasing apart the current Jidoka boundary between chat
 agents, workflows, and handoffs.
 
 It intentionally keeps both surfaces visible:
@@ -55,18 +55,18 @@ before the LLM or any specialist subagent is called.
 Dry-run:
 
 ```bash
-mix bagu support --log-level trace --dry-run
+mix jidoka support --log-level trace --dry-run
 ```
 
 Chat path:
 
 ```bash
-mix bagu support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."
+mix jidoka support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."
 ```
 
 Workflow path:
 
 ```bash
-mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"
-mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+mix jidoka support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix jidoka support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
 ```

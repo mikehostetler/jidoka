@@ -1,6 +1,6 @@
 # Context And Schema
 
-Bagu uses `context:` for request-scoped application data. Context is available
+Jidoka uses `context:` for request-scoped application data. Context is available
 to hooks, dynamic instructions, tools, Ash resources, memory namespaces,
 subagents, workflows, and handoffs.
 
@@ -14,7 +14,7 @@ Compiled agents can define a Zoi map/object schema inside `agent do`:
 
 ```elixir
 defmodule MyApp.BillingAgent do
-  use Bagu.Agent
+  use Jidoka.Agent
 
   agent do
     id :billing_agent
@@ -33,7 +33,7 @@ defmodule MyApp.BillingAgent do
 end
 ```
 
-The schema is compiled with the agent. Bagu validates it at compile time and
+The schema is compiled with the agent. Jidoka validates it at compile time and
 uses it at runtime before the LLM call starts.
 
 ## Defaults With Required Fields
@@ -45,11 +45,11 @@ MyApp.BillingAgent.context()
 #=> %{tenant: "demo", channel: "support_chat"}
 ```
 
-If `account_id` is missing at runtime, Bagu returns a validation error:
+If `account_id` is missing at runtime, Jidoka returns a validation error:
 
 ```elixir
 {:error, reason} = MyApp.BillingAgent.chat(pid, "Show my invoice.")
-Bagu.format_error(reason)
+Jidoka.format_error(reason)
 #=> "Invalid context:\n- account_id: is required"
 ```
 
@@ -84,8 +84,8 @@ map and per-turn `context:` merges over it.
 `context:` must be a map or keyword list:
 
 ```elixir
-{:error, reason} = Bagu.chat(pid, "Hello", context: "acct_123")
-Bagu.format_error(reason)
+{:error, reason} = Jidoka.chat(pid, "Hello", context: "acct_123")
+Jidoka.format_error(reason)
 #=> "Invalid context: pass `context:` as a map or keyword list."
 ```
 
@@ -93,8 +93,8 @@ Do not pass `tool_context:` to public APIs. That key is internal runtime
 plumbing:
 
 ```elixir
-{:error, reason} = Bagu.chat(pid, "Hello", tool_context: %{account_id: "acct_123"})
-Bagu.format_error(reason)
+{:error, reason} = Jidoka.chat(pid, "Hello", tool_context: %{account_id: "acct_123"})
+Jidoka.format_error(reason)
 #=> "Invalid option: use `context:` for request-scoped data; `tool_context:` is internal."
 ```
 
@@ -104,7 +104,7 @@ Dynamic instructions receive parsed context:
 
 ```elixir
 defmodule MyApp.SupportPrompt do
-  @behaviour Bagu.Agent.SystemPrompt
+  @behaviour Jidoka.Agent.SystemPrompt
 
   @impl true
   def resolve_system_prompt(%{context: context}) do
@@ -122,7 +122,7 @@ Tools receive parsed context as the second argument:
 
 ```elixir
 defmodule MyApp.Tools.ShowTenant do
-  use Bagu.Tool,
+  use Jidoka.Tool,
     description: "Returns the current tenant.",
     schema: Zoi.object(%{})
 
@@ -161,7 +161,7 @@ Supported modes:
 - `{:only, keys}`
 - `{:except, keys}`
 
-Bagu strips internal runtime keys before forwarding context.
+Jidoka strips internal runtime keys before forwarding context.
 
 ## Context For Memory Namespaces
 
@@ -179,6 +179,6 @@ lifecycle do
 end
 ```
 
-When an agent has a compiled schema, Bagu validates that the namespace key is
+When an agent has a compiled schema, Jidoka validates that the namespace key is
 declared in the schema. This catches memory partitioning mistakes at compile
 time.

@@ -1,13 +1,13 @@
 # Examples
 
-Bagu includes examples under `examples/` and exposes them through `mix bagu`.
+Jidoka includes examples under `examples/` and exposes them through `mix jidoka`.
 Use dry-runs first to inspect the configuration without provider calls.
 
 ## Chat
 
 ```bash
-mix bagu chat --dry-run
-mix bagu chat -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
+mix jidoka chat --dry-run
+mix jidoka chat -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."
 ```
 
 Source:
@@ -24,8 +24,8 @@ guardrails, plugins, and memory.
 ## Imported
 
 ```bash
-mix bagu imported --dry-run
-mix bagu imported -- "Use the add_numbers tool to add 17 and 25."
+mix jidoka imported --dry-run
+mix jidoka imported -- "Use the add_numbers tool to add 17 and 25."
 ```
 
 Source:
@@ -39,8 +39,8 @@ resolution.
 ## Orchestrator
 
 ```bash
-mix bagu orchestrator --dry-run
-mix bagu orchestrator -- "Use the research_agent specialist to explain vector databases."
+mix jidoka orchestrator --dry-run
+mix jidoka orchestrator -- "Use the research_agent specialist to explain vector databases."
 ```
 
 Source:
@@ -55,8 +55,8 @@ control of the conversation.
 ## Workflow
 
 ```bash
-mix bagu workflow --dry-run
-mix bagu workflow
+mix jidoka workflow --dry-run
+mix jidoka workflow
 ```
 
 Source:
@@ -70,10 +70,10 @@ This is the smallest deterministic workflow: add one, then double.
 ## Support
 
 ```bash
-mix bagu support --dry-run --log-level trace
-mix bagu support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."
-mix bagu support -- "/refund acct_vip ord_damaged Damaged on arrival"
-mix bagu support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
+mix jidoka support --dry-run --log-level trace
+mix jidoka support -- "Customer acct_vip says order ord_damaged arrived broken and wants a refund because it was damaged on arrival."
+mix jidoka support -- "/refund acct_vip ord_damaged Damaged on arrival"
+mix jidoka support -- "/escalate acct_trial Customer is locked out and threatening to cancel"
 ```
 
 Source:
@@ -85,7 +85,7 @@ Source:
 - `examples/support/workflows/refund_review.ex`
 - `examples/support/workflows/escalation_draft.ex`
 
-This is the decision fixture for Bagu orchestration:
+This is the decision fixture for Jidoka orchestration:
 
 - chat agent owns open-ended intake
 - subagents handle one-off specialist tasks
@@ -97,8 +97,8 @@ This is the decision fixture for Bagu orchestration:
 ## Kitchen Sink
 
 ```bash
-mix bagu kitchen_sink --dry-run --log-level trace
-mix bagu kitchen_sink -- "Use the research_agent specialist to explain embeddings."
+mix jidoka kitchen_sink --dry-run --log-level trace
+mix jidoka kitchen_sink -- "Use the research_agent specialist to explain embeddings."
 ```
 
 Source:
@@ -118,7 +118,7 @@ provider key for live agent runs:
 
 ```bash
 export ANTHROPIC_API_KEY=sk-ant-...
-mix bagu support
+mix jidoka support
 ```
 
 Use `--log-level debug` for compact traces and `--log-level trace` for detailed
@@ -135,5 +135,5 @@ Copy from examples by intent:
 - need all orchestration boundaries: start from `examples/support`
 
 Avoid copying demo-only CLI wiring into application code. Keep application
-agents under your app modules and call them through `Bagu.start_agent/2`,
-generated `start_link/1`, `Bagu.chat/3`, and `Bagu.Workflow.run/3`.
+agents under your app modules and call them through `Jidoka.start_agent/2`,
+generated `start_link/1`, `Jidoka.chat/3`, and `Jidoka.Workflow.run/3`.

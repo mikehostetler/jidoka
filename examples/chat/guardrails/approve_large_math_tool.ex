@@ -1,10 +1,10 @@
-defmodule Bagu.Examples.Chat.Guardrails.ApproveLargeMathTool do
-  use Bagu.Guardrail, name: "approve_large_math_tool"
+defmodule Jidoka.Examples.Chat.Guardrails.ApproveLargeMathTool do
+  use Jidoka.Guardrail, name: "approve_large_math_tool"
 
   @threshold 100
 
   @impl true
-  def call(%Bagu.Guardrails.Tool{tool_name: "add_numbers", arguments: arguments, context: context}) do
+  def call(%Jidoka.Guardrails.Tool{tool_name: "add_numbers", arguments: arguments, context: context}) do
     a = Map.get(arguments, :a, Map.get(arguments, "a", 0))
     b = Map.get(arguments, :b, Map.get(arguments, "b", 0))
 
@@ -23,5 +23,5 @@ defmodule Bagu.Examples.Chat.Guardrails.ApproveLargeMathTool do
     end
   end
 
-  def call(%Bagu.Guardrails.Tool{}), do: :ok
+  def call(%Jidoka.Guardrails.Tool{}), do: :ok
 end

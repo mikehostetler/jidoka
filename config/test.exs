@@ -15,10 +15,10 @@ config :jido_mcp, :endpoints,
          args: [
            "-c",
            "exec npx -y @modelcontextprotocol/server-filesystem \"$1\" 2>/dev/null",
-           "bagu-fs-mcp",
+           "jidoka-fs-mcp",
            mcp_sandbox
          ]
        ]},
-    client_info: %{name: "bagu-test", version: "0.1.0"},
+    client_info: %{name: "jidoka-test", version: "0.1.0"},
     timeouts: %{request_ms: 60_000}
   }

@@ -1,11 +1,11 @@
-defmodule Bagu.Examples.KitchenSink.Tools.ShowContext do
-  use Bagu.Tool,
+defmodule Jidoka.Examples.KitchenSink.Tools.ShowContext do
+  use Jidoka.Tool,
     description: "Summarizes the public runtime context keys visible to tools.",
     schema: Zoi.object(%{})
 
   @impl true
   def run(_params, context) do
-    public_context = Bagu.Context.sanitize_for_subagent(context)
+    public_context = Jidoka.Context.sanitize_for_subagent(context)
 
     {:ok,
      %{

@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.Support.Tools.ClassifyEscalation do
-  use Bagu.Tool,
+defmodule Jidoka.Examples.Support.Tools.ClassifyEscalation do
+  use Jidoka.Tool,
     description: "Classifies a support issue into a deterministic escalation queue.",
     schema:
       Zoi.object(%{
@@ -7,7 +7,7 @@ defmodule Bagu.Examples.Support.Tools.ClassifyEscalation do
         issue: Zoi.string()
       })
 
-  alias Bagu.Examples.Support.SupportData
+  alias Jidoka.Examples.Support.SupportData
 
   @impl true
   def run(%{customer: customer, issue: issue}, _context) do

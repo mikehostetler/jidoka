@@ -1,9 +1,9 @@
-defmodule Bagu.Examples.Workflow.Workflows.MathPipeline do
+defmodule Jidoka.Examples.Workflow.Workflows.MathPipeline do
   @moduledoc false
 
-  use Bagu.Workflow
+  use Jidoka.Workflow
 
-  alias Bagu.Examples.Workflow.Tools.{AddAmount, DoubleValue}
+  alias Jidoka.Examples.Workflow.Tools.{AddAmount, DoubleValue}
 
   workflow do
     id :math_pipeline

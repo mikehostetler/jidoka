@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.Workflow.Tools.AddAmount do
+defmodule Jidoka.Examples.Workflow.Tools.AddAmount do
   @moduledoc false
 
-  use Bagu.Tool,
+  use Jidoka.Tool,
     name: "workflow_demo_add_amount",
     description: "Adds a fixed amount to a value.",
     schema:

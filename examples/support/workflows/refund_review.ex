@@ -1,10 +1,10 @@
-defmodule Bagu.Examples.Support.Workflows.RefundReview do
+defmodule Jidoka.Examples.Support.Workflows.RefundReview do
   @moduledoc false
 
-  use Bagu.Workflow
+  use Jidoka.Workflow
 
-  alias Bagu.Examples.Support.SupportFns
-  alias Bagu.Examples.Support.Tools.{EvaluateRefundPolicy, LoadCustomerProfile, LoadOrder}
+  alias Jidoka.Examples.Support.SupportFns
+  alias Jidoka.Examples.Support.Tools.{EvaluateRefundPolicy, LoadCustomerProfile, LoadOrder}
 
   workflow do
     id :refund_review

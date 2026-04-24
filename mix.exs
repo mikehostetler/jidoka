@@ -1,21 +1,21 @@
-defmodule Bagu.MixProject do
+defmodule Jidoka.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/mikehostetler/bagu"
+  @source_url "https://github.com/mikehostetler/jidoka"
   @description "Experimental developer-friendly LLM agent harness built on Jido and Jido.AI."
   @coverage_threshold 70
 
   def project do
     [
-      app: :bagu,
+      app: :jidoka,
       version: @version,
       elixir: "~> 1.18",
       elixirc_paths: elixirc_paths(Mix.env()),
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       aliases: aliases(),
-      name: "Bagu",
+      name: "Jidoka",
       description: @description,
       source_url: @source_url,
       homepage_url: @source_url,
@@ -25,7 +25,7 @@ defmodule Bagu.MixProject do
         tool: ExCoveralls,
         summary: [threshold: @coverage_threshold],
         export: "cov",
-        ignore_modules: [~r/^BaguTest\./]
+        ignore_modules: [~r/^JidokaTest\./]
       ],
       dialyzer: [
         plt_add_apps: [:mix, :llm_db],
@@ -48,7 +48,7 @@ defmodule Bagu.MixProject do
   def application do
     [
       extra_applications: [:logger],
-      mod: {Bagu.Application, []}
+      mod: {Jidoka.Application, []}
     ]
   end
 
@@ -115,8 +115,8 @@ defmodule Bagu.MixProject do
       licenses: ["Apache-2.0"],
       links: %{
         "GitHub" => @source_url,
-        "Documentation" => "https://hexdocs.pm/bagu",
-        "Changelog" => "https://hexdocs.pm/bagu/changelog.html",
+        "Documentation" => "https://hexdocs.pm/jidoka",
+        "Changelog" => "https://hexdocs.pm/jidoka/changelog.html",
         "Website" => "https://jido.run"
       }
     ]
@@ -146,32 +146,32 @@ defmodule Bagu.MixProject do
       ],
       groups_for_modules: [
         Agents: [
-          Bagu.Agent,
-          Bagu.Agent.View,
-          Bagu.ImportedAgent,
-          Bagu.ImportedAgent.Subagent
+          Jidoka.Agent,
+          Jidoka.Agent.View,
+          Jidoka.ImportedAgent,
+          Jidoka.ImportedAgent.Subagent
         ],
         Workflows: [
-          Bagu.Workflow
+          Jidoka.Workflow
         ],
         Runtime: [
-          Bagu,
-          Bagu.Runtime,
-          Bagu.Interrupt,
-          Bagu.Handoff
+          Jidoka,
+          Jidoka.Runtime,
+          Jidoka.Interrupt,
+          Jidoka.Handoff
         ],
         Extensions: [
-          Bagu.Character,
-          Bagu.Tool,
-          Bagu.Plugin,
-          Bagu.Hook,
-          Bagu.Guardrail,
-          Bagu.Subagent,
-          Bagu.Handoff.Capability,
-          Bagu.MCP
+          Jidoka.Character,
+          Jidoka.Tool,
+          Jidoka.Plugin,
+          Jidoka.Hook,
+          Jidoka.Guardrail,
+          Jidoka.Subagent,
+          Jidoka.Handoff.Capability,
+          Jidoka.MCP
         ],
         Errors: [
-          Bagu.Error
+          Jidoka.Error
         ]
       ]
     ]

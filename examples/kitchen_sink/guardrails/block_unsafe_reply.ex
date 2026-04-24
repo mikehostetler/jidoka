@@ -1,8 +1,8 @@
-defmodule Bagu.Examples.KitchenSink.Guardrails.BlockUnsafeReply do
-  use Bagu.Guardrail, name: "block_unsafe_reply"
+defmodule Jidoka.Examples.KitchenSink.Guardrails.BlockUnsafeReply do
+  use Jidoka.Guardrail, name: "block_unsafe_reply"
 
   @impl true
-  def call(%Bagu.Guardrails.Output{outcome: {:ok, result}}) when is_binary(result) do
+  def call(%Jidoka.Guardrails.Output{outcome: {:ok, result}}) when is_binary(result) do
     if result |> String.downcase() |> String.contains?("unsafe") do
       {:error, :unsafe_reply_blocked}
     else
@@ -10,5 +10,5 @@ defmodule Bagu.Examples.KitchenSink.Guardrails.BlockUnsafeReply do
     end
   end
 
-  def call(%Bagu.Guardrails.Output{}), do: :ok
+  def call(%Jidoka.Guardrails.Output{}), do: :ok
 end

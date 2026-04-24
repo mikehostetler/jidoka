@@ -1,6 +1,6 @@
-# Contributing to Bagu
+# Contributing to Jidoka
 
-Bagu is an experimental package built on top of Jido and Jido.AI. The current
+Jidoka is an experimental package built on top of Jido and Jido.AI. The current
 goal is to find the smallest useful public API for common LLM agent patterns.
 
 ## Development
@@ -17,7 +17,7 @@ automation environments remain safe.
 
 ## Quality Bar
 
-Bagu follows the Jido package quality standards:
+Jidoka follows the Jido package quality standards:
 
 - use conventional commits
 - keep examples outside shipped library internals
@@ -37,4 +37,4 @@ Bagu follows the Jido package quality standards:
 
 ## Release Status
 
-Bagu is not released. Any API may change before the first Hex package.
+Jidoka is not released. Any API may change before the first Hex package.

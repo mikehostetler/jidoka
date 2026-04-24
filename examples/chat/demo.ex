@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.Chat.Demo do
+defmodule Jidoka.Examples.Chat.Demo do
   @moduledoc false
 
-  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory}
+  alias Jidoka.Demo.{AgentSession, CLI, Debug, Inventory}
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -25,10 +25,10 @@ defmodule Bagu.Examples.Chat.Demo do
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Bagu chat demo", agent_module(), log_level,
+    Inventory.print_compiled("Jidoka chat demo", agent_module(), log_level,
       try: [
-        ~s(mix bagu chat -- "Add 8 and 13."),
-        ~s(mix bagu chat -- "Remember that my favorite color is blue.")
+        ~s(mix jidoka chat -- "Add 8 and 13."),
+        ~s(mix jidoka chat -- "Remember that my favorite color is blue.")
       ]
     )
   end
@@ -52,6 +52,6 @@ defmodule Bagu.Examples.Chat.Demo do
   end
 
   defp agent_module do
-    Module.concat([Bagu, Examples, Chat, Agents, ChatAgent])
+    Module.concat([Jidoka, Examples, Chat, Agents, ChatAgent])
   end
 end

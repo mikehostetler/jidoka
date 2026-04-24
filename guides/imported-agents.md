@@ -1,7 +1,7 @@
 # Imported Agents
 
 Imported agents let applications load a constrained JSON/YAML representation of
-the Bagu agent shape at runtime.
+the Jidoka agent shape at runtime.
 
 They are intentionally not raw Elixir module loading. Every executable feature
 must resolve through an explicit `available_*` registry supplied by the
@@ -48,22 +48,22 @@ Top-level flat specs are rejected. Keep the section layout.
 
 ```elixir
 {:ok, agent} =
-  Bagu.import_agent(json,
+  Jidoka.import_agent(json,
     available_tools: [MyApp.Tools.AddNumbers],
     available_plugins: [MyApp.Plugins.Math],
     available_hooks: [MyApp.Hooks.ReplyWithFinalAnswer],
     available_guardrails: [MyApp.Guardrails.BlockSecretPrompt]
   )
 
-{:ok, pid} = Bagu.start_agent(agent, id: "json-agent")
-{:ok, reply} = Bagu.chat(pid, "Use add_numbers to add 2 and 3.")
+{:ok, pid} = Jidoka.start_agent(agent, id: "json-agent")
+{:ok, reply} = Jidoka.chat(pid, "Use add_numbers to add 2 and 3.")
 ```
 
 Import from a file:
 
 ```elixir
 {:ok, agent} =
-  Bagu.import_agent_file("priv/agents/support_router.json",
+  Jidoka.import_agent_file("priv/agents/support_router.json",
     available_tools: [MyApp.Tools.LookupOrder]
   )
 ```
@@ -71,8 +71,8 @@ Import from a file:
 Encode back to JSON/YAML:
 
 ```elixir
-{:ok, json} = Bagu.encode_agent(agent, format: :json)
-{:ok, yaml} = Bagu.encode_agent(agent, format: :yaml)
+{:ok, json} = Jidoka.encode_agent(agent, format: :json)
+{:ok, yaml} = Jidoka.encode_agent(agent, format: :yaml)
 ```
 
 ## Registries
@@ -80,7 +80,7 @@ Encode back to JSON/YAML:
 Imported capabilities resolve by published names:
 
 ```elixir
-Bagu.import_agent(json,
+Jidoka.import_agent(json,
   available_tools: [MyApp.Tools.AddNumbers],
   available_plugins: [MyApp.Plugins.Math],
   available_subagents: [MyApp.ResearchAgent],
@@ -115,7 +115,7 @@ Imported agents support default context only:
 Per-turn context merges over those defaults:
 
 ```elixir
-Bagu.chat(pid, "Help with this account.",
+Jidoka.chat(pid, "Help with this account.",
   context: %{tenant: "acme", account_id: "acct_123"}
 )
 ```
@@ -145,7 +145,7 @@ Imported subagents are resolved through `available_subagents`:
 }
 ```
 
-Use `Bagu.ImportedAgent.Subagent` when an Elixir manager agent needs to delegate
+Use `Jidoka.ImportedAgent.Subagent` when an Elixir manager agent needs to delegate
 to a JSON/YAML-authored specialist.
 
 ## Workflows
@@ -217,6 +217,6 @@ This mirrors the compiled DSL's supported memory subset.
 
 ## Parity Rule
 
-Imported agents are first-class Bagu agents. When a Bagu feature has a safe
+Imported agents are first-class Jidoka agents. When a Jidoka feature has a safe
 portable representation, the imported format should support it. When a feature
 cannot be represented safely, prefer an explicit registry or document the gap.

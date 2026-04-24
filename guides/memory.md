@@ -1,16 +1,16 @@
 # Memory
 
-Bagu memory is lifecycle policy. It is configured in `lifecycle do`, not in
+Jidoka memory is lifecycle policy. It is configured in `lifecycle do`, not in
 `capabilities do`, because memory changes how a turn is prepared rather than
 adding a model-callable tool.
 
-Bagu uses `jido_memory` underneath and keeps the public DSL small.
+Jidoka uses `jido_memory` underneath and keeps the public DSL small.
 
 ## Basic Memory
 
 ```elixir
 defmodule MyApp.ChatAgent do
-  use Bagu.Agent
+  use Jidoka.Agent
 
   agent do
     id :chat_agent
@@ -108,7 +108,7 @@ memory do
 end
 ```
 
-When the agent has a schema, Bagu validates that `key` exists in the schema.
+When the agent has a schema, Jidoka validates that `key` exists in the schema.
 
 ## Injection Modes
 
@@ -131,7 +131,7 @@ Capture/write failures are treated as soft structured warnings in debug/request
 metadata. The user should still receive the model response when only capture
 fails.
 
-Use `Bagu.inspect_request/1` when debugging memory behavior in a live turn.
+Use `Jidoka.inspect_request/1` when debugging memory behavior in a live turn.
 
 ## Imported Specs
 

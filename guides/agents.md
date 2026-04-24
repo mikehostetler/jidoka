@@ -1,6 +1,6 @@
 # Agents
 
-Agents are the center of Bagu's public API. A Bagu agent is a compiled Elixir
+Agents are the center of Jidoka's public API. A Jidoka agent is a compiled Elixir
 module that generates a Jido.AI runtime with a smaller, validated authoring
 surface.
 
@@ -10,7 +10,7 @@ The beta DSL has four sections:
 
 ```elixir
 defmodule MyApp.SupportAgent do
-  use Bagu.Agent
+  use Jidoka.Agent
 
   agent do
     id :support_agent
@@ -73,7 +73,7 @@ end
 
 ## Instructions
 
-`defaults.instructions` is what Bagu maps to the underlying Jido.AI system
+`defaults.instructions` is what Jidoka maps to the underlying Jido.AI system
 prompt machinery.
 
 Static string:
@@ -88,7 +88,7 @@ Module resolver:
 
 ```elixir
 defmodule MyApp.SupportPrompt do
-  @behaviour Bagu.Agent.SystemPrompt
+  @behaviour Jidoka.Agent.SystemPrompt
 
   @impl true
   def resolve_system_prompt(%{context: context}) do
@@ -114,7 +114,7 @@ Dynamic instructions resolve once per turn using the current runtime context.
 
 ## Models
 
-`defaults.model` accepts Bagu/Jido.AI model inputs:
+`defaults.model` accepts Jidoka/Jido.AI model inputs:
 
 - alias atoms such as `:fast`
 - direct strings such as `"anthropic:claude-haiku-4-5"`
@@ -147,12 +147,12 @@ MyApp.SupportAgent.hooks()
 MyApp.SupportAgent.guardrails()
 ```
 
-Prefer public helpers and `Bagu.inspect_agent/1` over internal generated data
+Prefer public helpers and `Jidoka.inspect_agent/1` over internal generated data
 functions.
 
 ## Chat Turn Lifecycle
 
-A typical `Bagu.chat/3` call does this:
+A typical `Jidoka.chat/3` call does this:
 
 1. Validate public options, including `context:` and `conversation:`.
 2. Route to the current handoff owner when a `conversation:` has one.
@@ -161,14 +161,14 @@ A typical `Bagu.chat/3` call does this:
 5. Apply runtime character, hooks, guardrails, memory, MCP sync, and generated
    tool context.
 6. Send the request through Jido.AI.
-7. Normalize interruptions, handoffs, and errors into public Bagu return shapes.
+7. Normalize interruptions, handoffs, and errors into public Jidoka return shapes.
 
 The model sees only what instructions, memory, skills, and tools expose. Raw
 runtime `context:` is application data, not automatically prompt-visible text.
 
 ## Compile-Time Feedback
 
-Bagu intentionally rejects legacy or ambiguous placements. Examples:
+Jidoka intentionally rejects legacy or ambiguous placements. Examples:
 
 - `agent.model` must move to `defaults.model`.
 - `agent.system_prompt` must be renamed to `defaults.instructions`.

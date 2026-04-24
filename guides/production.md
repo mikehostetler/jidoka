@@ -1,13 +1,13 @@
 # Production
 
-Bagu is pre-beta, but its runtime model is designed for ordinary OTP
+Jidoka is pre-beta, but its runtime model is designed for ordinary OTP
 applications. This guide collects the operational decisions to make before
 shipping.
 
 ## Supervision
 
-Bagu starts a shared runtime from its OTP application. In an application that
-depends on Bagu, start compiled agents under your own supervision tree when they
+Jidoka starts a shared runtime from its OTP application. In an application that
+depends on Jidoka, start compiled agents under your own supervision tree when they
 should be long-lived, or start them on demand when they are request scoped.
 
 Manual start:
@@ -19,20 +19,20 @@ Manual start:
 Facade start:
 
 ```elixir
-{:ok, pid} = Bagu.start_agent(MyApp.SupportAgent.runtime_module(), id: "support-router")
+{:ok, pid} = Jidoka.start_agent(MyApp.SupportAgent.runtime_module(), id: "support-router")
 ```
 
 Lookup:
 
 ```elixir
-Bagu.whereis("support-router")
-Bagu.list_agents()
+Jidoka.whereis("support-router")
+Jidoka.list_agents()
 ```
 
 Stop:
 
 ```elixir
-Bagu.stop_agent("support-router")
+Jidoka.stop_agent("support-router")
 ```
 
 Choose stable ids for long-lived agents. Use generated or request-scoped ids for
@@ -47,7 +47,7 @@ the examples.
 Use model aliases for application defaults:
 
 ```elixir
-config :bagu, :model_aliases,
+config :jidoka, :model_aliases,
   fast: "anthropic:claude-haiku-4-5"
 ```
 
@@ -65,7 +65,7 @@ end
 At HTTP, CLI, job, and test boundaries, handle all public return shapes:
 
 ```elixir
-case Bagu.chat(pid, message, context: context, conversation: conversation_id) do
+case Jidoka.chat(pid, message, context: context, conversation: conversation_id) do
   {:ok, reply} ->
     {:ok, reply}
 
@@ -76,7 +76,7 @@ case Bagu.chat(pid, message, context: context, conversation: conversation_id) do
     {:handoff, handoff}
 
   {:error, reason} ->
-    {:error, Bagu.format_error(reason)}
+    {:error, Jidoka.format_error(reason)}
 end
 ```
 
@@ -105,7 +105,7 @@ Do not forward secrets to subagents, workflows, or handoffs. Use
 Imported agents must resolve executable pieces through registries:
 
 ```elixir
-Bagu.import_agent_file(path,
+Jidoka.import_agent_file(path,
   available_tools: [MyApp.Tools.LookupOrder],
   available_workflows: [MyApp.Workflows.RefundReview],
   available_handoffs: [MyApp.BillingAgent]
@@ -149,29 +149,29 @@ across:
 The public helpers are:
 
 ```elixir
-Bagu.handoff_owner("support-123")
-Bagu.reset_handoff("support-123")
+Jidoka.handoff_owner("support-123")
+Jidoka.reset_handoff("support-123")
 ```
 
 ## Observability
 
-Use Bagu inspection APIs in debug tooling:
+Use Jidoka inspection APIs in debug tooling:
 
 ```elixir
-Bagu.inspect_agent(MyApp.SupportAgent)
-Bagu.inspect_agent(pid)
-Bagu.inspect_request(pid)
-Bagu.inspect_workflow(MyApp.Workflows.RefundReview)
+Jidoka.inspect_agent(MyApp.SupportAgent)
+Jidoka.inspect_agent(pid)
+Jidoka.inspect_request(pid)
+Jidoka.inspect_workflow(MyApp.Workflows.RefundReview)
 ```
 
 Turn on demo trace logs when learning behavior:
 
 ```bash
-mix bagu support --log-level trace --dry-run
+mix jidoka support --log-level trace --dry-run
 ```
 
 For application observability, log request ids, agent ids, workflow ids, tool
-names, and formatted Bagu errors.
+names, and formatted Jidoka errors.
 
 ## Dependency Posture
 
@@ -180,12 +180,12 @@ dependencies in development, including `jido_runic` and `jido_eval` in this
 monorepo.
 
 Before a public Hex beta release, replace local paths with Hex releases, Git
-refs, or pinned tags. Keep the public Bagu API documented in these guides rather
+refs, or pinned tags. Keep the public Jidoka API documented in these guides rather
 than relying on upstream internals.
 
 ## Release Checklist
 
-Before shipping a Bagu-based application:
+Before shipping a Jidoka-based application:
 
 - run `mix test`
 - run `mix quality`

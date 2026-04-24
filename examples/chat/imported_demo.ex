@@ -1,16 +1,16 @@
-defmodule Bagu.Examples.Chat.ImportedDemo do
+defmodule Jidoka.Examples.Chat.ImportedDemo do
   @moduledoc false
 
-  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory}
+  alias Jidoka.Demo.{AgentSession, CLI, Debug, Inventory}
 
-  alias Bagu.Examples.Chat.Guardrails.{
+  alias Jidoka.Examples.Chat.Guardrails.{
     ApproveLargeMathTool,
     BlockSecretPrompt,
     BlockUnsafeReply
   }
 
-  alias Bagu.Examples.Chat.Hooks.ReplyWithFinalAnswer
-  alias Bagu.Examples.Chat.Tools.AddNumbers
+  alias Jidoka.Examples.Chat.Hooks.ReplyWithFinalAnswer
+  alias Jidoka.Examples.Chat.Tools.AddNumbers
   require Logger
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -27,23 +27,23 @@ defmodule Bagu.Examples.Chat.ImportedDemo do
     available_hooks = [ReplyWithFinalAnswer]
     available_guardrails = [BlockSecretPrompt, BlockUnsafeReply, ApproveLargeMathTool]
     available_skills = []
-    {:ok, tool_registry} = Bagu.Tool.normalize_available_tools(available_tools)
-    {:ok, hook_registry} = Bagu.Hook.normalize_available_hooks(available_hooks)
+    {:ok, tool_registry} = Jidoka.Tool.normalize_available_tools(available_tools)
+    {:ok, hook_registry} = Jidoka.Hook.normalize_available_hooks(available_hooks)
 
     {:ok, guardrail_registry} =
-      Bagu.Guardrail.normalize_available_guardrails(available_guardrails)
+      Jidoka.Guardrail.normalize_available_guardrails(available_guardrails)
 
     Logger.configure(level: :error)
 
     agent =
-      Bagu.import_agent_file!(spec_path,
+      Jidoka.import_agent_file!(spec_path,
         available_tools: available_tools,
         available_skills: available_skills,
         available_hooks: available_hooks,
         available_guardrails: available_guardrails
       )
 
-    Inventory.print_imported("Bagu imported-agent demo", agent, log_level,
+    Inventory.print_imported("Jidoka imported-agent demo", agent, log_level,
       source: spec_path,
       registries: %{
         tools: Map.keys(tool_registry),
@@ -52,8 +52,8 @@ defmodule Bagu.Examples.Chat.ImportedDemo do
         guardrails: Map.keys(guardrail_registry)
       },
       try: [
-        ~s(mix bagu imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."),
-        ~s(mix bagu imported --log-level trace -- "Use the add_numbers tool to add 8 and 13.")
+        ~s(mix jidoka imported -- "Use the add_numbers tool to add 17 and 25. Reply with only the sum."),
+        ~s(mix jidoka imported --log-level trace -- "Use the add_numbers tool to add 8 and 13.")
       ]
     )
 
@@ -62,7 +62,7 @@ defmodule Bagu.Examples.Chat.ImportedDemo do
     CLI.with_started_agent(
       options,
       log_level,
-      fn -> Bagu.start_agent(agent, id: "imported-script-chat-agent") end,
+      fn -> Jidoka.start_agent(agent, id: "imported-script-chat-agent") end,
       fn pid, level -> AgentSession.interactive_loop(pid, level, session_opts()) end,
       fn pid, prompt, level -> AgentSession.one_shot(pid, prompt, level, session_opts()) end
     )
@@ -81,7 +81,7 @@ defmodule Bagu.Examples.Chat.ImportedDemo do
       chat: fn pid, prompt, level, mode ->
         session = if mode == :interactive, do: "imported-interactive", else: "imported-cli"
 
-        Bagu.chat(pid, prompt,
+        Jidoka.chat(pid, prompt,
           context: %{"session" => session, "notify_pid" => self()},
           log_level: Debug.request_log_level(level)
         )

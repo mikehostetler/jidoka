@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.Support.Agents.OperationsSpecialistAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.Support.Agents.OperationsSpecialistAgent do
+  use Jidoka.Agent
 
   @context_fields %{
     channel: Zoi.string() |> Zoi.default("support_chat"),

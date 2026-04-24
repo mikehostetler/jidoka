@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.Support.Agents.SupportRouterAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.Support.Agents.SupportRouterAgent do
+  use Jidoka.Agent
 
-  alias Bagu.Examples.Support.Workflows.RefundReview
+  alias Jidoka.Examples.Support.Workflows.RefundReview
 
   @context_fields %{
     channel: Zoi.string() |> Zoi.default("support_chat"),
@@ -40,28 +40,28 @@ defmodule Bagu.Examples.Support.Agents.SupportRouterAgent do
       result: :structured
     )
 
-    subagent Bagu.Examples.Support.Agents.BillingSpecialistAgent,
+    subagent Jidoka.Examples.Support.Agents.BillingSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id, :order_id]},
       result: :structured
 
-    handoff Bagu.Examples.Support.Agents.BillingSpecialistAgent,
+    handoff Jidoka.Examples.Support.Agents.BillingSpecialistAgent,
       as: :transfer_billing_ownership,
       description: "Transfer ongoing billing conversation ownership to the billing specialist.",
       forward_context: {:only, [:channel, :session, :account_id, :order_id]}
 
-    subagent Bagu.Examples.Support.Agents.OperationsSpecialistAgent,
+    subagent Jidoka.Examples.Support.Agents.OperationsSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id, :order_id]},
       result: :structured
 
-    subagent Bagu.Examples.Support.Agents.WriterSpecialistAgent,
+    subagent Jidoka.Examples.Support.Agents.WriterSpecialistAgent,
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id]},
       result: :text
   end
 
   lifecycle do
-    input_guardrail Bagu.Examples.Support.Guardrails.SensitiveDataGuardrail
+    input_guardrail Jidoka.Examples.Support.Guardrails.SensitiveDataGuardrail
   end
 end

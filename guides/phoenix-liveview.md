@@ -1,6 +1,6 @@
 # Phoenix LiveView
 
-Phoenix integration should treat Bagu as an OTP runtime plus a projection
+Phoenix integration should treat Jidoka as an OTP runtime plus a projection
 source. The LiveView should own UI state and rendering. The agent should own
 execution. `Jido.Thread` should remain the canonical event log.
 
@@ -24,10 +24,10 @@ Only some of that belongs in a chat UI. Tool results, context operations, and
 private reasoning metadata are useful for debugging, but they should not be
 rendered as normal user-facing messages.
 
-Bagu exposes `Bagu.Agent.View` for this split:
+Jidoka exposes `Jidoka.Agent.View` for this split:
 
 ```elixir
-{:ok, view} = Bagu.Agent.View.snapshot(pid)
+{:ok, view} = Jidoka.Agent.View.snapshot(pid)
 
 view.visible_messages
 view.llm_context
@@ -39,13 +39,13 @@ provider-facing message projection. `events` is a compact debug stream.
 
 ## Dev Phoenix App
 
-The local consumer app under `dev/bagu_consumer` contains a minimal LiveView
+The local consumer app under `dev/jidoka_consumer` contains a minimal LiveView
 spike.
 
 Run it:
 
 ```bash
-cd dev/bagu_consumer
+cd dev/jidoka_consumer
 mix deps.get
 mix phx.server
 ```
@@ -61,9 +61,9 @@ The root LiveView renders four panels:
 
 The source files are:
 
-- `dev/bagu_consumer/lib/bagu_consumer_web/live/support_chat_live.ex`
-- `dev/bagu_consumer/lib/bagu_consumer_web/live/support_chat_view.ex`
-- `dev/bagu_consumer/lib/bagu_consumer/support_note_agent.ex`
+- `dev/jidoka_consumer/lib/jidoka_consumer_web/live/support_chat_live.ex`
+- `dev/jidoka_consumer/lib/jidoka_consumer_web/live/support_chat_view.ex`
+- `dev/jidoka_consumer/lib/jidoka_consumer/support_note_agent.ex`
 
 ## View Adapter Pattern
 
@@ -76,14 +76,14 @@ defmodule MyAppWeb.SupportChatView do
   def start_agent(session) do
     agent_id = agent_id(session)
 
-    case Bagu.whereis(agent_id) do
+    case Jidoka.whereis(agent_id) do
       nil -> @agent.start_link(id: agent_id)
       pid -> {:ok, pid}
     end
   end
 
   def snapshot(pid, session) do
-    with {:ok, projection} <- Bagu.Agent.View.snapshot(pid) do
+    with {:ok, projection} <- Jidoka.Agent.View.snapshot(pid) do
       {:ok,
        %{
          conversation_id: conversation_id(session),
@@ -106,7 +106,7 @@ This adapter is the proposed "view" concept:
 - it projects the agent thread into UI data
 - it defines UI hooks around submit/result behavior
 
-The adapter should not mutate the thread directly. It should call Bagu runtime
+The adapter should not mutate the thread directly. It should call Jidoka runtime
 APIs and then re-project the agent state.
 
 ## LiveView Flow
@@ -163,7 +163,7 @@ context = %{
   session: conversation_id
 }
 
-Bagu.chat(pid, message,
+Jidoka.chat(pid, message,
   conversation: conversation_id,
   context: context
 )
@@ -178,22 +178,22 @@ permission scope.
 Use both APIs:
 
 ```elixir
-Bagu.Agent.View.snapshot(pid)
-Bagu.inspect_request(pid)
+Jidoka.Agent.View.snapshot(pid)
+Jidoka.inspect_request(pid)
 ```
 
-`Bagu.Agent.View.snapshot/2` is for UI projection. `Bagu.inspect_request/1` is
+`Jidoka.Agent.View.snapshot/2` is for UI projection. `Jidoka.inspect_request/1` is
 for request-level diagnostics such as hooks, guardrails, memory, subagents,
 workflows, handoffs, usage, and errors.
 
 ## Design Direction
 
-The likely Bagu-level abstraction is not a Phoenix-specific component. It is a
+The likely Jidoka-level abstraction is not a Phoenix-specific component. It is a
 projection/view contract:
 
 - core: project `Jido.Thread` into stable data shapes
 - app: define the agent, context, conversation id, and UI hooks
 - Phoenix: render the projected data and manage optimistic/pending state
 
-That leaves Phoenix free to use LiveView idioms while keeping Bagu's runtime
+That leaves Phoenix free to use LiveView idioms while keeping Jidoka's runtime
 portable to controllers, channels, jobs, tests, or non-Phoenix UIs.

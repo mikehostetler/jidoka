@@ -1,8 +1,8 @@
-defmodule Bagu.Examples.Chat.Hooks.ReplyWithFinalAnswer do
-  use Bagu.Hook, name: "reply_with_final_answer"
+defmodule Jidoka.Examples.Chat.Hooks.ReplyWithFinalAnswer do
+  use Jidoka.Hook, name: "reply_with_final_answer"
 
   @impl true
-  def call(%Bagu.Hooks.BeforeTurn{} = input) do
+  def call(%Jidoka.Hooks.BeforeTurn{} = input) do
     tenant = Map.get(input.context, :tenant, Map.get(input.context, "tenant"))
 
     tenant_instruction =

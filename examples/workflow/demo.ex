@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.Workflow.Demo do
+defmodule Jidoka.Examples.Workflow.Demo do
   @moduledoc false
 
-  alias Bagu.Demo.CLI
+  alias Jidoka.Demo.CLI
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -26,7 +26,7 @@ defmodule Bagu.Examples.Workflow.Demo do
           IO.puts("workflow> steps=#{inspect(debug.steps)}")
 
         {:error, reason} ->
-          IO.puts("error> #{Bagu.format_error(reason)}")
+          IO.puts("error> #{Jidoka.format_error(reason)}")
       end
     end
 
@@ -34,9 +34,9 @@ defmodule Bagu.Examples.Workflow.Demo do
   end
 
   defp print_header(log_level) do
-    {:ok, inspection} = Bagu.inspect_workflow(workflow_module())
+    {:ok, inspection} = Jidoka.inspect_workflow(workflow_module())
 
-    IO.puts("Bagu workflow demo")
+    IO.puts("Jidoka workflow demo")
     IO.puts("Workflow: #{inspection.id}")
     IO.puts("Steps: #{Enum.map_join(inspection.steps, ", ", &Atom.to_string(&1.name))}")
 
@@ -62,6 +62,6 @@ defmodule Bagu.Examples.Workflow.Demo do
   end
 
   defp workflow_module do
-    Module.concat([Bagu, Examples, Workflow, Workflows, MathPipeline])
+    Module.concat([Jidoka, Examples, Workflow, Workflows, MathPipeline])
   end
 end

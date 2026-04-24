@@ -1,10 +1,10 @@
-# Bagu Beta TODO
+# Jidoka Beta TODO
 
 Updated: 2026-04-22
 
-This file is the working beta-release roadmap for `bagu`. It intentionally
+This file is the working beta-release roadmap for `jidoka`. It intentionally
 separates the current agent foundation from the next orchestration layer so we
-can ship a coherent beta instead of continuously expanding `Bagu.Agent`.
+can ship a coherent beta instead of continuously expanding `Jidoka.Agent`.
 
 ## Current Baseline
 
@@ -16,7 +16,7 @@ can ship a coherent beta instead of continuously expanding `Bagu.Agent`.
 
 The beta bias:
 
-- keep Bagu narrow, developer-friendly, and strongly validated at compile time
+- keep Jidoka narrow, developer-friendly, and strongly validated at compile time
 - keep Jido and Jido.AI as the runtime foundation
 - hide raw Jido signals, directives, state ops, and strategy internals by
   default
@@ -42,15 +42,15 @@ release reason.
   out of the immutable agent identity.
 
 - [x] Public `instructions` language
-  Bagu exposes `instructions`; internally it still maps to Jido's
+  Jidoka exposes `instructions`; internally it still maps to Jido's
   `system_prompt` APIs where required.
 
 - [x] Context schema and defaults
-  Compiled Zoi schemas live in `agent.schema`. `Bagu.Context.defaults/1`
+  Compiled Zoi schemas live in `agent.schema`. `Jidoka.Context.defaults/1`
   preserves defaulted fields even when other fields are required.
 
 - [x] Splode-backed error DX
-  Bagu now has `Bagu.Error`, `Bagu.format_error/1`, validation errors, config
+  Jidoka now has `Jidoka.Error`, `Jidoka.format_error/1`, validation errors, config
   errors, runtime errors, and user-facing context/schema formatting.
 
 - [x] Capabilities
@@ -61,7 +61,7 @@ release reason.
   Memory, hooks, and guardrails live under `lifecycle`.
 
 - [x] Memory integration
-  Bagu uses `jido_memory` through the normal Jido plugin path. Memory remains
+  Jidoka uses `jido_memory` through the normal Jido plugin path. Memory remains
   opt-in and conversation-first.
 
 - [x] Imported specs
@@ -69,15 +69,15 @@ release reason.
   context-default-only for beta; they do not support portable schemas yet.
 
 - [x] Demos and smoke paths
-  `mix bagu chat`, `mix bagu imported`, `mix bagu orchestrator`, and
-  `mix bagu kitchen_sink` exercise the primary examples.
+  `mix jidoka chat`, `mix jidoka imported`, `mix jidoka orchestrator`, and
+  `mix jidoka kitchen_sink` exercise the primary examples.
 
 ## Beta Release Blockers
 
 ### 1. Workflow Design And MVP
 
 Workflows are the outstanding missing product feature for beta. They should be
-a separate top-level concept, not an expansion of `Bagu.Agent`.
+a separate top-level concept, not an expansion of `Jidoka.Agent`.
 
 Research baseline:
 
@@ -112,7 +112,7 @@ Required decisions:
 
 - [ ] Decide the workflow backend.
   Default answer: build on `jido_runic` and Runic. The remaining work is to
-  decide whether Bagu compiles directly to `Runic.Workflow` structs, wraps
+  decide whether Jidoka compiles directly to `Runic.Workflow` structs, wraps
   `Jido.Runic.Strategy`, or supports both a direct one-shot runner and a
   strategy-driven AgentServer path.
 
@@ -122,22 +122,22 @@ Required decisions:
   future runtime topology, but it is not obviously the beta workflow execution
   model because it does not primarily model step input/output dataflow.
 
-- [ ] Define the beta `Bagu.Workflow` scope.
+- [ ] Define the beta `Jidoka.Workflow` scope.
   The first version should cover deterministic app-owned orchestration around
   agents and functions. It should not become handoffs, peer mesh, autonomous
   swarms, or public Jido runtime strategy selection.
 
-- [ ] Decide how much Runic language Bagu should expose.
+- [ ] Decide how much Runic language Jidoka should expose.
   Runic has facts, runnables, match/execute nodes, graph components, scheduler
-  policies, run context, and external scheduler hooks. Bagu should expose a
+  policies, run context, and external scheduler hooks. Jidoka should expose a
   smaller agent-workflow vocabulary and keep raw Runic concepts behind
   inspection/debug APIs unless users explicitly opt into interop.
 
 Recommended MVP:
 
-- [ ] `use Bagu.Workflow`
+- [ ] `use Jidoka.Workflow`
 - [ ] `workflow do id :lower_snake_case; description "..."; input Zoi.object(...) end`
-- [ ] agent steps that call existing `Bagu.Agent` or `Bagu.ImportedAgent`
+- [ ] agent steps that call existing `Jidoka.Agent` or `Jidoka.ImportedAgent`
 - [ ] function/tool steps for deterministic Elixir work between agent calls
 - [ ] Jido Action-backed steps compiled to `Jido.Runic.ActionNode`
 - [ ] explicit data wiring from workflow input, prior step result, static value,
@@ -146,8 +146,8 @@ Recommended MVP:
 - [ ] bounded parallel execution through Runic scheduling where dependencies
   allow it
 - [ ] output selection from a named step or collected map
-- [ ] `Bagu.Workflow.run/3` returning Bagu/Splode errors
-- [ ] `Bagu.inspect_workflow/1` backed by `Jido.Runic.Introspection`
+- [ ] `Jidoka.Workflow.run/3` returning Jidoka/Splode errors
+- [ ] `Jidoka.inspect_workflow/1` backed by `Jido.Runic.Introspection`
 - [ ] one CLI/demo workflow that is not the kitchen sink
 - [ ] one step-mode or debug-mode path that proves we can inspect workflow
   progress without exposing low-level Jido machinery
@@ -160,7 +160,7 @@ Defer unless the backend makes them cheap and obvious:
 - [ ] dynamic graph mutation
 - [ ] planner-generated workflows
 - [ ] swarm/peer coordination
-- [ ] broad direct Runic component authoring from the Bagu DSL
+- [ ] broad direct Runic component authoring from the Jidoka DSL
 
 Validation requirements:
 
@@ -168,11 +168,11 @@ Validation requirements:
 - [ ] reject duplicate step names
 - [ ] reject missing step references
 - [ ] reject cyclic dependencies
-- [ ] validate agent step modules implement the Bagu agent surface
+- [ ] validate agent step modules implement the Jidoka agent surface
 - [ ] validate input/context mappings against declared schemas where possible
 - [ ] validate output references exist
 - [ ] format workflow compile errors with the same section path, module, source
-  location, invalid value, and fix-hint style used by `Bagu.Agent`
+  location, invalid value, and fix-hint style used by `Jidoka.Agent`
 
 Open design questions:
 
@@ -184,11 +184,11 @@ Open design questions:
   should `input` be the only public per-run data plane?
 - [ ] Should memory use the workflow run id, the agent id, or explicit
   conversation ids for multi-step agent calls?
-- [ ] Should Bagu represent agent calls as Jido Actions first, or should
-  `jido_runic` grow a first-class Bagu/Jido.AI agent node?
-- [ ] Should Bagu use `Jido.Runic.Strategy` for all workflow execution, or only
+- [ ] Should Jidoka represent agent calls as Jido Actions first, or should
+  `jido_runic` grow a first-class Jidoka/Jido.AI agent node?
+- [ ] Should Jidoka use `Jido.Runic.Strategy` for all workflow execution, or only
   for supervised/long-running workflows?
-- [ ] How should Runic scheduler policies map to Bagu concepts like timeout,
+- [ ] How should Runic scheduler policies map to Jidoka concepts like timeout,
   retry, backoff, fallback, and failure mode?
 - [ ] Should workflow step mode become part of the public beta API or remain a
   demo/debug feature?
@@ -198,7 +198,7 @@ Open design questions:
 - [ ] Add a short workflow guide to `README.md`.
 - [ ] Add `usage-rules.md` guidance for agents vs workflows.
 - [ ] Add one focused `examples/workflow` demo.
-- [ ] Add a `mix bagu workflow` smoke command only if it stays simple.
+- [ ] Add a `mix jidoka workflow` smoke command only if it stays simple.
 - [ ] Add a workflow inspection/debug example.
 - [ ] Make clear that subagents and workflows solve different problems:
   subagents are capabilities inside an agent turn; workflows are app-owned
@@ -210,18 +210,18 @@ Open design questions:
 - [ ] Ensure docs use `instructions`, not `system_prompt`, except when
   explaining the Jido mapping internally.
 - [ ] Ensure examples use the parenless DSL style.
-- [ ] Ensure all user-facing errors go through `Bagu.format_error/1` in demos.
+- [ ] Ensure all user-facing errors go through `Jidoka.format_error/1` in demos.
 - [ ] Confirm imported JSON/YAML examples match the beta section layout.
-- [ ] Decide whether `Bagu.chat/3` remains the only top-level agent call or
-  whether `Bagu.run/3` is needed for workflows.
+- [ ] Decide whether `Jidoka.chat/3` remains the only top-level agent call or
+  whether `Jidoka.run/3` is needed for workflows.
 
 ### 4. Runtime Error Normalization
 
-Splode is now the canonical Bagu error path. The remaining hardening work is to
+Splode is now the canonical Jidoka error path. The remaining hardening work is to
 make every important runtime edge readable without breaking the narrow public
 surface.
 
-- [ ] Normalize subagent tool failures into Bagu/Splode runtime errors while
+- [ ] Normalize subagent tool failures into Jidoka/Splode runtime errors while
   preserving useful child-agent context.
 - [ ] Normalize MCP endpoint startup, command, conflict, and partial-sync
   failures.
@@ -237,15 +237,15 @@ surface.
   as the v1 target.
 
 - [ ] Decide dependency publishing posture.
-  Current Bagu depends on GitHub branches for `jido_ai`, `jido_memory`,
+  Current Jidoka depends on GitHub branches for `jido_ai`, `jido_memory`,
   `jido_mcp`, and `ash_jido`. That may be acceptable for an internal beta, but
   a public Hex beta should prefer Hex releases or pinned tags.
 
 - [ ] Add `jido_runic` as a direct dependency when workflow work starts.
-  Start with `{:jido_runic, path: "../jido_runic"}` so Bagu and Jido.Runic can
+  Start with `{:jido_runic, path: "../jido_runic"}` so Jidoka and Jido.Runic can
   iterate together in the monofolder. Before public beta, decide between a
   pinned GitHub dependency and landing a `jido_runic` Hex beta first. Do not
-  rely on transitive `runic` availability for a public `Bagu.Workflow` API.
+  rely on transitive `runic` availability for a public `Jidoka.Workflow` API.
 
 - [ ] Remove direct overrides once upstream dependency ranges align.
   `jido` and `jido_ai` overrides are useful during ecosystem iteration, but
@@ -257,8 +257,8 @@ surface.
   and `mix quality`.
 
 - [ ] Run demo smoke tests:
-  `mix bagu chat`, `mix bagu imported`, `mix bagu orchestrator`,
-  and `mix bagu kitchen_sink`.
+  `mix jidoka chat`, `mix jidoka imported`, `mix jidoka orchestrator`,
+  and `mix jidoka kitchen_sink`.
 
 - [ ] Review package metadata and docs groups before Hex publishing.
 
@@ -276,12 +276,12 @@ surface.
    a concrete requirement.
 
 2. Workflow DSL skeleton
-   Add `Bagu.Workflow` with Spark sections, entities, info helpers, compile-time
+   Add `Jidoka.Workflow` with Spark sections, entities, info helpers, compile-time
    validation, and inspection without a large runtime surface.
 
 3. Workflow runtime MVP
-   Add `Bagu.Workflow.run/3`, agent-step execution, function/tool steps,
-   input/context parsing, output selection, and Bagu/Splode errors.
+   Add `Jidoka.Workflow.run/3`, agent-step execution, function/tool steps,
+   input/context parsing, output selection, and Jidoka/Splode errors.
 
 4. Workflow examples and docs
    Add the workflow guide, focused example, tests, and optional mix task smoke
@@ -311,7 +311,7 @@ unless they fall out naturally while working on the release gate.
 
 ## Intentionally Not Beta
 
-- [ ] Bagu as an MCP server
+- [ ] Jidoka as an MCP server
 - [ ] public raw Jido signals, directives, state ops, or strategy configuration
 - [ ] handoff DSL
 - [ ] peer mesh or swarm coordination
@@ -324,12 +324,12 @@ unless they fall out naturally while working on the release gate.
 
 ## Review Notes
 
-- `Bagu.Agent` is now in a good beta shape. The next architectural risk is
+- `Jidoka.Agent` is now in a good beta shape. The next architectural risk is
   overloading it with workflow concerns.
 - `jido_runic` is the workflow candidate because it bridges Runic DAGs with
   Jido Actions, Signals, Strategy execution, directives, child delegation, and
   introspection.
-- Reactor is no longer the planned workflow substrate for Bagu.
+- Reactor is no longer the planned workflow substrate for Jidoka.
 - Jido Pod looks more like future supervised runtime topology than the first
   workflow execution model.
 - Memory should remain an agent lifecycle feature first. Workflows should pass

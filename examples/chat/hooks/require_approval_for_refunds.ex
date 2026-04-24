@@ -1,8 +1,8 @@
-defmodule Bagu.Examples.Chat.Hooks.RequireApprovalForRefunds do
-  use Bagu.Hook, name: "require_approval_for_refunds"
+defmodule Jidoka.Examples.Chat.Hooks.RequireApprovalForRefunds do
+  use Jidoka.Hook, name: "require_approval_for_refunds"
 
   @impl true
-  def call(%Bagu.Hooks.AfterTurn{} = input) do
+  def call(%Jidoka.Hooks.AfterTurn{} = input) do
     if refund_request?(input.message) do
       tenant = Map.get(input.context, :tenant, Map.get(input.context, "tenant"))
       notify_pid = Map.get(input.context, :notify_pid, Map.get(input.context, "notify_pid"))

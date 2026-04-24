@@ -1,14 +1,14 @@
-# Bagu Roadmap
+# Jidoka Roadmap
 
 Updated: 2026-04-23
 
-This roadmap is the high-level guide for moving Bagu toward beta and then into
+This roadmap is the high-level guide for moving Jidoka toward beta and then into
 the next orchestration layers. `TODO.md` remains the tactical checklist; this
 file explains sequencing, scope, and boundaries.
 
 ## Product Direction
 
-Bagu should stay a narrow, developer-friendly layer over Jido and Jido.AI. The
+Jidoka should stay a narrow, developer-friendly layer over Jido and Jido.AI. The
 core design line is:
 
 - `agent` is the executable unit.
@@ -17,14 +17,14 @@ core design line is:
 - `handoff` transfers conversation/control ownership.
 - `team` or `pod` represents a durable supervised group.
 
-Do not let `Bagu.Agent` absorb every concept. The package should grow by adding
+Do not let `Jidoka.Agent` absorb every concept. The package should grow by adding
 clear adjacent nouns, not by turning the agent DSL into a catch-all runtime.
 
 ## Milestone Order
 
 ### 1. Workflow Spike With `jido_runic`
 
-Goal: prove the workflow substrate before committing the public Bagu API.
+Goal: prove the workflow substrate before committing the public Jidoka API.
 
 Status: done.
 
@@ -32,17 +32,17 @@ Scope:
 
 - Use the local `../jido_runic` checkout as a path dependency in a feature
   branch.
-- Build the smallest Bagu-owned proof that can compile a workflow and run it.
-- Decide whether Bagu should use direct `Runic.Workflow` execution,
+- Build the smallest Jidoka-owned proof that can compile a workflow and run it.
+- Decide whether Jidoka should use direct `Runic.Workflow` execution,
   `Jido.Runic.Strategy`, or both.
-- Decide how Bagu agent calls become workflow nodes.
+- Decide how Jidoka agent calls become workflow nodes.
 - Identify any required upstream changes in `jido_runic`.
 
 Exit criteria:
 
 - One tiny local workflow runs end-to-end.
 - We know the runtime path for the MVP.
-- We have a short design note for the public `Bagu.Workflow` shape.
+- We have a short design note for the public `Jidoka.Workflow` shape.
 
 ### 2. Workflow MVP
 
@@ -52,13 +52,13 @@ Status: done.
 
 Scope:
 
-- Add `Bagu.Workflow`.
+- Add `Jidoka.Workflow`.
 - Support workflow id, description, input schema, steps, dependencies, output
   selection, and inspection.
 - Support agent-backed steps and deterministic function/action steps.
 - Compile Jido Action-backed steps through `Jido.Runic.ActionNode` where that is
   the right fit.
-- Return Bagu/Splode errors.
+- Return Jidoka/Splode errors.
 - Add one focused example that is not the kitchen sink.
 - Add docs explaining when to use an agent, subagent, or workflow.
 
@@ -77,12 +77,12 @@ Status: done.
 
 Scope:
 
-- Normalize workflow errors into `Bagu.Error`.
+- Normalize workflow errors into `Jidoka.Error`.
 - Normalize subagent failures.
 - Normalize MCP endpoint startup, command, conflict, and partial-sync failures.
 - Normalize memory read/write failures and define which failures are soft vs
   hard.
-- Ensure CLI demos call `Bagu.format_error/1`.
+- Ensure CLI demos call `Jidoka.format_error/1`.
 - Add stable tests for multi-error formatting.
 
 Ordering note:
@@ -94,9 +94,9 @@ Detailed plan:
 
 1. Define the runtime error contract.
    - Keep public runtime calls returning `{:ok, value}` or
-     `{:error, %Bagu.Error.*{}}`.
+     `{:error, %Jidoka.Error.*{}}`.
    - Treat raw strings, atoms, tuples, exits, and third-party exceptions as
-     internal causes that must be wrapped before crossing a Bagu public
+     internal causes that must be wrapped before crossing a Jidoka public
      boundary.
    - Preserve original reasons under `details.cause` or a narrower
      context-specific key so debugging does not lose information.
@@ -105,10 +105,10 @@ Detailed plan:
      `:field`, `:value`, `:timeout`, `:request_id`, `:cause`.
 
 2. Add a normalization module.
-   - Introduce `Bagu.Error.Normalize` as the single place that turns known raw
-     runtime reasons into `Bagu.Error.ValidationError`,
-     `Bagu.Error.ConfigError`, or `Bagu.Error.ExecutionError`.
-   - Keep the existing constructors in `Bagu.Error`, but route boundary code
+   - Introduce `Jidoka.Error.Normalize` as the single place that turns known raw
+     runtime reasons into `Jidoka.Error.ValidationError`,
+     `Jidoka.Error.ConfigError`, or `Jidoka.Error.ExecutionError`.
+   - Keep the existing constructors in `Jidoka.Error`, but route boundary code
      through named normalizers such as:
      `chat_error/2`, `workflow_error/2`, `subagent_error/2`,
      `mcp_error/2`, `memory_error/2`, `hook_error/2`, and
@@ -117,19 +117,19 @@ Detailed plan:
      internal errors with the inspected cause in details.
 
 3. Improve formatting.
-   - Expand `Bagu.Error.format/1` so it formats Splode classes, multi-errors,
+   - Expand `Jidoka.Error.format/1` so it formats Splode classes, multi-errors,
      nested causes, workflow step failures, subagent failures, MCP endpoint
      failures, and memory failures.
    - Keep formatting stable and user-facing: one short headline plus sorted
      field bullets for validation details.
    - Ensure CLI demos and debug summaries never fall back to raw `inspect/1`
-     for known Bagu errors.
+     for known Jidoka errors.
 
 4. Normalize workflow errors first.
-   - Audit `Bagu.Workflow.Runtime` for raw reasons produced by input parsing,
+   - Audit `Jidoka.Workflow.Runtime` for raw reasons produced by input parsing,
      context refs, imported-agent refs, action execution, agent execution,
      timeouts, invalid step results, and output selection.
-   - Ensure every `Bagu.Workflow.run/3` error has workflow id, step name when
+   - Ensure every `Jidoka.Workflow.run/3` error has workflow id, step name when
      applicable, target, operation, and original cause.
    - Add formatting tests for invalid input, missing context refs, missing
      imported agents, step failure, timeout, and invalid output refs.
@@ -138,17 +138,17 @@ Detailed plan:
    - Replace public `{:subagent_failed, name, reason}`,
      `{:child_error, reason}`, `{:peer_not_found, peer}`, timeout, invalid
      task, invalid child result, and peer mismatch shapes with
-     `Bagu.Error.ExecutionError` or `Bagu.Error.ValidationError`.
+     `Jidoka.Error.ExecutionError` or `Jidoka.Error.ValidationError`.
    - Preserve child request metadata and peer target details in error metadata.
    - Update parent-agent tests so subagent failures are asserted as structured
-     Bagu errors and formatted messages are stable.
+     Jidoka errors and formatted messages are stable.
 
 6. Normalize MCP errors.
    - Wrap endpoint registration conflicts, startup failures, sync failures,
      command failures, tool limit failures, missing `jido_ai`, partial sync
      errors, and generated tool validation failures.
    - Distinguish hard failures from partial sync warnings. Hard failures should
-     return `{:error, %Bagu.Error.*{}}`; partial sync should return successful
+     return `{:error, %Jidoka.Error.*{}}`; partial sync should return successful
      sync metadata with structured warning entries.
    - Add tests for conflict, startup failure, partial sync, missing dependency,
      and endpoint command errors.
@@ -176,23 +176,23 @@ Detailed plan:
 
 9. Build an error matrix test suite.
    - Add table-driven tests that exercise each public runtime boundary:
-     `Bagu.chat/3`, `Bagu.Agent.prepare_chat_opts/2`,
-     `Bagu.Workflow.run/3`, subagent tools, MCP sync, and memory lifecycle.
+     `Jidoka.chat/3`, `Jidoka.Agent.prepare_chat_opts/2`,
+     `Jidoka.Workflow.run/3`, subagent tools, MCP sync, and memory lifecycle.
    - Assert both struct class and formatted output.
    - Add regression tests proving unknown raw errors are wrapped rather than
      leaked.
 
 10. Update docs and examples.
-    - Document `Bagu.format_error/1` as the recommended display path.
+    - Document `Jidoka.format_error/1` as the recommended display path.
     - Add a short README section showing validation, config, and execution
       errors.
-    - Update usage rules to say public runtime APIs return Bagu/Splode errors
+    - Update usage rules to say public runtime APIs return Jidoka/Splode errors
       and examples should not pattern-match on raw internal tuples.
 
 Exit criteria:
 
-- Public Bagu runtime APIs do not leak known raw string/atom/tuple reasons.
-- `Bagu.format_error/1` produces stable messages for validation, config,
+- Public Jidoka runtime APIs do not leak known raw string/atom/tuple reasons.
+- `Jidoka.format_error/1` produces stable messages for validation, config,
   execution, multi-error, workflow, subagent, MCP, memory, hook, and guardrail
   failures.
 - Existing demos print formatted errors.
@@ -207,8 +207,8 @@ Status: done.
 Scope:
 
 - Review all public modules and function names.
-- Decide top-level API boundaries, especially `Bagu.chat/3`,
-  `Bagu.Workflow.run/3`, and whether a broader `Bagu.run/3` belongs in beta.
+- Decide top-level API boundaries, especially `Jidoka.chat/3`,
+  `Jidoka.Workflow.run/3`, and whether a broader `Jidoka.run/3` belongs in beta.
 - Ensure docs use `instructions`, not `system_prompt`, except for internal Jido
   mapping notes.
 - Ensure examples use the beta DSL shape and parenless style.
@@ -219,17 +219,17 @@ Scope:
 Detailed plan:
 
 1. Inventory the public surface.
-   - List exported modules and functions from `lib/bagu`.
+   - List exported modules and functions from `lib/jidoka`.
    - Separate intended beta API from implementation modules.
    - Mark internal modules with `@moduledoc false` where they should not be
      presented as public.
    - Confirm ExDoc grouping matches the intended public story.
 
 2. Freeze top-level runtime APIs.
-   - Confirm `Bagu.chat/3`, `Bagu.start_agent/2`, `Bagu.stop_agent/1`,
-     `Bagu.format_error/1`, `Bagu.Workflow.run/3`, and
-     `Bagu.inspect_workflow/1` are the intended beta entrypoints.
-   - Decide whether `Bagu.run/3` belongs in beta or should be deferred.
+   - Confirm `Jidoka.chat/3`, `Jidoka.start_agent/2`, `Jidoka.stop_agent/1`,
+     `Jidoka.format_error/1`, `Jidoka.Workflow.run/3`, and
+     `Jidoka.inspect_workflow/1` are the intended beta entrypoints.
+   - Decide whether `Jidoka.run/3` belongs in beta or should be deferred.
    - Ensure successful return shapes and error return shapes are documented and
      tested at public boundaries.
 
@@ -238,7 +238,7 @@ Detailed plan:
      sections.
    - Confirm `instructions` is the only public prompt field.
    - Audit examples and imported specs for stale `system_prompt`, legacy flat
-     placement, or old `Moto` naming.
+     placement, or old historical naming.
    - Keep Jido-specific terms out of public docs unless they explain an internal
      adapter boundary.
 
@@ -254,22 +254,22 @@ Detailed plan:
    - Evaluate whether beta needs an agent capability adapter for workflows, for
      example `workflow MyWorkflow, as: :review_refund`.
    - If included, keep it narrow: expose workflows to agents as tool-like
-     capabilities, but continue running them through `Bagu.Workflow`.
+     capabilities, but continue running them through `Jidoka.Workflow`.
    - If deferred, document the current rule clearly: workflows may call agents,
      but agents do not yet call workflows directly.
    - Use the support example as the decision fixture because it already exposes
      both directions.
 
 6. Stabilize errors and diagnostics.
-   - Confirm runtime errors are always Bagu/Splode errors at public boundaries.
-   - Confirm `Bagu.format_error/1` is the only recommended display path.
+   - Confirm runtime errors are always Jidoka/Splode errors at public boundaries.
+   - Confirm `Jidoka.format_error/1` is the only recommended display path.
    - Audit demo CLIs, evals, and debug output for raw `inspect(reason)` usage on
-     known Bagu errors.
+     known Jidoka errors.
 
 7. Stabilize examples and eval posture.
    - Keep kitchen sink broad, but make focused examples the primary docs path.
    - Ensure support, workflow, imported, orchestrator, and chat demos all use
-     the renamed `mix bagu` commands.
+     the renamed `mix jidoka` commands.
    - Keep live LLM evals excluded by default and document required environment
      variables.
 
@@ -286,7 +286,7 @@ Detailed plan:
    - `mix credo --min-priority higher`
    - `mix dialyzer`
    - `mix quality`
-   - Smoke all `mix bagu ... --dry-run` demos.
+   - Smoke all `mix jidoka ... --dry-run` demos.
 
 Exit criteria:
 
@@ -310,9 +310,9 @@ Scope:
 
 ### 6. Characters Via `jido_character`
 
-Goal: add persona/voice composition without bloating `Bagu.Agent`.
+Goal: add persona/voice composition without bloating `Jidoka.Agent`.
 
-Status: basic Bagu integration done; Bagu now has a direct Git dependency on
+Status: basic Jidoka integration done; Jidoka now has a direct Git dependency on
 `jido_character`. Public Hex beta still needs a dependency posture decision:
 Hex release, pinned tag, or another stable source.
 
@@ -324,7 +324,7 @@ Candidate package:
   personality, voice, knowledge, memory, instructions, renderers, and ReqLLM
   context rendering.
 
-Likely Bagu scope:
+Likely Jidoka scope:
 
 - Add `defaults.character MyApp.Characters.SupportAdvisor` or similar. Done.
 - Compose rendered character output with `defaults.instructions`. Done.
@@ -360,7 +360,7 @@ Scope questions:
 - Source hooks and guardrails apply to the initiating turn; target hooks and
   guardrails apply on later routed turns.
 - Control does not return automatically in the MVP.
-- The initiating turn surfaces `{:handoff, %Bagu.Handoff{}}`.
+- The initiating turn surfaces `{:handoff, %Jidoka.Handoff{}}`.
 
 Dependency:
 
@@ -379,7 +379,7 @@ Underlying runtime:
 - Jido Pods model canonical topology, eager/lazy node reconciliation, adoption,
   nested pods, partitioning, and runtime mutation.
 
-Likely Bagu noun:
+Likely Jidoka noun:
 
 - Prefer `team` publicly unless direct `pod` language proves clearer for
   Elixir/Jido users.
@@ -407,9 +407,9 @@ Positioning:
 
 - CrewAI is useful as product vocabulary: agents, tasks, crews, flows, manager
   process, planning, memory, and callbacks.
-- Bagu should not copy YAML-first authoring or role/goal/backstory as the core
+- Jidoka should not copy YAML-first authoring or role/goal/backstory as the core
   DSL.
-- Crew-style behavior should be built from Bagu primitives:
+- Crew-style behavior should be built from Jidoka primitives:
   `agent + workflow + character + handoff + team`.
 
 Possible recipes:

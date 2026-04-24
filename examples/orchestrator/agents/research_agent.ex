@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.Orchestrator.Agents.ResearchAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.Orchestrator.Agents.ResearchAgent do
+  use Jidoka.Agent
 
   @context_fields %{
     specialty: Zoi.string() |> Zoi.default("research"),

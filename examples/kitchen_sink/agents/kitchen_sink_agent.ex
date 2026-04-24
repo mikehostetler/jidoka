@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.KitchenSink.Agents.KitchenSinkAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.KitchenSink.Agents.KitchenSinkAgent do
+  use Jidoka.Agent
 
   @context_fields %{
     tenant: Zoi.string() |> Zoi.default("demo"),
@@ -17,25 +17,25 @@ defmodule Bagu.Examples.KitchenSink.Agents.KitchenSinkAgent do
 
   defaults do
     model :fast
-    instructions Bagu.Examples.KitchenSink.Prompts.DynamicPrompt
+    instructions Jidoka.Examples.KitchenSink.Prompts.DynamicPrompt
   end
 
   capabilities do
     skill "kitchen-guidelines"
     load_path "../skills"
-    tool Bagu.Examples.KitchenSink.Tools.AddNumbers
-    ash_resource Bagu.Examples.KitchenSink.Ash.User
+    tool Jidoka.Examples.KitchenSink.Tools.AddNumbers
+    ash_resource Jidoka.Examples.KitchenSink.Ash.User
     mcp_tools endpoint: :local_fs, prefix: "fs_"
-    plugin Bagu.Examples.KitchenSink.Plugins.ShowcasePlugin
+    plugin Jidoka.Examples.KitchenSink.Plugins.ShowcasePlugin
 
-    subagent Bagu.Examples.KitchenSink.Agents.ResearchAgent,
+    subagent Jidoka.Examples.KitchenSink.Agents.ResearchAgent,
       as: "research_agent",
       description: "Ask the research specialist for concise factual notes",
       timeout: 30_000,
       forward_context: {:only, [:tenant, :channel, :session]},
       result: :structured
 
-    subagent Bagu.Examples.KitchenSink.Subagents.ImportedEditorSpecialist,
+    subagent Jidoka.Examples.KitchenSink.Subagents.ImportedEditorSpecialist,
       as: "editor_specialist",
       description: "Ask the imported editor specialist to polish text",
       timeout: 30_000,
@@ -52,12 +52,12 @@ defmodule Bagu.Examples.KitchenSink.Agents.KitchenSinkAgent do
       inject :instructions
     end
 
-    before_turn Bagu.Examples.KitchenSink.Hooks.ShapeTurn
-    after_turn Bagu.Examples.KitchenSink.Hooks.TagReply
-    on_interrupt Bagu.Examples.KitchenSink.Hooks.NotifyInterrupt
+    before_turn Jidoka.Examples.KitchenSink.Hooks.ShapeTurn
+    after_turn Jidoka.Examples.KitchenSink.Hooks.TagReply
+    on_interrupt Jidoka.Examples.KitchenSink.Hooks.NotifyInterrupt
 
-    input_guardrail Bagu.Examples.KitchenSink.Guardrails.BlockClassifiedPrompt
-    output_guardrail Bagu.Examples.KitchenSink.Guardrails.BlockUnsafeReply
-    tool_guardrail Bagu.Examples.KitchenSink.Guardrails.ApproveLargeMathTool
+    input_guardrail Jidoka.Examples.KitchenSink.Guardrails.BlockClassifiedPrompt
+    output_guardrail Jidoka.Examples.KitchenSink.Guardrails.BlockUnsafeReply
+    tool_guardrail Jidoka.Examples.KitchenSink.Guardrails.ApproveLargeMathTool
   end
 end

@@ -10,7 +10,7 @@ policy, safety, and operational behavior.
 
 ```elixir
 defmodule MyApp.SupportAgent do
-  use Bagu.Agent
+  use Jidoka.Agent
 
   agent do
     id :support_agent
@@ -31,7 +31,7 @@ defmodule MyApp.SupportAgent do
 end
 ```
 
-Bagu renders the character before `defaults.instructions`. That means the
+Jidoka renders the character before `defaults.instructions`. That means the
 character shapes voice and persona, while instructions still define the task.
 
 ## Runtime Override
@@ -39,7 +39,7 @@ character shapes voice and persona, while instructions still define the task.
 Use `character:` for one request when the caller needs a different voice:
 
 ```elixir
-Bagu.chat(pid, "Can I get a refund?",
+Jidoka.chat(pid, "Can I get a refund?",
   character: %{
     name: "Escalation Advisor",
     voice: %{tone: :warm},
@@ -52,7 +52,7 @@ Runtime `character:` overrides the compile-time character for that turn only.
 
 ## Character Sources
 
-Bagu accepts:
+Jidoka accepts:
 
 - inline maps parsed by `Jido.Character.new/1`
 - modules generated with `use Jido.Character`
@@ -81,7 +81,7 @@ They can also reference string character names when the importing application
 provides `available_characters`.
 
 ```elixir
-Bagu.import_agent(json,
+Jidoka.import_agent(json,
   available_characters: %{
     "support_advisor" => MyApp.Characters.SupportAdvisor
   }
@@ -90,12 +90,12 @@ Bagu.import_agent(json,
 
 ## Error Handling
 
-Invalid character data returns a Bagu validation error at runtime or a DSL error
+Invalid character data returns a Jidoka validation error at runtime or a DSL error
 at compile time:
 
 ```elixir
-{:error, reason} = Bagu.chat(pid, "Hello", character: %{voice: :bad_shape})
-Bagu.format_error(reason)
+{:error, reason} = Jidoka.chat(pid, "Hello", character: %{voice: :bad_shape})
+Jidoka.format_error(reason)
 ```
 
 Keep character data small and explicit. Characters should not replace memory,

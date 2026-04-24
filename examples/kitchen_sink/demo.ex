@@ -1,7 +1,7 @@
-defmodule Bagu.Examples.KitchenSink.Demo do
+defmodule Jidoka.Examples.KitchenSink.Demo do
   @moduledoc false
 
-  alias Bagu.Demo.{AgentSession, CLI, Debug, Inventory}
+  alias Jidoka.Demo.{AgentSession, CLI, Debug, Inventory}
 
   @spec main([String.t()]) :: :ok
   def main(argv) do
@@ -28,13 +28,13 @@ defmodule Bagu.Examples.KitchenSink.Demo do
   end
 
   defp print_header(log_level) do
-    Inventory.print_compiled("Bagu kitchen sink demo", agent_module(), log_level,
-      notice: "Showcase only: start with `mix bagu chat` for the simple path.",
+    Inventory.print_compiled("Jidoka kitchen sink demo", agent_module(), log_level,
+      notice: "Showcase only: start with `mix jidoka chat` for the simple path.",
       try: [
-        ~s(mix bagu kitchen_sink -- "Add 17 and 25 with the tool."),
-        ~s(mix bagu kitchen_sink -- "Show what runtime context is visible."),
-        ~s(mix bagu kitchen_sink -- "Use the research_agent specialist to explain embeddings."),
-        ~s(mix bagu kitchen_sink -- "Use the editor_specialist to polish: Bagu makes agents easier.")
+        ~s(mix jidoka kitchen_sink -- "Add 17 and 25 with the tool."),
+        ~s(mix jidoka kitchen_sink -- "Show what runtime context is visible."),
+        ~s(mix jidoka kitchen_sink -- "Use the research_agent specialist to explain embeddings."),
+        ~s(mix jidoka kitchen_sink -- "Use the editor_specialist to polish: Jidoka makes agents easier.")
       ]
     )
   end
@@ -42,7 +42,7 @@ defmodule Bagu.Examples.KitchenSink.Demo do
   defp prepare_mcp_sandbox! do
     sandbox = Path.expand("../../tmp/mcp-sandbox", __DIR__)
     File.mkdir_p!(sandbox)
-    File.write!(Path.join(sandbox, "kitchen-sink.txt"), "hello from the Bagu kitchen sink demo\n")
+    File.write!(Path.join(sandbox, "kitchen-sink.txt"), "hello from the Jidoka kitchen sink demo\n")
   end
 
   defp session_opts do
@@ -51,7 +51,7 @@ defmodule Bagu.Examples.KitchenSink.Demo do
         "Add 17 and 25 with the tool.",
         "Show what runtime context is visible.",
         "Use the research_agent specialist to explain embeddings.",
-        "Use the editor_specialist to polish: Bagu makes agents easier."
+        "Use the editor_specialist to polish: Jidoka makes agents easier."
       ],
       interrupts: :kitchen_sink_interrupt,
       subagents: [empty: :silent],
@@ -65,6 +65,6 @@ defmodule Bagu.Examples.KitchenSink.Demo do
   end
 
   defp agent_module do
-    Module.concat([Bagu, Examples, KitchenSink, Agents, KitchenSinkAgent])
+    Module.concat([Jidoka, Examples, KitchenSink, Agents, KitchenSinkAgent])
   end
 end

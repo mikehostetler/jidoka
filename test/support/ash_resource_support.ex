@@ -1,14 +1,14 @@
-defmodule BaguTest.Support.Accounts do
+defmodule JidokaTest.Support.Accounts do
   use Ash.Domain, validate_config_inclusion?: false
 
   resources do
-    resource(BaguTest.Support.User)
+    resource(JidokaTest.Support.User)
   end
 end
 
-defmodule BaguTest.Support.User do
+defmodule JidokaTest.Support.User do
   use Ash.Resource,
-    domain: BaguTest.Support.Accounts,
+    domain: JidokaTest.Support.Accounts,
     extensions: [AshJido],
     validate_domain_inclusion?: false
 

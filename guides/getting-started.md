@@ -1,17 +1,17 @@
 # Getting Started
 
-This guide builds the smallest useful Bagu agent, starts it, chats with it, and
+This guide builds the smallest useful Jidoka agent, starts it, chats with it, and
 handles errors correctly.
 
 ## Install
 
-Bagu is pre-beta and is not published to Hex yet. Use the Git repository while
+Jidoka is pre-beta and is not published to Hex yet. Use the Git repository while
 the beta surface is stabilizing:
 
 ```elixir
 def deps do
   [
-    {:bagu, git: "https://github.com/mikehostetler/bagu.git", branch: "main"}
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", branch: "main"}
   ]
 end
 ```
@@ -30,19 +30,19 @@ The examples use Anthropic through ReqLLM/Jido.AI. Set an API key in the shell:
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
-During local development, Bagu also loads `.env` through `dotenvy` at runtime.
+During local development, Jidoka also loads `.env` through `dotenvy` at runtime.
 Shell environment variables still win over `.env` values.
 
-Bagu owns model aliases under `config :bagu, :model_aliases`. In this repo,
+Jidoka owns model aliases under `config :jidoka, :model_aliases`. In this repo,
 `:fast` maps to `"anthropic:claude-haiku-4-5"`.
 
 ## Define An Agent
 
-Create a module with `use Bagu.Agent`:
+Create a module with `use Jidoka.Agent`:
 
 ```elixir
 defmodule MyApp.AssistantAgent do
-  use Bagu.Agent
+  use Jidoka.Agent
 
   agent do
     id :assistant_agent
@@ -67,7 +67,7 @@ Only `agent.id` and `defaults.instructions` are required for a basic agent.
 
 ## Start And Chat
 
-Start the generated runtime under Bagu's shared supervisor:
+Start the generated runtime under Jidoka's shared supervisor:
 
 ```elixir
 {:ok, pid} = MyApp.AssistantAgent.start_link(id: "assistant-1")
@@ -82,19 +82,19 @@ Send a message through the generated helper:
 Or use the top-level facade:
 
 ```elixir
-{:ok, reply} = Bagu.chat(pid, "Write one sentence about Elixir.")
+{:ok, reply} = Jidoka.chat(pid, "Write one sentence about Elixir.")
 ```
 
 You can also start by runtime module:
 
 ```elixir
-{:ok, pid} = Bagu.start_agent(MyApp.AssistantAgent.runtime_module(), id: "assistant-2")
+{:ok, pid} = Jidoka.start_agent(MyApp.AssistantAgent.runtime_module(), id: "assistant-2")
 ```
 
-Use `Bagu.stop_agent/1` when you own the runtime lifecycle manually:
+Use `Jidoka.stop_agent/1` when you own the runtime lifecycle manually:
 
 ```elixir
-:ok = Bagu.stop_agent(pid)
+:ok = Jidoka.stop_agent(pid)
 ```
 
 ## Handle Results
@@ -102,7 +102,7 @@ Use `Bagu.stop_agent/1` when you own the runtime lifecycle manually:
 Public chat calls return one of four shapes:
 
 ```elixir
-case Bagu.chat(pid, "Hello") do
+case Jidoka.chat(pid, "Hello") do
   {:ok, reply} ->
     reply
 
@@ -113,31 +113,31 @@ case Bagu.chat(pid, "Hello") do
     handoff
 
   {:error, reason} ->
-    Bagu.format_error(reason)
+    Jidoka.format_error(reason)
 end
 ```
 
-Use `Bagu.format_error/1` at user-facing boundaries. Runtime errors are
-structured Bagu/Splode errors, but callers should not need to inspect internal
+Use `Jidoka.format_error/1` at user-facing boundaries. Runtime errors are
+structured Jidoka/Splode errors, but callers should not need to inspect internal
 causes for normal display.
 
 ## Try The Built-In Demos
 
-From the Bagu package directory:
+From the Jidoka package directory:
 
 ```bash
-mix bagu chat --dry-run
-mix bagu imported --dry-run
-mix bagu orchestrator --dry-run
-mix bagu support --dry-run
-mix bagu workflow --dry-run
+mix jidoka chat --dry-run
+mix jidoka imported --dry-run
+mix jidoka orchestrator --dry-run
+mix jidoka support --dry-run
+mix jidoka workflow --dry-run
 ```
 
 Remove `--dry-run` to start live examples. Live chat examples require provider
 credentials.
 
 ```bash
-mix bagu chat -- "Use one sentence to explain what Bagu is."
+mix jidoka chat -- "Use one sentence to explain what Jidoka is."
 ```
 
 ## Next Step

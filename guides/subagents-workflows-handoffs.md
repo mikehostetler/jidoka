@@ -1,6 +1,6 @@
 # Subagents, Workflows, And Handoffs
 
-Bagu has three orchestration primitives. They are intentionally separate because
+Jidoka has three orchestration primitives. They are intentionally separate because
 they solve different problems.
 
 ## Decision Table
@@ -41,7 +41,7 @@ A workflow is deterministic application logic:
 
 ```elixir
 defmodule MyApp.Workflows.RefundReview do
-  use Bagu.Workflow
+  use Jidoka.Workflow
 
   workflow do
     id :refund_review
@@ -77,7 +77,7 @@ Run it directly:
 
 ```elixir
 {:ok, output} =
-  Bagu.Workflow.run(MyApp.Workflows.RefundReview, %{
+  Jidoka.Workflow.run(MyApp.Workflows.RefundReview, %{
     account_id: "acct_123",
     order_id: "ord_456",
     reason: "Damaged on arrival"
@@ -134,7 +134,7 @@ Call chat with a conversation id:
 
 ```elixir
 {:handoff, handoff} =
-  Bagu.chat(router_pid, "Billing should own this from here.",
+  Jidoka.chat(router_pid, "Billing should own this from here.",
     conversation: "support-123",
     context: %{tenant: "acme", account_id: "acct_123"}
   )
@@ -143,7 +143,7 @@ Call chat with a conversation id:
 Future calls with the same conversation route to the owner:
 
 ```elixir
-Bagu.chat(router_pid, "What is the next billing step?",
+Jidoka.chat(router_pid, "What is the next billing step?",
   conversation: "support-123"
 )
 ```
@@ -151,8 +151,8 @@ Bagu.chat(router_pid, "What is the next billing step?",
 Inspect and reset ownership:
 
 ```elixir
-Bagu.handoff_owner("support-123")
-Bagu.reset_handoff("support-123")
+Jidoka.handoff_owner("support-123")
+Jidoka.reset_handoff("support-123")
 ```
 
 ## Support Example Boundary
@@ -169,7 +169,7 @@ The support example demonstrates all three primitives:
 Run the dry-run boundary summary:
 
 ```bash
-mix bagu support --dry-run --log-level trace
+mix jidoka support --dry-run --log-level trace
 ```
 
 ## Practical Rule

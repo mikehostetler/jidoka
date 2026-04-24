@@ -1,5 +1,5 @@
-defmodule Bagu.Examples.KitchenSink.Agents.ResearchAgent do
-  use Bagu.Agent
+defmodule Jidoka.Examples.KitchenSink.Agents.ResearchAgent do
+  use Jidoka.Agent
 
   @context_fields %{
     tenant: Zoi.string() |> Zoi.optional(),
@@ -18,7 +18,7 @@ defmodule Bagu.Examples.KitchenSink.Agents.ResearchAgent do
     model :fast
 
     instructions """
-    You are a research specialist used by the Bagu kitchen sink showcase.
+    You are a research specialist used by the Jidoka kitchen sink showcase.
     Return concise factual notes.
     Do not mention orchestration internals.
     """
