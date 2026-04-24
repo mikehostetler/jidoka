@@ -146,7 +146,8 @@ defmodule Bagu.MixProject do
         Runtime: [
           Bagu,
           Bagu.Runtime,
-          Bagu.Interrupt
+          Bagu.Interrupt,
+          Bagu.Handoff
         ],
         Extensions: [
           Bagu.Character,
@@ -155,6 +156,7 @@ defmodule Bagu.MixProject do
           Bagu.Hook,
           Bagu.Guardrail,
           Bagu.Subagent,
+          Bagu.Handoff.Capability,
           Bagu.MCP
         ],
         Errors: [

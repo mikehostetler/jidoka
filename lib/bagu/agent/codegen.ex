@@ -6,11 +6,13 @@ defmodule Bagu.Agent.Codegen do
     request_transformer_definition = request_transformer_definition(definition)
     subagent_tool_definitions = subagent_tool_definitions(definition)
     workflow_tool_definitions = workflow_tool_definitions(definition)
+    handoff_tool_definitions = handoff_tool_definitions(definition)
 
     quote location: :keep do
       unquote(request_transformer_definition)
       unquote_splicing(subagent_tool_definitions)
       unquote_splicing(workflow_tool_definitions)
+      unquote_splicing(handoff_tool_definitions)
 
       defmodule unquote(definition.runtime_module) do
         use Jido.AI.Agent,
@@ -95,6 +97,15 @@ defmodule Bagu.Agent.Codegen do
     end)
   end
 
+  defp handoff_tool_definitions(definition) do
+    definition.handoffs
+    |> Enum.with_index()
+    |> Enum.map(fn {handoff, index} ->
+      tool_module = Enum.at(definition.handoff_tool_modules, index)
+      Bagu.Handoff.Capability.tool_module_ast(tool_module, handoff)
+    end)
+  end
+
   defp public_agent_functions(definition) do
     quote location: :keep do
       @doc """
@@ -108,34 +119,10 @@ defmodule Bagu.Agent.Codegen do
       @doc """
       Convenience alias for `ask_sync/3`.
       """
-      @spec chat(pid(), String.t(), keyword()) :: {:ok, term()} | {:error, term()}
+      @spec chat(pid(), String.t(), keyword()) ::
+              {:ok, term()} | {:error, term()} | {:interrupt, Bagu.Interrupt.t()} | {:handoff, Bagu.Handoff.t()}
       def chat(pid, message, opts \\ []) when is_pid(pid) and is_binary(message) do
-        result =
-          with {:ok, prepared_opts} <-
-                 Bagu.Agent.prepare_chat_opts(
-                   opts,
-                   %{
-                     context: unquote(Macro.escape(definition.context)),
-                     context_schema: unquote(Macro.escape(definition.context_schema)),
-                     ash: unquote(Macro.escape(definition.ash_tool_config))
-                   }
-                 ) do
-            Bagu.chat_request(pid, message, prepared_opts)
-            |> Bagu.Hooks.translate_chat_result()
-          end
-
-        case result do
-          {:error, reason} ->
-            {:error,
-             Bagu.Error.Normalize.chat_error(reason,
-               target: pid,
-               agent_id: unquote(definition.name),
-               timeout: Keyword.get(opts, :timeout, 30_000)
-             )}
-
-          other ->
-            other
-        end
+        Bagu.chat(pid, message, opts)
       end
 
       @doc false
@@ -257,6 +244,18 @@ defmodule Bagu.Agent.Codegen do
       """
       @spec workflow_names() :: [String.t()]
       def workflow_names, do: unquote(Macro.escape(definition.workflow_names))
+
+      @doc """
+      Returns the configured handoff capabilities.
+      """
+      @spec handoffs() :: [Bagu.Handoff.Capability.t()]
+      def handoffs, do: unquote(Macro.escape(definition.handoffs))
+
+      @doc """
+      Returns the configured published handoff names.
+      """
+      @spec handoff_names() :: [String.t()]
+      def handoff_names, do: unquote(Macro.escape(definition.handoff_names))
 
       @doc """
       Returns the configured Bagu plugin modules.

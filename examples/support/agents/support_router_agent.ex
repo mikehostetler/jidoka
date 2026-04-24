@@ -24,6 +24,7 @@ defmodule Bagu.Examples.Support.Agents.SupportRouterAgent do
     You have specialist teammates and deterministic support workflows.
     If a refund request includes account id, order id, and a reason, call review_refund before answering.
     Call billing_specialist for ambiguous refund questions, credits, invoice questions, and payment issues.
+    Call transfer_billing_ownership only when the user asks for ongoing billing follow-up or the next turn should belong to billing.
     Call operations_specialist for order status, delivery problems, access issues, and troubleshooting.
     Call writer_specialist when asked to draft or rewrite a customer-facing reply.
     Delegate to exactly one specialist or workflow when the fit is clear and then return the result with minimal framing.
@@ -43,6 +44,11 @@ defmodule Bagu.Examples.Support.Agents.SupportRouterAgent do
       timeout: 30_000,
       forward_context: {:only, [:channel, :session, :account_id, :order_id]},
       result: :structured
+
+    handoff Bagu.Examples.Support.Agents.BillingSpecialistAgent,
+      as: :transfer_billing_ownership,
+      description: "Transfer ongoing billing conversation ownership to the billing specialist.",
+      forward_context: {:only, [:channel, :session, :account_id, :order_id]}
 
     subagent Bagu.Examples.Support.Agents.OperationsSpecialistAgent,
       timeout: 30_000,

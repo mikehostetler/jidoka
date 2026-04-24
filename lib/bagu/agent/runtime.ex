@@ -48,7 +48,8 @@ defmodule Bagu.Agent.Runtime do
              {:ok, agent, action} <-
                Bagu.Guardrails.on_before_cmd(agent, action, @bagu_guardrail_defaults),
              {:ok, agent, action} <- Bagu.MCP.on_before_cmd(agent, action, @bagu_mcp_defaults),
-             {:ok, agent, action} <- Bagu.Subagent.on_before_cmd(agent, action) do
+             {:ok, agent, action} <- Bagu.Subagent.on_before_cmd(agent, action),
+             {:ok, agent, action} <- Bagu.Handoff.Capability.on_before_cmd(agent, action) do
           {:ok, agent, action}
         end
       end
@@ -63,7 +64,8 @@ defmodule Bagu.Agent.Runtime do
              {:ok, agent, directives} <-
                Bagu.Memory.on_after_cmd(agent, action, directives, @bagu_memory_defaults),
              {:ok, agent, directives} <- Bagu.Subagent.on_after_cmd(agent, action, directives),
-             {:ok, agent, directives} <- Bagu.Workflow.Capability.on_after_cmd(agent, action, directives) do
+             {:ok, agent, directives} <- Bagu.Workflow.Capability.on_after_cmd(agent, action, directives),
+             {:ok, agent, directives} <- Bagu.Handoff.Capability.on_after_cmd(agent, action, directives) do
           {:ok, agent, directives}
         end
       end

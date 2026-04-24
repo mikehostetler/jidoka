@@ -143,6 +143,8 @@ defmodule Bagu.ImportedAgent.Codec do
       indent_lines(encode_yaml_subagents(spec.subagents), 2),
       "  workflows:",
       indent_lines(encode_yaml_workflows(spec.workflows), 2),
+      "  handoffs:",
+      indent_lines(encode_yaml_handoffs(spec.handoffs), 2),
       "  plugins:",
       indent_lines(encode_yaml_plugins(spec.plugins), 2),
       "lifecycle:",
@@ -289,6 +291,33 @@ defmodule Bagu.ImportedAgent.Codec do
   end
 
   defp maybe_yaml_forward_context(other), do: ["    forward_context: #{Jason.encode!(other)}"]
+
+  defp encode_yaml_handoffs([]), do: "  []"
+
+  defp encode_yaml_handoffs(handoffs) do
+    Enum.map_join(handoffs, "\n", fn
+      handoff when is_binary(handoff) ->
+        "  - #{Jason.encode!(handoff)}"
+
+      handoff ->
+        lines =
+          [
+            "  - agent: #{Jason.encode!(handoff["agent"] || handoff[:agent])}"
+          ] ++
+            maybe_yaml_line("as", handoff["as"] || handoff[:as]) ++
+            maybe_yaml_line("description", handoff["description"] || handoff[:description]) ++
+            ["    target: #{Jason.encode!(handoff["target"] || handoff[:target] || "auto")}"] ++
+            maybe_yaml_forward_context(handoff["forward_context"] || handoff[:forward_context]) ++
+            maybe_yaml_line("peer_id", handoff["peer_id"] || handoff[:peer_id], "    ") ++
+            maybe_yaml_line(
+              "peer_id_context_key",
+              handoff["peer_id_context_key"] || handoff[:peer_id_context_key],
+              "    "
+            )
+
+        Enum.join(lines, "\n")
+    end)
+  end
 
   defp encode_yaml_context(context) when context == %{}, do: "  {}"
 

@@ -48,6 +48,15 @@ defmodule BaguTest.RuntimeErrorNormalizationTest do
     assert Bagu.format_error(error) == "Bagu agent could not be found."
   end
 
+  test "Bagu.chat validates conversation before routing or server lookup" do
+    assert {:error, %Bagu.Error.ValidationError{} = error} =
+             Bagu.chat("missing-runtime-normalization-agent", "hello", conversation: "")
+
+    assert error.details.operation == :prepare_chat_opts
+    assert error.details.reason == :invalid_conversation
+    assert Bagu.format_error(error) == "conversation must be a non-empty string."
+  end
+
   test "prepare_chat_opts wraps malformed request hook specs" do
     assert {:error, %Bagu.Error.ValidationError{} = error} =
              Bagu.Agent.prepare_chat_opts([hooks: [1, 2]], nil)

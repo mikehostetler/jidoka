@@ -20,6 +20,8 @@ defmodule BaguTest.PublicAPITest do
     assert function_exported?(Bagu, :inspect_agent, 1)
     assert function_exported?(Bagu, :inspect_request, 1)
     assert function_exported?(Bagu, :inspect_workflow, 1)
+    assert function_exported?(Bagu, :handoff_owner, 1)
+    assert function_exported?(Bagu, :reset_handoff, 1)
     assert function_exported?(Bagu.Workflow, :run, 3)
 
     refute function_exported?(Bagu, :run, 3)

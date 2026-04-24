@@ -4,7 +4,7 @@ defmodule Bagu.Hooks do
   require Logger
 
   alias Jido.AI.Request
-  alias Bagu.Interrupt
+  alias Bagu.{Handoff, Interrupt}
 
   @request_hooks_key :__bagu_hooks__
   @stages [:before_turn, :after_turn, :on_interrupt]
@@ -105,8 +105,17 @@ defmodule Bagu.Hooks do
     Bagu.StageRefs.default_stage_map(@stages)
   end
 
-  @spec translate_chat_result({:ok, term()} | {:error, term()} | {:interrupt, Interrupt.t()}) ::
-          {:ok, term()} | {:error, term()} | {:interrupt, Interrupt.t()}
+  @spec translate_chat_result({:ok, term()} | {:error, term()} | {:interrupt, Interrupt.t()} | {:handoff, Handoff.t()}) ::
+          {:ok, term()} | {:error, term()} | {:interrupt, Interrupt.t()} | {:handoff, Handoff.t()}
+  def translate_chat_result({:error, {:handoff, %Handoff{} = handoff}}),
+    do: {:handoff, handoff}
+
+  def translate_chat_result({:error, {:failed, _status, {:handoff, %Handoff{} = handoff}}}),
+    do: {:handoff, handoff}
+
+  def translate_chat_result({:ok, {:handoff, %Handoff{} = handoff}}),
+    do: {:handoff, handoff}
+
   def translate_chat_result({:error, {:interrupt, %Interrupt{} = interrupt}}),
     do: {:interrupt, interrupt}
 

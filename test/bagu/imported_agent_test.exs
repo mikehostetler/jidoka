@@ -4,6 +4,7 @@ defmodule BaguTest.ImportedAgentTest do
   alias BaguTest.{
     AddNumbers,
     ApproveLargeMathToolGuardrail,
+    BillingHandoffSpecialist,
     InjectTenantHook,
     InterruptBeforeHook,
     MathPlugin,
@@ -491,6 +492,81 @@ defmodule BaguTest.ImportedAgentTest do
              )
 
     assert [%{name: "workflow_capability_math"}] = agent.workflows
+  end
+
+  test "imports constrained handoffs and compiles them into generated tool modules" do
+    conversation_id = "imported-handoff-#{System.unique_integer([:positive])}"
+    peer_id = "billing-import-handoff-peer"
+    reset_agent(peer_id)
+    assert {:ok, pid} = BillingHandoffSpecialist.start_link(id: peer_id)
+
+    try do
+      assert {:ok, %ImportedAgent{} = agent} =
+               Bagu.import_agent(
+                 imported_spec("handoff_import_agent",
+                   instructions: "You can transfer ownership.",
+                   capabilities: %{
+                     "handoffs" => [
+                       %{
+                         "agent" => "billing_specialist",
+                         "as" => "billing_transfer",
+                         "description" => "Transfer to billing.",
+                         "target" => "peer",
+                         "peer_id" => peer_id,
+                         "forward_context" => %{"mode" => "only", "keys" => ["tenant"]}
+                       }
+                     ]
+                   }
+                 ),
+                 available_handoffs: [BillingHandoffSpecialist]
+               )
+
+      assert [
+               %{
+                 name: "billing_transfer",
+                 target: {:peer, ^peer_id},
+                 forward_context: {:only, ["tenant"]}
+               }
+             ] = agent.handoffs
+
+      assert Enum.map(agent.tool_modules, & &1.name()) == ["billing_transfer"]
+
+      handoff_tool = hd(agent.tool_modules)
+
+      assert {:error, {:handoff, %Bagu.Handoff{} = handoff}} =
+               handoff_tool.run(%{message: "Please continue."}, %{
+                 Bagu.Handoff.context_key() => conversation_id,
+                 tenant: "acme",
+                 secret: "drop"
+               })
+
+      assert handoff.to_agent_id == peer_id
+      assert handoff.context == %{tenant: "acme"}
+      assert Bagu.whereis(peer_id) == pid
+
+      assert {:ok, encoded_json} = Bagu.encode_agent(agent, format: :json)
+      assert encoded_json =~ "\"handoffs\""
+      assert encoded_json =~ "\"agent\": \"billing_specialist\""
+
+      assert {:ok, encoded_yaml} = Bagu.encode_agent(agent, format: :yaml)
+      assert encoded_yaml =~ "handoffs:"
+      assert encoded_yaml =~ "agent: \"billing_specialist\""
+    after
+      Bagu.reset_handoff(conversation_id)
+      reset_agent(peer_id)
+    end
+  end
+
+  test "imports handoff string entries through available_handoffs" do
+    assert {:ok, %ImportedAgent{} = agent} =
+             Bagu.import_agent(
+               imported_spec("handoff_string_import_agent",
+                 capabilities: %{"handoffs" => ["billing_specialist"]}
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert [%{name: "billing_specialist", target: :auto}] = agent.handoffs
   end
 
   test "starts an imported agent under the shared runtime" do
@@ -992,6 +1068,88 @@ defmodule BaguTest.ImportedAgentTest do
     assert reason =~ "expected map"
   end
 
+  test "rejects imported handoffs without an available registry" do
+    assert {:error, reason} =
+             Bagu.import_agent(
+               imported_spec("missing_handoff_registry",
+                 instructions: "You can transfer.",
+                 capabilities: %{"handoffs" => ["billing_specialist"]}
+               )
+             )
+
+    assert reason =~ "available_handoffs registry"
+  end
+
+  test "rejects unknown imported handoffs" do
+    assert {:error, reason} =
+             Bagu.import_agent(
+               imported_spec("bad_handoff_import",
+                 capabilities: %{"handoffs" => ["does_not_exist"]}
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert reason =~ "unknown handoff"
+  end
+
+  test "rejects imported handoffs with duplicate published names" do
+    assert {:error, reason} =
+             Bagu.import_agent(
+               imported_spec("duplicate_handoff_import",
+                 capabilities: %{
+                   "handoffs" => [
+                     "billing_specialist",
+                     %{"agent" => "billing_specialist", "as" => "billing_specialist"}
+                   ]
+                 }
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert reason =~ "handoff names must be unique"
+  end
+
+  test "rejects imported handoffs with invalid target and forward_context" do
+    assert {:error, target_reason} =
+             Bagu.import_agent(
+               imported_spec("invalid_handoff_target_import",
+                 capabilities: %{"handoffs" => [%{"agent" => "billing_specialist", "target" => "peer"}]}
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert target_reason =~ "handoff target must be"
+
+    assert {:error, context_reason} =
+             Bagu.import_agent(
+               imported_spec("invalid_handoff_forward_context_import",
+                 capabilities: %{
+                   "handoffs" => [
+                     %{
+                       "agent" => "billing_specialist",
+                       "forward_context" => %{"mode" => "only"}
+                     }
+                   ]
+                 }
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert context_reason =~ "subagent forward_context keys must be a list"
+  end
+
+  test "rejects raw module strings as imported handoff refs" do
+    assert {:error, reason} =
+             Bagu.import_agent(
+               imported_spec("raw_handoff_module_import",
+                 capabilities: %{"handoffs" => ["BaguTest.BillingHandoffSpecialist"]}
+               ),
+               available_handoffs: [BillingHandoffSpecialist]
+             )
+
+    assert reason =~ "expected map"
+  end
+
   test "rejects importing plugins without an available registry" do
     assert {:error, reason} =
              Bagu.import_agent(
@@ -1008,6 +1166,13 @@ defmodule BaguTest.ImportedAgentTest do
              Bagu.import_agent(imported_spec("missing_registry_agent", capabilities: %{"tools" => ["add_numbers"]}))
 
     assert reason =~ "available_tools registry"
+  end
+
+  defp reset_agent(agent_id) do
+    case Bagu.whereis(agent_id) do
+      nil -> :ok
+      pid -> Bagu.stop_agent(pid)
+    end
   end
 
   defp imported_spec(id, opts) do

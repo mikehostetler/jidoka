@@ -9,7 +9,9 @@ defmodule Bagu.Context do
     "__tool_guardrail_callback__",
     "__bagu_request_id__",
     "__bagu_server__",
-    "__bagu_subagent_depth__"
+    "__bagu_subagent_depth__",
+    "__bagu_conversation__",
+    "__bagu_from_agent__"
   ]
 
   @type t :: map()

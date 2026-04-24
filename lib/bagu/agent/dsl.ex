@@ -7,6 +7,7 @@ defmodule Bagu.Agent.Dsl do
     BeforeTurnHook,
     InputGuardrail,
     InterruptHook,
+    Handoff,
     MCPTools,
     MemoryCapture,
     MemoryInject,
@@ -328,10 +329,48 @@ defmodule Bagu.Agent.Dsl do
     ]
   }
 
+  @handoff_entity %Spark.Dsl.Entity{
+    name: :handoff,
+    describe: """
+    Register a Bagu handoff target that can take conversation ownership.
+    """,
+    target: Handoff,
+    args: [:agent],
+    schema: [
+      agent: [
+        type: :atom,
+        required: true,
+        doc: "A Bagu-compatible agent module that can receive conversation ownership."
+      ],
+      as: [
+        type: :any,
+        required: false,
+        doc: "Optional published handoff tool name."
+      ],
+      description: [
+        type: :string,
+        required: false,
+        doc: "Optional handoff tool description."
+      ],
+      target: [
+        type: :any,
+        required: false,
+        default: :auto,
+        doc: "Handoff target: :auto, {:peer, \"id\"}, or {:peer, {:context, key}}."
+      ],
+      forward_context: [
+        type: :any,
+        required: false,
+        default: :public,
+        doc: "Context forwarding policy: :public, :none, {:only, keys}, or {:except, keys}."
+      ]
+    ]
+  }
+
   @capabilities_section %Spark.Dsl.Section{
     name: :capabilities,
     describe: """
-    Register the tools, skills, plugins, subagents, and workflows available to this agent.
+    Register the tools, skills, plugins, subagents, workflows, and handoffs available to this agent.
     """,
     entities: [
       @tool_entity,
@@ -341,7 +380,8 @@ defmodule Bagu.Agent.Dsl do
       @skill_path_entity,
       @plugin_entity,
       @subagent_entity,
-      @workflow_entity
+      @workflow_entity,
+      @handoff_entity
     ]
   }
 

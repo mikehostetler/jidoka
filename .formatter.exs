@@ -8,6 +8,8 @@
     before_turn: 1,
     capture: 1,
     description: 1,
+    handoff: 1,
+    handoff: 2,
     id: 1,
     inject: 1,
     input: 1,

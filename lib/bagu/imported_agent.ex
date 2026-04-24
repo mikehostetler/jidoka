@@ -18,6 +18,7 @@ defmodule Bagu.ImportedAgent do
     :mcp_tools,
     :subagents,
     :workflows,
+    :handoffs,
     :plugin_modules,
     :hook_modules,
     :guardrail_modules
@@ -31,6 +32,7 @@ defmodule Bagu.ImportedAgent do
     :mcp_tools,
     :subagents,
     :workflows,
+    :handoffs,
     :plugin_modules,
     :hook_modules,
     :guardrail_modules
@@ -45,6 +47,7 @@ defmodule Bagu.ImportedAgent do
           mcp_tools: [map()],
           subagents: [Bagu.Subagent.t()],
           workflows: [Bagu.Workflow.Capability.t()],
+          handoffs: [Bagu.Handoff.Capability.t()],
           plugin_modules: [module()],
           hook_modules: map(),
           guardrail_modules: map()
@@ -109,6 +112,7 @@ defmodule Bagu.ImportedAgent do
       agent.mcp_tools,
       agent.subagents,
       agent.workflows,
+      agent.handoffs,
       agent.plugin_modules,
       agent.hook_modules,
       agent.guardrail_modules,
@@ -132,6 +136,7 @@ defmodule Bagu.ImportedAgent do
          skill_registry,
          subagent_registry,
          workflow_registry,
+         handoff_registry,
          plugin_registry,
          hook_registry,
          guardrail_registry
@@ -143,6 +148,8 @@ defmodule Bagu.ImportedAgent do
            Registries.resolve_subagents(spec.subagents, subagent_registry),
          {:ok, resolved_workflows} <-
            Registries.resolve_workflows(spec.workflows, workflow_registry),
+         {:ok, resolved_handoffs} <-
+           Registries.resolve_handoffs(spec.handoffs, handoff_registry),
          {:ok, plugin_modules} <- Bagu.Plugin.resolve_plugin_names(spec.plugins, plugin_registry),
          {:ok, plugin_tool_modules} <- Bagu.Plugin.plugin_actions(plugin_modules),
          skill_tool_modules =
@@ -161,15 +168,25 @@ defmodule Bagu.ImportedAgent do
            |> Enum.map(fn {workflow, index} ->
              Bagu.Workflow.Capability.tool_module(generated_module_base(spec), workflow, index)
            end),
+         handoff_tool_modules <-
+           resolved_handoffs
+           |> Enum.with_index()
+           |> Enum.map(fn {handoff, index} ->
+             Bagu.Handoff.Capability.tool_module(generated_module_base(spec), handoff, index)
+           end),
          {:ok, hook_modules} <- Registries.resolve_hooks(spec.hooks, hook_registry),
          {:ok, guardrail_modules} <-
            Registries.resolve_guardrails(spec.guardrails, guardrail_registry),
          tool_modules =
            direct_tool_modules ++
-             skill_tool_modules ++ plugin_tool_modules ++ subagent_tool_modules ++ workflow_tool_modules,
+             skill_tool_modules ++
+             plugin_tool_modules ++ subagent_tool_modules ++ workflow_tool_modules ++ handoff_tool_modules,
          :ok <-
            ensure_unique_tool_names(
-             direct_tool_names ++ Enum.map(resolved_subagents, & &1.name) ++ Enum.map(resolved_workflows, & &1.name)
+             direct_tool_names ++
+               Enum.map(resolved_subagents, & &1.name) ++
+               Enum.map(resolved_workflows, & &1.name) ++
+               Enum.map(resolved_handoffs, & &1.name)
            ),
          {:ok, runtime_module} <-
            ensure_runtime_module(
@@ -180,6 +197,7 @@ defmodule Bagu.ImportedAgent do
              spec.mcp_tools,
              resolved_subagents,
              resolved_workflows,
+             resolved_handoffs,
              plugin_modules,
              hook_modules,
              guardrail_modules
@@ -194,6 +212,7 @@ defmodule Bagu.ImportedAgent do
          mcp_tools: spec.mcp_tools,
          subagents: resolved_subagents,
          workflows: resolved_workflows,
+         handoffs: resolved_handoffs,
          plugin_modules: plugin_modules,
          hook_modules: hook_modules,
          guardrail_modules: guardrail_modules
@@ -224,6 +243,7 @@ defmodule Bagu.ImportedAgent do
          mcp_tools,
          subagents,
          workflows,
+         handoffs,
          plugin_modules,
          hook_modules,
          guardrail_modules
@@ -239,6 +259,7 @@ defmodule Bagu.ImportedAgent do
         mcp_tools,
         subagents,
         workflows,
+        handoffs,
         runtime_plugins,
         hook_modules,
         guardrail_modules
@@ -256,6 +277,7 @@ defmodule Bagu.ImportedAgent do
         mcp_tools,
         subagents,
         workflows,
+        handoffs,
         plugin_modules,
         runtime_plugins,
         hook_modules,
@@ -272,6 +294,7 @@ defmodule Bagu.ImportedAgent do
          mcp_tools,
          subagents,
          workflows,
+         handoffs,
          runtime_plugins,
          hook_modules,
          guardrail_modules
@@ -302,6 +325,14 @@ defmodule Bagu.ImportedAgent do
               workflow: inspect(workflow.workflow)
             }
           end),
+        handoffs:
+          Enum.map(handoffs, fn handoff ->
+            %{
+              name: handoff.name,
+              agent: inspect(handoff.agent),
+              target: externalize_handoff_target(handoff.target)
+            }
+          end),
         plugins: Enum.map(runtime_plugins, &inspect/1),
         hooks:
           Enum.into(hook_modules, %{}, fn {stage, modules} ->
@@ -330,6 +361,7 @@ defmodule Bagu.ImportedAgent do
          mcp_tools,
          subagents,
          workflows,
+         handoffs,
          plugin_modules,
          runtime_plugins,
          hook_modules,
@@ -356,7 +388,15 @@ defmodule Bagu.ImportedAgent do
         Bagu.Workflow.Capability.tool_module_ast(tool_module, workflow)
       end)
 
-    generated_tool_modules = subagent_tool_modules ++ workflow_tool_modules
+    handoff_tool_modules =
+      handoffs
+      |> Enum.with_index()
+      |> Enum.map(fn {handoff, index} ->
+        tool_module = Bagu.Handoff.Capability.tool_module(generated_module_base(spec), handoff, index)
+        Bagu.Handoff.Capability.tool_module_ast(tool_module, handoff)
+      end)
+
+    generated_tool_modules = subagent_tool_modules ++ workflow_tool_modules ++ handoff_tool_modules
 
     quoted =
       quote location: :keep do
@@ -425,6 +465,7 @@ defmodule Bagu.ImportedAgent do
                 mcp_tools,
                 subagents,
                 workflows,
+                handoffs,
                 plugin_modules,
                 hook_modules,
                 guardrail_modules,
@@ -468,6 +509,16 @@ defmodule Bagu.ImportedAgent do
     %{"target" => "peer", "peer_id_context_key" => to_string(key)}
   end
 
+  defp externalize_handoff_target(:auto), do: %{"target" => "auto"}
+
+  defp externalize_handoff_target({:peer, peer_id}) when is_binary(peer_id) do
+    %{"target" => "peer", "peer_id" => peer_id}
+  end
+
+  defp externalize_handoff_target({:peer, {:context, key}}) do
+    %{"target" => "peer", "peer_id_context_key" => to_string(key)}
+  end
+
   defp runtime_plugins(plugin_modules, _memory_config), do: [Bagu.Plugins.RuntimeCompat | plugin_modules]
 
   defp request_transformer(%Spec{}, runtime_module) do
@@ -495,6 +546,7 @@ defmodule Bagu.ImportedAgent do
          mcp_tools,
          subagents,
          workflows,
+         handoffs,
          plugin_modules,
          hook_modules,
          guardrail_modules,
@@ -520,12 +572,14 @@ defmodule Bagu.ImportedAgent do
       memory: spec.memory,
       skills: %{refs: skill_refs, load_paths: spec.skill_paths},
       tools: tool_modules,
-      tool_names: definition_tool_names(tool_modules, subagents, workflows),
+      tool_names: definition_tool_names(tool_modules, subagents, workflows, handoffs),
       mcp_tools: mcp_tools,
       subagents: subagents,
       subagent_names: Enum.map(subagents, & &1.name),
       workflows: workflows,
       workflow_names: Enum.map(workflows, & &1.name),
+      handoffs: handoffs,
+      handoff_names: Enum.map(handoffs, & &1.name),
       plugins: plugin_modules,
       plugin_names: plugin_names,
       hooks: hook_modules,
@@ -536,7 +590,7 @@ defmodule Bagu.ImportedAgent do
     }
   end
 
-  defp definition_tool_names(tool_modules, subagents, workflows) do
+  defp definition_tool_names(tool_modules, subagents, workflows, handoffs) do
     loaded_names =
       tool_modules
       |> Enum.reduce([], fn module, acc ->
@@ -547,7 +601,8 @@ defmodule Bagu.ImportedAgent do
         end
       end)
 
-    (Enum.reverse(loaded_names) ++ Enum.map(subagents, & &1.name) ++ Enum.map(workflows, & &1.name))
+    (Enum.reverse(loaded_names) ++
+       Enum.map(subagents, & &1.name) ++ Enum.map(workflows, & &1.name) ++ Enum.map(handoffs, & &1.name))
     |> Enum.uniq()
   end
 
@@ -557,6 +612,7 @@ defmodule Bagu.ImportedAgent do
          skills: skill_registry,
          subagents: subagent_registry,
          workflows: workflow_registry,
+         handoffs: handoff_registry,
          plugins: plugin_registry,
          hooks: hook_registry,
          guardrails: guardrail_registry
@@ -568,6 +624,7 @@ defmodule Bagu.ImportedAgent do
              available_skills: skill_registry,
              available_subagents: subagent_registry,
              available_workflows: workflow_registry,
+             available_handoffs: handoff_registry,
              available_plugins: plugin_registry,
              available_hooks: hook_registry,
              available_guardrails: guardrail_registry
@@ -579,6 +636,7 @@ defmodule Bagu.ImportedAgent do
         skill_registry,
         subagent_registry,
         workflow_registry,
+        handoff_registry,
         plugin_registry,
         hook_registry,
         guardrail_registry

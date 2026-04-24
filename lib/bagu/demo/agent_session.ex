@@ -4,7 +4,8 @@ defmodule Bagu.Demo.AgentSession do
   alias Bagu.Demo.{Debug, Markdown}
 
   @type mode :: :one_shot | :interactive
-  @type chat_result :: {:ok, term()} | {:interrupt, Bagu.Interrupt.t()} | {:error, term()}
+  @type chat_result ::
+          {:ok, term()} | {:interrupt, Bagu.Interrupt.t()} | {:handoff, Bagu.Handoff.t()} | {:error, term()}
   @type chat_fun :: (pid(), String.t(), Debug.log_level(), mode() -> chat_result())
 
   @spec one_shot(pid(), String.t(), Debug.log_level(), keyword()) :: :ok
@@ -72,6 +73,17 @@ defmodule Bagu.Demo.AgentSession do
     print_subagent_calls(pid, log_level, Keyword.get(opts, :subagents, false))
     Debug.print_recent_events(pid, log_level)
     IO.puts("interrupt> #{interrupt.kind} - #{interrupt.message}")
+  end
+
+  defp print_result({:handoff, handoff}, pid, log_level, _mode, opts) do
+    flush_interrupts(opts)
+    print_subagent_calls(pid, log_level, Keyword.get(opts, :subagents, false))
+    Debug.print_recent_events(pid, log_level)
+
+    IO.puts("handoff> #{handoff.name} conversation=#{handoff.conversation_id} owner=#{handoff.to_agent_id}")
+
+    if handoff.summary, do: IO.puts("handoff> summary=#{handoff.summary}")
+    if handoff.reason, do: IO.puts("handoff> reason=#{handoff.reason}")
   end
 
   defp print_result({:error, reason}, pid, log_level, _mode, opts) do

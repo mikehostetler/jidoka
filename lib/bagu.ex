@@ -146,10 +146,12 @@ defmodule Bagu do
   Accepts a PID, server reference, or Bagu agent ID string.
   """
   @spec chat(pid() | atom() | {:via, module(), term()} | String.t(), String.t(), keyword()) ::
-          {:ok, term()} | {:error, term()} | {:interrupt, Bagu.Interrupt.t()}
+          {:ok, term()} | {:error, term()} | {:interrupt, Bagu.Interrupt.t()} | {:handoff, Bagu.Handoff.t()}
   def chat(server_or_id, message, opts \\ []) when is_binary(message) do
     result =
-      with {:ok, server} <- resolve_server(server_or_id, opts),
+      with :ok <- validate_conversation_opt(opts),
+           {:ok, target} <- route_conversation_owner(server_or_id, opts),
+           {:ok, server} <- resolve_server(target, opts),
            {:ok, prepared_opts} <- Bagu.Agent.prepare_chat_opts(opts, chat_config(server)) do
         chat_request(server, message, prepared_opts)
         |> Bagu.Hooks.translate_chat_result()
@@ -157,6 +159,18 @@ defmodule Bagu do
 
     normalize_chat_result(result, server_or_id, opts)
   end
+
+  @doc """
+  Returns the current handoff owner for a conversation, if any.
+  """
+  @spec handoff_owner(String.t()) :: map() | nil
+  def handoff_owner(conversation_id), do: Bagu.Handoff.Registry.owner(conversation_id)
+
+  @doc """
+  Clears the current handoff owner for a conversation.
+  """
+  @spec reset_handoff(String.t()) :: :ok
+  def reset_handoff(conversation_id), do: Bagu.Handoff.Registry.reset(conversation_id)
 
   defp chat_config(server) do
     case Jido.AgentServer.state(server) do
@@ -243,14 +257,47 @@ defmodule Bagu do
 
   defp resolve_server(server, _opts), do: {:ok, server}
 
-  defp normalize_chat_result({:error, reason}, target, opts) do
-    {:error,
-     Bagu.Error.Normalize.chat_error(reason,
-       target: target,
-       timeout: Keyword.get(opts, :timeout, 30_000)
-     )}
+  defp validate_conversation_opt(opts) do
+    case Keyword.fetch(opts, :conversation) do
+      {:ok, conversation_id} when is_binary(conversation_id) ->
+        if String.trim(conversation_id) == "" do
+          {:error, Bagu.Error.Normalize.chat_option_error({:invalid_conversation, conversation_id})}
+        else
+          :ok
+        end
+
+      {:ok, conversation_id} ->
+        {:error, Bagu.Error.Normalize.chat_option_error({:invalid_conversation, conversation_id})}
+
+      :error ->
+        :ok
+    end
   end
 
+  defp route_conversation_owner(default_target, opts) do
+    case Keyword.get(opts, :conversation) do
+      conversation_id when is_binary(conversation_id) ->
+        case Bagu.Handoff.Registry.owner(conversation_id) do
+          %{agent_id: agent_id} when is_binary(agent_id) -> {:ok, agent_id}
+          _ -> {:ok, default_target}
+        end
+
+      _ ->
+        {:ok, default_target}
+    end
+  end
+
+  defp normalize_chat_result({:error, reason}, target, opts) do
+    case Bagu.Error.Normalize.chat_error(reason,
+           target: target,
+           timeout: Keyword.get(opts, :timeout, 30_000)
+         ) do
+      {:handoff, %Bagu.Handoff{} = handoff} -> {:handoff, handoff}
+      error -> {:error, error}
+    end
+  end
+
+  defp normalize_chat_result({:handoff, %Bagu.Handoff{} = handoff}, _target, _opts), do: {:handoff, handoff}
   defp normalize_chat_result(result, _target, _opts), do: result
 
   @doc false
@@ -270,6 +317,18 @@ defmodule Bagu do
 
           %{meta: %{bagu_hooks: %{interrupt: interrupt}}} ->
             {:error, {:interrupt, interrupt}}
+
+          %{meta: %{bagu_handoffs: %{calls: [%{outcome: :handoff, handoff: %Bagu.Handoff{} = handoff} | _]}}} ->
+            case Request.get_result(agent, request_id) do
+              {:error, {:handoff, %Bagu.Handoff{} = result_handoff}} ->
+                {:error, {:handoff, result_handoff}}
+
+              {:error, {:failed, _status, {:handoff, %Bagu.Handoff{} = result_handoff}}} ->
+                {:error, {:handoff, result_handoff}}
+
+              _ ->
+                {:error, {:handoff, handoff}}
+            end
 
           _request ->
             case Request.get_result(agent, request_id) do

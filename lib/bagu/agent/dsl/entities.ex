@@ -72,6 +72,19 @@ defmodule Bagu.Agent.Dsl.Workflow do
   ]
 end
 
+defmodule Bagu.Agent.Dsl.Handoff do
+  @moduledoc false
+
+  defstruct [
+    :agent,
+    :as,
+    :description,
+    :target,
+    :forward_context,
+    :__spark_metadata__
+  ]
+end
+
 defmodule Bagu.Agent.Dsl.MemoryMode do
   @moduledoc false
 

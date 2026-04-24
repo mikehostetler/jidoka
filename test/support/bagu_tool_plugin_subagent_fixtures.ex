@@ -496,3 +496,190 @@ defmodule BaguTest.StartTripleOrchestratorAgent do
     subagent BaguTest.StartTripleSpecialist
   end
 end
+
+defmodule BaguTest.BillingHandoffSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "billing_handoff_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "billing_specialist"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Bagu.start_agent(Runtime, opts)
+  def chat(_pid, message, _opts \\ []), do: {:ok, "billing:#{message}"}
+end
+
+defmodule BaguTest.ReviewHandoffSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "review_handoff_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "review_specialist"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Bagu.start_agent(Runtime, opts)
+  def chat(_pid, message, _opts \\ []), do: {:ok, "review-handoff:#{message}"}
+end
+
+defmodule BaguTest.HandoffRouterAgent do
+  use Bagu.Agent
+
+  agent do
+    id :handoff_router_agent
+    description "Routes owned support conversations."
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer ownership when a specialist should continue the conversation."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      description: "Transfer billing ownership to the billing specialist."
+    )
+  end
+end
+
+defmodule BaguTest.HandoffForwardNoneAgent do
+  use Bagu.Agent
+
+  agent do
+    id :handoff_forward_none_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer without public context."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      forward_context: :none
+    )
+  end
+end
+
+defmodule BaguTest.HandoffForwardOnlyAgent do
+  use Bagu.Agent
+
+  agent do
+    id :handoff_forward_only_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer selected context."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      forward_context: {:only, [:tenant, "account_id"]}
+    )
+  end
+end
+
+defmodule BaguTest.HandoffForwardExceptAgent do
+  use Bagu.Agent
+
+  agent do
+    id :handoff_forward_except_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer public context except secrets."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      forward_context: {:except, [:secret]}
+    )
+  end
+end
+
+defmodule BaguTest.PeerHandoffAgent do
+  use Bagu.Agent
+
+  agent do
+    id :peer_handoff_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer ownership to an existing peer."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      target: {:peer, "billing-peer-handoff-test"}
+    )
+  end
+end
+
+defmodule BaguTest.ContextPeerHandoffAgent do
+  use Bagu.Agent
+
+  agent do
+    id :context_peer_handoff_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer ownership to a context-selected peer."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      target: {:peer, {:context, :billing_peer_id}}
+    )
+  end
+end
+
+defmodule BaguTest.MissingPeerHandoffAgent do
+  use Bagu.Agent
+
+  agent do
+    id :missing_peer_handoff_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer ownership to a peer that must exist."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      target: {:peer, "missing-billing-peer-handoff-test"}
+    )
+  end
+end
+
+defmodule BaguTest.WrongPeerHandoffAgent do
+  use Bagu.Agent
+
+  agent do
+    id :wrong_peer_handoff_agent
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer ownership to a peer with the expected runtime."
+  end
+
+  capabilities do
+    handoff(BaguTest.BillingHandoffSpecialist,
+      as: :billing_specialist,
+      target: {:peer, "wrong-billing-peer-handoff-test"}
+    )
+  end
+end

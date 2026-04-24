@@ -35,6 +35,7 @@ defmodule Bagu.Demo.Inventory do
       print_pipeline(definition)
       print_subagents(definition)
       print_workflows(definition)
+      print_handoffs(definition)
       print_try_next(Keyword.get(opts, :try, []))
     end
 
@@ -80,6 +81,7 @@ defmodule Bagu.Demo.Inventory do
     maybe_row("skills", format_skills(Map.get(definition, :skills)))
     maybe_row("plugins", format_list(Map.get(definition, :plugin_names, [])))
     maybe_row("workflows", format_list(Map.get(definition, :workflow_names, [])))
+    maybe_row("handoffs", format_list(Map.get(definition, :handoff_names, [])))
   end
 
   defp print_pipeline(definition) do
@@ -138,6 +140,26 @@ defmodule Bagu.Demo.Inventory do
   end
 
   defp print_workflows(_definition), do: :ok
+
+  defp print_handoffs(%{handoffs: handoffs}) when is_list(handoffs) and handoffs != [] do
+    section("Handoffs")
+
+    Enum.each(handoffs, fn handoff ->
+      row(
+        handoff.name,
+        Enum.join(
+          [
+            format_ref(handoff.agent),
+            format_target(handoff.target),
+            "forwards=#{format_forward_context(handoff.forward_context)}"
+          ],
+          ", "
+        )
+      )
+    end)
+  end
+
+  defp print_handoffs(_definition), do: :ok
 
   defp print_try_next([]), do: :ok
 
@@ -296,6 +318,7 @@ defmodule Bagu.Demo.Inventory do
   end
 
   defp format_target(:ephemeral), do: "ephemeral"
+  defp format_target(:auto), do: "auto"
   defp format_target({:peer, {:context, key}}), do: "peer=context.#{key}"
   defp format_target({:peer, peer_id}), do: "peer=#{peer_id}"
   defp format_target(other), do: inspect(other)

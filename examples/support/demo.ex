@@ -145,6 +145,7 @@ defmodule Bagu.Examples.Support.Demo do
     IO.puts("Boundary")
     IO.puts("  chat agent: open-ended intake and delegation across specialist teammates")
     IO.puts("  workflow capability: review_refund lets the agent run a fixed refund process")
+    IO.puts("  handoff: transfer_billing_ownership moves future turns to billing")
     IO.puts("  workflows: app-owned support processes with fixed step order")
     IO.puts("  escalation_draft: deterministic flow that reuses writer_specialist as one bounded step")
     IO.puts("")
@@ -196,6 +197,7 @@ defmodule Bagu.Examples.Support.Demo do
         session = if mode == :interactive, do: "support-repl", else: "support-cli"
 
         agent_module().chat(pid, prompt,
+          conversation: session,
           context: %{channel: "support_chat", session: session},
           log_level: Debug.request_log_level(level)
         )

@@ -7,6 +7,7 @@ defmodule Bagu.ImportedAgent.Registries do
           skills: Bagu.Skill.registry(),
           subagents: Bagu.Subagent.registry(),
           workflows: Bagu.Workflow.Capability.registry(),
+          handoffs: Bagu.Handoff.Capability.registry(),
           plugins: Bagu.Plugin.registry(),
           hooks: Bagu.Hook.registry(),
           guardrails: Bagu.Guardrail.registry()
@@ -26,6 +27,7 @@ defmodule Bagu.ImportedAgent.Registries do
          {:ok, skill_registry} <- available_skill_registry(opts),
          {:ok, subagent_registry} <- available_subagent_registry(opts),
          {:ok, workflow_registry} <- available_workflow_registry(opts),
+         {:ok, handoff_registry} <- available_handoff_registry(opts),
          {:ok, plugin_registry} <- available_plugin_registry(opts),
          {:ok, hook_registry} <- available_hook_registry(opts),
          {:ok, guardrail_registry} <- available_guardrail_registry(opts) do
@@ -36,6 +38,7 @@ defmodule Bagu.ImportedAgent.Registries do
          skills: skill_registry,
          subagents: subagent_registry,
          workflows: workflow_registry,
+         handoffs: handoff_registry,
          plugins: plugin_registry,
          hooks: hook_registry,
          guardrails: guardrail_registry
@@ -53,6 +56,7 @@ defmodule Bagu.ImportedAgent.Registries do
        |> Keyword.put(:available_skills, registries.skills)
        |> Keyword.put(:available_subagents, registries.subagents)
        |> Keyword.put(:available_workflows, registries.workflows)
+       |> Keyword.put(:available_handoffs, registries.handoffs)
        |> Keyword.put(:available_plugins, registries.plugins)
        |> Keyword.put(:available_hooks, registries.hooks)
        |> Keyword.put(:available_guardrails, registries.guardrails)}
@@ -136,6 +140,28 @@ defmodule Bagu.ImportedAgent.Registries do
     end)
   end
 
+  @spec resolve_handoffs([map()], Bagu.Handoff.Capability.registry()) ::
+          {:ok, [Bagu.Handoff.Capability.t()]} | {:error, String.t()}
+  def resolve_handoffs(handoffs, handoff_registry) do
+    handoffs
+    |> Enum.reduce_while({:ok, []}, fn handoff_spec, {:ok, acc} ->
+      with {:ok, agent_module} <-
+             Bagu.Handoff.Capability.resolve_handoff_name(handoff_spec.agent, handoff_registry),
+           {:ok, handoff} <-
+             Bagu.Handoff.Capability.new(
+               agent_module,
+               as: Map.get(handoff_spec, :as),
+               description: Map.get(handoff_spec, :description),
+               target: imported_handoff_target(handoff_spec),
+               forward_context: Map.get(handoff_spec, :forward_context, :public)
+             ) do
+        {:cont, {:ok, acc ++ [handoff]}}
+      else
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
   defp available_tool_registry(opts) do
     opts
     |> Keyword.get(:available_tools, [])
@@ -172,6 +198,12 @@ defmodule Bagu.ImportedAgent.Registries do
     |> Bagu.Workflow.Capability.normalize_available_workflows()
   end
 
+  defp available_handoff_registry(opts) do
+    opts
+    |> Keyword.get(:available_handoffs, [])
+    |> Bagu.Handoff.Capability.normalize_available_handoffs()
+  end
+
   defp available_hook_registry(opts) do
     opts
     |> Keyword.get(:available_hooks, [])
@@ -189,4 +221,13 @@ defmodule Bagu.ImportedAgent.Registries do
 
   defp imported_subagent_target(%{target: "peer", peer_id_context_key: key}),
     do: {:peer, {:context, key}}
+
+  defp imported_handoff_target(%{target: "auto"}), do: :auto
+  defp imported_handoff_target(%{target: "peer", peer_id: peer_id}), do: {:peer, peer_id}
+
+  defp imported_handoff_target(%{target: "peer", peer_id_context_key: key}),
+    do: {:peer, {:context, key}}
+
+  defp imported_handoff_target(%{target: target}), do: target
+  defp imported_handoff_target(%{agent: _agent}), do: :auto
 end

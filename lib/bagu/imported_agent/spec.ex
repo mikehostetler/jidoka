@@ -56,6 +56,9 @@ defmodule Bagu.ImportedAgent.Spec do
                              |> Zoi.max(128)
                              |> Zoi.regex(~r/^[a-z][a-z0-9_]*$/)
 
+  @handoff_agent_name_schema @subagent_agent_name_schema
+  @handoff_tool_name_schema @subagent_tool_name_schema
+
   @subagent_forward_context_key_schema Zoi.union([
                                          Zoi.string() |> Zoi.trim() |> Zoi.min(1),
                                          Zoi.atom()
@@ -79,6 +82,7 @@ defmodule Bagu.ImportedAgent.Spec do
                                    ])
 
   @workflow_forward_context_schema @subagent_forward_context_schema
+  @handoff_forward_context_schema @subagent_forward_context_schema
 
   @hook_name_schema Zoi.string()
                     |> Zoi.trim()
@@ -113,6 +117,7 @@ defmodule Bagu.ImportedAgent.Spec do
   @default_memory nil
   @default_subagents []
   @default_workflows []
+  @default_handoffs []
   @default_skills []
   @default_skill_paths []
   @default_mcp_tools []
@@ -209,6 +214,38 @@ defmodule Bagu.ImportedAgent.Spec do
                        unrecognized_keys: :error
                      )
                    ])
+
+  @handoff_schema Zoi.union([
+                    @handoff_agent_name_schema,
+                    Zoi.object(
+                      %{
+                        agent: @handoff_agent_name_schema,
+                        as: @handoff_tool_name_schema |> Zoi.optional(),
+                        description:
+                          Zoi.string()
+                          |> Zoi.trim()
+                          |> Zoi.min(1)
+                          |> Zoi.max(1_000)
+                          |> Zoi.optional(),
+                        target:
+                          Zoi.string()
+                          |> Zoi.trim()
+                          |> Zoi.min(1)
+                          |> Zoi.default("auto"),
+                        peer_id:
+                          Zoi.string()
+                          |> Zoi.trim()
+                          |> Zoi.min(1)
+                          |> Zoi.optional(),
+                        peer_id_context_key:
+                          Zoi.union([Zoi.string() |> Zoi.trim() |> Zoi.min(1), Zoi.atom()])
+                          |> Zoi.optional(),
+                        forward_context: @handoff_forward_context_schema |> Zoi.optional()
+                      },
+                      coerce: true,
+                      unrecognized_keys: :error
+                    )
+                  ])
 
   @guardrails_schema Zoi.object(
                        %{
@@ -316,6 +353,7 @@ defmodule Bagu.ImportedAgent.Spec do
                            mcp_tools: Zoi.list(@mcp_tool_schema) |> Zoi.default(@default_mcp_tools),
                            subagents: Zoi.list(@subagent_schema) |> Zoi.default(@default_subagents),
                            workflows: Zoi.list(@workflow_schema) |> Zoi.default(@default_workflows),
+                           handoffs: Zoi.list(@handoff_schema) |> Zoi.default(@default_handoffs),
                            plugins: Zoi.list(@plugin_name_schema) |> Zoi.default([])
                          },
                          coerce: true,
@@ -365,6 +403,7 @@ defmodule Bagu.ImportedAgent.Spec do
           mcp_tools: [map()],
           subagents: [map()],
           workflows: [String.t() | map()],
+          handoffs: [String.t() | map()],
           plugins: [String.t()],
           hooks: %{
             before_turn: [String.t()],
@@ -393,6 +432,7 @@ defmodule Bagu.ImportedAgent.Spec do
     mcp_tools: @default_mcp_tools,
     subagents: @default_subagents,
     workflows: @default_workflows,
+    handoffs: @default_handoffs,
     plugins: [],
     hooks: @default_hooks,
     guardrails: @default_guardrails
@@ -412,6 +452,7 @@ defmodule Bagu.ImportedAgent.Spec do
          {:ok, spec} <- validate_skills(spec, Keyword.get(opts, :available_skills, %{})),
          {:ok, spec} <- validate_subagents(spec, Keyword.get(opts, :available_subagents, %{})),
          {:ok, spec} <- validate_workflows(spec, Keyword.get(opts, :available_workflows, %{})),
+         {:ok, spec} <- validate_handoffs(spec, Keyword.get(opts, :available_handoffs, %{})),
          {:ok, spec} <- validate_plugins(spec, Keyword.get(opts, :available_plugins, %{})),
          {:ok, spec} <- validate_hooks(spec, Keyword.get(opts, :available_hooks, %{})) do
       validate_guardrails(
@@ -463,6 +504,11 @@ defmodule Bagu.ImportedAgent.Spec do
            validate_workflows(
              normalized_spec,
              Keyword.get(opts, :available_workflows, %{})
+           ),
+         {:ok, normalized_spec} <-
+           validate_handoffs(
+             normalized_spec,
+             Keyword.get(opts, :available_handoffs, %{})
            ),
          {:ok, normalized_spec} <-
            validate_plugins(
@@ -518,6 +564,7 @@ defmodule Bagu.ImportedAgent.Spec do
         "mcp_tools" => spec.mcp_tools,
         "subagents" => spec.subagents,
         "workflows" => spec.workflows,
+        "handoffs" => spec.handoffs,
         "plugins" => spec.plugins
       },
       "lifecycle" => %{
@@ -557,6 +604,7 @@ defmodule Bagu.ImportedAgent.Spec do
       mcp_tools: Map.get(capabilities, :mcp_tools, @default_mcp_tools),
       subagents: Map.get(capabilities, :subagents, @default_subagents),
       workflows: normalize_workflow_specs(Map.get(capabilities, :workflows, @default_workflows)),
+      handoffs: normalize_handoff_specs(Map.get(capabilities, :handoffs, @default_handoffs)),
       plugins: Map.get(capabilities, :plugins, []),
       hooks: Map.get(lifecycle, :hooks, @default_hooks),
       guardrails: Map.get(lifecycle, :guardrails, @default_guardrails)
@@ -804,6 +852,39 @@ defmodule Bagu.ImportedAgent.Spec do
     end
   end
 
+  defp validate_handoffs(%__MODULE__{} = spec, available_handoffs)
+       when is_map(available_handoffs) do
+    cond do
+      not handoffs_unique?(spec.handoffs) ->
+        {:error, "handoff names must be unique"}
+
+      spec.handoffs == [] ->
+        {:ok, spec}
+
+      map_size(available_handoffs) == 0 ->
+        {:error, "handoffs require an available_handoffs registry when importing Bagu agents"}
+
+      true ->
+        spec.handoffs
+        |> Enum.reduce_while({:ok, spec}, fn handoff, {:ok, spec_acc} ->
+          with {:ok, agent_module} <-
+                 Bagu.Handoff.Capability.resolve_handoff_name(handoff.agent, available_handoffs),
+               {:ok, _normalized} <-
+                 Bagu.Handoff.Capability.new(
+                   agent_module,
+                   as: Map.get(handoff, :as),
+                   description: Map.get(handoff, :description),
+                   target: imported_handoff_target(handoff),
+                   forward_context: Map.get(handoff, :forward_context, :public)
+                 ) do
+            {:cont, {:ok, spec_acc}}
+          else
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+        end)
+    end
+  end
+
   defp validate_hooks(%__MODULE__{} = spec, available_hooks) when is_map(available_hooks) do
     cond do
       not hooks_unique?(spec.hooks) ->
@@ -890,10 +971,26 @@ defmodule Bagu.ImportedAgent.Spec do
     Enum.uniq(names) == names
   end
 
+  defp handoffs_unique?(handoffs) do
+    names =
+      Enum.map(handoffs, fn handoff ->
+        Map.get(handoff, :as) || Map.fetch!(handoff, :agent)
+      end)
+
+    Enum.uniq(names) == names
+  end
+
   defp normalize_workflow_specs(workflows) when is_list(workflows) do
     Enum.map(workflows, fn
       workflow when is_binary(workflow) -> %{workflow: workflow}
       %{} = workflow -> workflow
+    end)
+  end
+
+  defp normalize_handoff_specs(handoffs) when is_list(handoffs) do
+    Enum.map(handoffs, fn
+      handoff when is_binary(handoff) -> %{agent: handoff}
+      %{} = handoff -> handoff
     end)
   end
 
@@ -912,6 +1009,24 @@ defmodule Bagu.ImportedAgent.Spec do
   defp imported_subagent_target(%{target: target}) do
     target
   end
+
+  defp imported_handoff_target(%{target: "auto"}), do: :auto
+
+  defp imported_handoff_target(%{target: "peer", peer_id: peer_id})
+       when is_binary(peer_id) and peer_id != "" do
+    {:peer, peer_id}
+  end
+
+  defp imported_handoff_target(%{target: "peer", peer_id_context_key: key})
+       when (is_binary(key) and key != "") or is_atom(key) do
+    {:peer, {:context, key}}
+  end
+
+  defp imported_handoff_target(%{target: target}) do
+    target
+  end
+
+  defp imported_handoff_target(%{agent: _agent}), do: :auto
 
   defp format_zoi_errors(errors) do
     errors

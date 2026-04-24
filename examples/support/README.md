@@ -1,20 +1,23 @@
 # Bagu Support Example
 
-This example is for teasing apart the current Bagu boundary between chat agents
-and workflows.
+This example is for teasing apart the current Bagu boundary between chat
+agents, workflows, and handoffs.
 
 It intentionally keeps both surfaces visible:
 
 - a front-door support chat agent with a team of specialist subagents and one
   deterministic workflow capability
+- an ownership-transfer handoff for ongoing billing conversations
 - explicit workflows for fixed support processes
 
 The current example keeps the boundaries explicit:
 
 - chat agent owns open-ended intake and delegation
+- subagents handle one-off specialist work while the router stays in control
 - workflows own deterministic support processes
 - the chat agent can expose a workflow as a tool-like capability
 - workflows can reuse a specialist agent as one bounded step
+- handoffs transfer future turns in a conversation to another agent
 - guardrails own hard safety boundaries before the agent calls a model or
   specialist
 
@@ -23,6 +26,7 @@ The current example keeps the boundaries explicit:
 The front-door `support_router_agent` can delegate to:
 
 - `review_refund`, a deterministic workflow capability for known refund cases
+- `transfer_billing_ownership`, a handoff for ongoing billing follow-up
 - `billing_specialist`
 - `operations_specialist`
 - `writer_specialist`

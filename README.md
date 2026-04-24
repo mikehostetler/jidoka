@@ -144,7 +144,7 @@ The DSL currently supports:
 
 - `agent do`: required `id`, optional `description`, optional Zoi `schema`
 - `defaults do`: required `instructions`, optional `model`, optional `character`
-- `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `skill`, `load_path`, `plugin`, `subagent`, and `workflow`
+- `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `skill`, `load_path`, `plugin`, `subagent`, `workflow`, and `handoff`
 - `lifecycle do`: `memory`, hooks, and guardrails
 
 `model` accepts the same shapes Jido.AI and ReqLLM support:
@@ -433,7 +433,7 @@ Common runtime failures use one of:
 - `%Bagu.Error.ValidationError{}` for invalid inputs or missing runtime data
 - `%Bagu.Error.ConfigError{}` for invalid runtime configuration
 - `%Bagu.Error.ExecutionError{}` for failed tools, workflows, memory, MCP,
-  hooks, guardrails, or subagents
+  hooks, guardrails, subagents, or handoffs
 
 Original low-level causes are preserved in `reason.details.cause` for debugging.
 
@@ -1030,6 +1030,41 @@ default it returns `%{output: workflow_output}`. With `result: :structured`, it
 also returns bounded workflow metadata for debugging. Workflow failures return
 structured Bagu errors and should be displayed with `Bagu.format_error/1`.
 
+## Handoffs
+
+Handoffs are for conversation ownership transfer. A subagent handles one task
+while the parent stays in control; a handoff makes another agent the owner for
+future turns in the same `conversation:`.
+
+```elixir
+capabilities do
+  handoff MyApp.BillingAgent,
+    as: :transfer_billing_ownership,
+    description: "Transfer ongoing billing ownership to billing.",
+    target: :auto,
+    forward_context: {:only, [:tenant, :session, :account_id]}
+end
+```
+
+The generated handoff tool accepts `message`, optional `summary`, and optional
+`reason`. On success `Bagu.chat/3` returns `{:handoff, %Bagu.Handoff{}}` and
+stores the target owner for the supplied conversation.
+
+```elixir
+{:handoff, handoff} =
+  Bagu.chat(router, "Please have billing continue from here.",
+    conversation: "support-123",
+    context: %{tenant: "acme", account_id: "acct_123"}
+  )
+
+Bagu.handoff_owner("support-123")
+Bagu.reset_handoff("support-123")
+```
+
+`target: :auto` starts or reuses a deterministic target agent for the
+conversation. `target: {:peer, "agent-id"}` and
+`target: {:peer, {:context, :agent_id_key}}` require an existing peer.
+
 ## Demo CLI
 
 Interactive:
@@ -1080,9 +1115,9 @@ mix bagu support -- "/escalate acct_trial Customer is locked out and threatening
 ```
 
 This example keeps the current boundary explicit: the chat agent owns open-ended
-intake and subagent delegation, while workflows own fixed support processes.
-One workflow is tool-only, and one reuses the writer specialist as a bounded
-workflow step.
+intake, subagents handle one-off specialist work, workflows own fixed support
+processes, and handoffs transfer future conversation ownership. One workflow is
+tool-only, and one reuses the writer specialist as a bounded workflow step.
 
 Kitchen sink showcase:
 
@@ -1240,7 +1275,7 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
 - `defaults.instructions`
 - `defaults.character` as an inline character map or string ref resolved
   through `available_characters`
-- published tool, skill, MCP, plugin, subagent, and workflow declarations under `capabilities`
+- published tool, skill, MCP, plugin, subagent, workflow, and handoff declarations under `capabilities`
 - memory, hook, and guardrail declarations under `lifecycle`
 - `model` supports:
   - alias strings like `"fast"`
@@ -1264,6 +1299,10 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
   - string names like `["refund_review"]`
   - objects like `%{"workflow" => "refund_review", "as" => "review_refund"}`
   - explicit resolution through `available_workflows: [MyApp.Workflows.RefundReview]`
+- `handoffs` supports:
+  - string names like `["billing_specialist"]`
+  - objects like `%{"agent" => "billing_specialist", "as" => "transfer_billing_ownership"}`
+  - explicit resolution through `available_handoffs: [MyApp.Agents.BillingAgent]`
 - `character` supports:
   - inline character maps under `defaults.character`
   - modules generated with `use Jido.Character`
@@ -1284,8 +1323,10 @@ It also does not support dynamic `instructions` callbacks yet, because the
 constrained JSON/YAML format intentionally avoids executable Elixir references.
 Imported workflow capabilities are supported through `capabilities.workflows`,
 but workflow names must resolve through an explicit `available_workflows`
-registry. Imported character refs must resolve through an explicit
-`available_characters` registry; inline `Jido.Character` maps are portable.
+registry. Imported handoffs are supported through `capabilities.handoffs`, but
+agent names must resolve through an explicit `available_handoffs` registry.
+Imported character refs must resolve through an explicit `available_characters`
+registry; inline `Jido.Character` maps are portable.
 
 The top-level helpers are:
 

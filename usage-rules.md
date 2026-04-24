@@ -19,12 +19,14 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 ## Extensions
 
 - Use `capabilities do` for explicit tool modules, Ash resources, MCP tool
-  sync, skills, plugins, subagents, and workflow capabilities.
+  sync, skills, plugins, subagents, workflow capabilities, and handoffs.
 - Use `lifecycle do` for memory, hooks, and guardrails.
 - Use `subagent` for manager-pattern delegation inside an agent turn. Do not
   model handoffs or workflow graphs as subagents.
 - Use `workflow` inside `capabilities do` when an agent should choose a known
   deterministic process as a tool-like capability.
+- Use `handoff` inside `capabilities do` when an agent should transfer future
+  conversation ownership to another agent for the same `conversation:`.
 
 ## Workflow DSL
 
@@ -46,8 +48,8 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 ## Imported Agents
 
 - Use `Bagu.import_agent/2` or `Bagu.import_agent_file/2` for JSON/YAML specs.
-- Resolve imported tools, characters, hooks, guardrails, plugins, skills, and subagents
-  through explicit `available_*` registries.
+- Resolve imported tools, characters, hooks, guardrails, plugins, skills,
+  subagents, workflows, and handoffs through explicit `available_*` registries.
 - Prefer inline `defaults.character` maps that parse through `Jido.Character`
   for portable imported specs; use string character refs only when the
   importing application provides `available_characters`.
@@ -63,9 +65,9 @@ Use these rules when generating Bagu code or reviewing Bagu examples.
 ## Runtime Errors
 
 - Public runtime APIs should return `{:ok, value}`, `{:interrupt, interrupt}`,
-  or `{:error, %Bagu.Error.*{}}`.
-- Do not expose raw internal error tuples from chat, workflow, subagent, MCP,
-  memory, hook, or guardrail runtime boundaries.
+  `{:handoff, handoff}`, or `{:error, %Bagu.Error.*{}}`.
+- Do not expose raw internal error tuples from chat, workflow, subagent,
+  handoff, MCP, memory, hook, or guardrail runtime boundaries.
 - Use `Bagu.format_error/1` when printing errors in docs, demos, and CLIs.
 - Preserve low-level causes in `error.details.cause`; do not require users to
   pattern-match on those causes.

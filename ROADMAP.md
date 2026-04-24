@@ -345,6 +345,8 @@ Risk:
 
 Goal: support explicit control transfer between agents.
 
+Status: done for beta MVP.
+
 Distinction:
 
 - Subagents are "agent as tool": the parent agent remains in control.
@@ -352,12 +354,13 @@ Distinction:
 
 Scope questions:
 
-- Who owns the thread after handoff?
-- How is memory namespace selected?
-- Which context keys are forwarded?
-- Which guardrails and hooks apply after transfer?
-- Does control ever return automatically?
-- How is the final response surfaced?
+- Ownership is tracked in memory by `conversation_id => owner`.
+- Target agent memory remains independent; handoff context forwarding controls
+  public runtime context only.
+- Source hooks and guardrails apply to the initiating turn; target hooks and
+  guardrails apply on later routed turns.
+- Control does not return automatically in the MVP.
+- The initiating turn surfaces `{:handoff, %Bagu.Handoff{}}`.
 
 Dependency:
 
@@ -422,9 +425,8 @@ The next work should follow this order:
 
 1. Beta release prep.
 2. Dependency posture for a public beta.
-3. Handoff design and implementation.
-4. Pods/team-level coordination planning.
-5. Crew-style recipe examples after the lower-level primitives are stable.
+3. Pods/team-level coordination planning.
+4. Crew-style recipe examples after the lower-level primitives are stable.
 
 Characters are integrated for the beta candidate. Handoffs, Pods, and
 Crew-style coordination remain important, but they should not block the first

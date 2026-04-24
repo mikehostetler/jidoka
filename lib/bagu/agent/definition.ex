@@ -49,6 +49,11 @@ defmodule Bagu.Agent.Definition do
       |> section_entities([:capabilities], &match?(%Bagu.Agent.Dsl.Workflow{}, &1))
       |> resolve_workflows!(owner_module)
 
+    configured_handoffs =
+      owner_module
+      |> section_entities([:capabilities], &match?(%Bagu.Agent.Dsl.Handoff{}, &1))
+      |> resolve_handoffs!(owner_module)
+
     configured_memory =
       owner_module
       |> resolve_memory_config!(configured_context_schema)
@@ -132,6 +137,15 @@ defmodule Bagu.Agent.Definition do
 
     workflow_tool_names = Enum.map(configured_workflows, & &1.name)
 
+    handoff_tool_modules =
+      configured_handoffs
+      |> Enum.with_index()
+      |> Enum.map(fn {handoff, index} ->
+        Bagu.Handoff.Capability.tool_module(owner_module, handoff, index)
+      end)
+
+    handoff_tool_names = Enum.map(configured_handoffs, & &1.name)
+
     runtime_plugins = Bagu.Agent.Runtime.runtime_plugins(plugin_modules, configured_memory)
 
     tool_modules =
@@ -140,7 +154,8 @@ defmodule Bagu.Agent.Definition do
         skill_tool_modules ++
         plugin_tool_modules ++
         subagent_tool_modules ++
-        workflow_tool_modules
+        workflow_tool_modules ++
+        handoff_tool_modules
 
     tool_names =
       direct_tool_names ++
@@ -148,7 +163,8 @@ defmodule Bagu.Agent.Definition do
         skill_tool_names ++
         plugin_tool_names ++
         subagent_tool_names ++
-        workflow_tool_names
+        workflow_tool_names ++
+        handoff_tool_names
 
     ensure_unique_tool_names!(owner_module, tool_names)
 
@@ -184,6 +200,8 @@ defmodule Bagu.Agent.Definition do
       subagent_names: subagent_tool_names,
       workflows: configured_workflows,
       workflow_names: workflow_tool_names,
+      handoffs: configured_handoffs,
+      handoff_names: handoff_tool_names,
       plugins: plugin_modules,
       plugin_names: plugin_names,
       hooks: configured_hooks,
@@ -220,6 +238,9 @@ defmodule Bagu.Agent.Definition do
       workflows: configured_workflows,
       workflow_tool_modules: workflow_tool_modules,
       workflow_names: workflow_tool_names,
+      handoffs: configured_handoffs,
+      handoff_tool_modules: handoff_tool_modules,
+      handoff_names: handoff_tool_names,
       runtime_plugins: runtime_plugins,
       plugins: plugin_modules,
       plugin_names: plugin_names,
@@ -241,6 +262,7 @@ defmodule Bagu.Agent.Definition do
     skills: "Move `skill` and `load_path` declarations inside `capabilities do ... end`.",
     plugins: "Move `plugin` declarations inside `capabilities do ... end`.",
     subagents: "Move `subagent` declarations inside `capabilities do ... end`.",
+    handoffs: "Move `handoff` declarations inside `capabilities do ... end`.",
     hooks: "Move hook declarations inside `lifecycle do ... end`.",
     guardrails:
       "Move guardrails inside `lifecycle do ... end` and rename `input`, `output`, and `tool` to `input_guardrail`, `output_guardrail`, and `tool_guardrail`."
@@ -270,6 +292,44 @@ defmodule Bagu.Agent.Definition do
               )
       end
     end)
+  end
+
+  defp resolve_handoffs!(entities, owner_module) do
+    handoffs =
+      Enum.map(entities, fn entity ->
+        case Bagu.Handoff.Capability.new(entity.agent,
+               as: entity.as,
+               description: entity.description,
+               target: entity.target,
+               forward_context: entity.forward_context
+             ) do
+          {:ok, handoff} ->
+            handoff
+
+          {:error, message} ->
+            raise Bagu.Agent.Dsl.Error.exception(
+                    message: message,
+                    path: [:capabilities, :handoff],
+                    value: entity.agent,
+                    hint: "Use a compiled Bagu agent module and valid handoff options.",
+                    module: owner_module
+                  )
+        end
+      end)
+
+    case Bagu.Handoff.Capability.handoff_names(handoffs) do
+      {:ok, _names} ->
+        handoffs
+
+      {:error, message} ->
+        raise Bagu.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :handoff],
+                value: Enum.map(handoffs, & &1.name),
+                hint: "Give each handoff a unique `as:` name.",
+                module: owner_module
+              )
+    end
   end
 
   defp reject_legacy_agent_option!(owner_module, option, hint) do

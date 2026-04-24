@@ -5,7 +5,7 @@ defmodule Bagu.Error.Normalize do
 
   @type context :: keyword() | map()
 
-  @spec chat_error(term(), context()) :: Exception.t()
+  @spec chat_error(term(), context()) :: Exception.t() | {:handoff, Bagu.Handoff.t()}
   def chat_error(reason, context \\ %{})
 
   def chat_error(%_{} = error, context) when is_exception(error),
@@ -22,6 +22,7 @@ defmodule Bagu.Error.Normalize do
   def chat_error({:hook, stage, reason}, context), do: hook_error(stage, reason, context)
   def chat_error({:guardrail, stage, label, reason}, context), do: guardrail_error(stage, label, reason, context)
   def chat_error({:memory, reason}, context), do: memory_error(:retrieve, reason, context)
+  def chat_error({:handoff, %Bagu.Handoff{} = handoff}, _context), do: {:handoff, handoff}
   def chat_error({:timeout, timeout}, context), do: timeout_error(:chat, timeout, context)
   def chat_error(:timeout, context), do: timeout_error(:chat, detail(context, :timeout), context)
 
@@ -104,6 +105,14 @@ defmodule Bagu.Error.Normalize do
     )
   end
 
+  def chat_option_error({:invalid_conversation, value}, context) do
+    Error.validation_error("conversation must be a non-empty string.",
+      field: :conversation,
+      value: value,
+      details: details(context, %{operation: :prepare_chat_opts, reason: :invalid_conversation, cause: value})
+    )
+  end
+
   def chat_option_error(reason, context),
     do:
       validation(
@@ -145,6 +154,57 @@ defmodule Bagu.Error.Normalize do
 
   def workflow_error({:timeout, timeout}, context), do: timeout_error(:workflow, timeout, context)
   def workflow_error(reason, context), do: execution("Workflow execution failed.", :workflow, reason, context)
+
+  @spec handoff_error(term(), context()) :: Exception.t()
+  def handoff_error(reason, context \\ %{})
+
+  def handoff_error(%_{} = error, context) when is_exception(error),
+    do: passthrough_or_execution(error, "Handoff failed.", :handoff, context)
+
+  def handoff_error(:missing_conversation = reason, context) do
+    Error.validation_error("Handoff target :auto requires a conversation.",
+      field: :conversation,
+      details: details(context, %{operation: :handoff, reason: :missing_conversation, cause: reason})
+    )
+  end
+
+  def handoff_error({:invalid_payload, field} = reason, context) do
+    Error.validation_error("Handoff #{field} must be a non-empty string.",
+      field: field,
+      value: detail(context, :value),
+      details: details(context, %{operation: :handoff, reason: :invalid_payload, cause: reason})
+    )
+  end
+
+  def handoff_error({:peer_not_found, peer} = reason, context) do
+    Error.execution_error("Handoff target agent could not be found.",
+      phase: :handoff,
+      details: details(context, %{operation: :handoff, reason: :peer_not_found, peer: peer, cause: reason})
+    )
+  end
+
+  def handoff_error({:peer_mismatch, expected, actual} = reason, context) do
+    Error.execution_error("Handoff target runtime did not match the configured agent.",
+      phase: :handoff,
+      details:
+        details(context, %{
+          operation: :handoff,
+          reason: :peer_mismatch,
+          expected: expected,
+          actual: actual,
+          cause: reason
+        })
+    )
+  end
+
+  def handoff_error({:start_failed, reason}, context) do
+    Error.execution_error("Handoff target agent could not be started.",
+      phase: :handoff,
+      details: details(context, %{operation: :handoff, reason: :start_failed, cause: {:start_failed, reason}})
+    )
+  end
+
+  def handoff_error(reason, context), do: execution("Handoff failed.", :handoff, reason, context)
 
   @spec subagent_error(term(), context()) :: Exception.t()
   def subagent_error(reason, context \\ %{})

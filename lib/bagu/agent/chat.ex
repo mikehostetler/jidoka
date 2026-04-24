@@ -6,6 +6,7 @@ defmodule Bagu.Agent.Chat do
   def prepare_chat_opts(opts, nil) when is_list(opts) do
     with :ok <- reject_tool_context(opts),
          {:ok, context} <- normalize_request_context(opts, %{}, nil),
+         {:ok, context} <- attach_conversation(opts, context),
          {:ok, context} <- attach_runtime_character(opts, context),
          {:ok, context} <- attach_runtime_extensions(opts, context) do
       {:ok, finalize_chat_opts(opts, context)}
@@ -19,6 +20,7 @@ defmodule Bagu.Agent.Chat do
 
     with :ok <- reject_tool_context(opts),
          {:ok, context} <- normalize_request_context(opts, default_context, context_schema),
+         {:ok, context} <- attach_conversation(opts, context),
          {:ok, context} <- attach_runtime_character(opts, context),
          {:ok, context} <- attach_runtime_extensions(opts, context),
          {:ok, context} <- maybe_prepare_ash_context(context, ash_tool_config) do
@@ -64,6 +66,33 @@ defmodule Bagu.Agent.Chat do
     end
   end
 
+  defp attach_conversation(opts, context) do
+    case Keyword.fetch(opts, :conversation) do
+      {:ok, conversation_id} when is_binary(conversation_id) ->
+        case String.trim(conversation_id) do
+          "" ->
+            {:error,
+             Bagu.Error.Normalize.chat_option_error({:invalid_conversation, conversation_id},
+               field: :conversation,
+               value: conversation_id
+             )}
+
+          trimmed ->
+            {:ok, Map.put(context, Bagu.Handoff.context_key(), trimmed)}
+        end
+
+      {:ok, conversation_id} ->
+        {:error,
+         Bagu.Error.Normalize.chat_option_error({:invalid_conversation, conversation_id},
+           field: :conversation,
+           value: conversation_id
+         )}
+
+      :error ->
+        {:ok, context}
+    end
+  end
+
   defp attach_runtime_extensions(opts, context) do
     with {:ok, hooks} <- Bagu.Hooks.normalize_request_hooks(Keyword.get(opts, :hooks, nil)),
          {:ok, guardrails} <-
@@ -79,7 +108,7 @@ defmodule Bagu.Agent.Chat do
 
   defp finalize_chat_opts(opts, context) do
     opts
-    |> Keyword.drop([:context, :character, :hooks, :guardrails])
+    |> Keyword.drop([:context, :character, :conversation, :hooks, :guardrails])
     |> Keyword.put(:tool_context, context)
   end
 
