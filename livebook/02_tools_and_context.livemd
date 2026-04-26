@@ -13,7 +13,7 @@ cell runs without a provider key.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "e9f2087d15c5bfaa8ff827acfacb3ddb91f23be6"},
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "924a486f3c1b7e7a943cb3d5ceee0de65f158467"},
     {:kino, "~> 0.19.0"}
   ],
   config: [
@@ -28,15 +28,6 @@ Mix.install(
 
 ```elixir
 Jidoka.Kino.setup()
-```
-
-```elixir
-start_or_reuse = fn id, start_fun ->
-  case Jidoka.whereis(id) do
-    nil -> start_fun.()
-    pid -> {:ok, pid}
-  end
-end
 ```
 
 ## Define A Tool
@@ -111,7 +102,7 @@ Inspect the agent's context defaults and published tool names:
 
 ```elixir
 {:ok, pid} =
-  start_or_reuse.("livebook-math-agent", fn ->
+  Jidoka.Kino.start_or_reuse("livebook-math-agent", fn ->
     LivebookDemo.MathAgent.start_link(id: "livebook-math-agent")
   end)
 

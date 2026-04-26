@@ -13,7 +13,7 @@ and import cells run without a provider key.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "e9f2087d15c5bfaa8ff827acfacb3ddb91f23be6"},
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "924a486f3c1b7e7a943cb3d5ceee0de65f158467"},
     {:kino, "~> 0.19.0"}
   ],
   config: [
@@ -28,15 +28,6 @@ Mix.install(
 
 ```elixir
 Jidoka.Kino.setup()
-```
-
-```elixir
-start_or_reuse = fn id, start_fun ->
-  case Jidoka.whereis(id) do
-    nil -> start_fun.()
-    pid -> {:ok, pid}
-  end
-end
 ```
 
 ## Define Workflow Tools
@@ -228,7 +219,7 @@ Now ask the agent to use that workflow tool. The model chooses the single
 
 ```elixir
 {:ok, pid} =
-  start_or_reuse.("livebook-workflow-agent", fn ->
+  Jidoka.Kino.start_or_reuse("livebook-workflow-agent", fn ->
     LivebookDemo.WorkflowAgent.start_link(id: "livebook-workflow-agent")
   end)
 
@@ -283,7 +274,7 @@ end
 
 ```elixir
 {:ok, pid} =
-  start_or_reuse.("livebook-imported-agent", fn ->
+  Jidoka.Kino.start_or_reuse("livebook-imported-agent", fn ->
     Jidoka.start_agent(imported_agent, id: "livebook-imported-agent")
   end)
 

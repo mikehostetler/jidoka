@@ -214,6 +214,11 @@ The top-level `livebook/` folder contains runnable onboarding notebooks:
 - [Workflows And Imports](livebook/03_workflows_and_imports.livemd): run
   deterministic workflows and import a JSON agent.
 
+See [LiveBook Template Notes](livebook/README.md) for notebook conventions and
+the full onboarding series, including diagnostics, hooks, memory, characters,
+subagents, handoffs, skills, MCP, web tools, plugins, Ash resources, evals, and
+production readiness.
+
 ## Package Development
 
 From this package directory:

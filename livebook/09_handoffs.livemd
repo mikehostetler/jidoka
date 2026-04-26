@@ -1,0 +1,138 @@
+# Jidoka: Handoffs
+
+[![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmikehostetler%2Fjidoka%2Fmain%2Flivebook%2F09_handoffs.livemd)
+
+Handoffs transfer conversation ownership. Use them when another agent should
+continue the conversation, not merely answer a subtask.
+
+## Setup
+
+```elixir
+Mix.install(
+  [
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "924a486f3c1b7e7a943cb3d5ceee0de65f158467"},
+    {:kino, "~> 0.19.0"}
+  ],
+  config: [
+    jidoka: [
+      model_aliases: %{fast: "anthropic:claude-haiku-4-5"}
+    ]
+  ]
+)
+```
+
+```elixir
+Jidoka.Kino.setup()
+```
+
+## Define A Handoff Target
+
+```elixir
+defmodule LivebookDemo.Handoffs.BillingSpecialist do
+  defmodule Runtime do
+    use Jido.Agent,
+      name: "livebook_billing_specialist_runtime",
+      schema: Zoi.object(%{})
+  end
+
+  def name, do: "billing_specialist"
+  def runtime_module, do: Runtime
+  def start_link(opts \\ []), do: Jidoka.start_agent(Runtime, opts)
+  def chat(_pid, message, _opts \\ []), do: {:ok, "billing: #{message}"}
+end
+
+defmodule LivebookDemo.Handoffs.RouterAgent do
+  use Jidoka.Agent
+
+  agent do
+    id :livebook_handoff_router
+  end
+
+  defaults do
+    model :fast
+    instructions "Transfer billing ownership when the user needs billing follow-up."
+  end
+
+  capabilities do
+    handoff LivebookDemo.Handoffs.BillingSpecialist,
+      as: "billing_specialist",
+      description: "Transfer the conversation to billing."
+  end
+end
+```
+
+```elixir
+%{
+  handoff_names: LivebookDemo.Handoffs.RouterAgent.handoff_names(),
+  tool_names: LivebookDemo.Handoffs.RouterAgent.tool_names(),
+  handoffs: LivebookDemo.Handoffs.RouterAgent.handoffs()
+}
+```
+
+## Run A Handoff
+
+The generated handoff tool returns `{:error, {:handoff, handoff}}` on purpose.
+That tells the caller to stop the current turn and route the conversation to the
+new owner.
+
+```elixir
+conversation_id = "livebook-handoff-#{System.unique_integer([:positive])}"
+request_id = "req-handoff-#{System.unique_integer([:positive])}"
+
+handoff_tool =
+  Enum.find(LivebookDemo.Handoffs.RouterAgent.tools(), fn tool ->
+    tool.name() == "billing_specialist"
+  end)
+
+context = %{
+  Jidoka.Handoff.context_key() => conversation_id,
+  Jidoka.Handoff.server_key() => self(),
+  Jidoka.Handoff.request_id_key() => request_id,
+  Jidoka.Handoff.from_agent_key() => LivebookDemo.Handoffs.RouterAgent.id(),
+  tenant: "acme",
+  secret: "not forwarded"
+}
+
+{:error, {:handoff, handoff}} =
+  handoff_tool.run(
+    %{
+      message: "Please continue with billing.",
+      summary: "Customer asked about invoice status.",
+      reason: "billing"
+    },
+    context
+  )
+
+owner = Jidoka.handoff_owner(conversation_id)
+
+%{
+  handoff: Map.take(handoff, [:conversation_id, :from_agent, :to_agent_id, :name, :message, :summary, :reason]),
+  owner: Map.take(owner, [:agent, :agent_id]),
+  forwarded_context: handoff.context
+}
+```
+
+Reset ownership when the conversation is finished or returned to the router.
+
+```elixir
+Jidoka.reset_handoff(conversation_id)
+Jidoka.handoff_owner(conversation_id)
+```
+
+## Optional Provider Turn
+
+```elixir
+{:ok, pid} =
+  Jidoka.Kino.start_or_reuse("livebook-handoff-router", fn ->
+    LivebookDemo.Handoffs.RouterAgent.start_link(id: "livebook-handoff-router")
+  end)
+
+Jidoka.Kino.chat("Handoff router chat", fn ->
+  LivebookDemo.Handoffs.RouterAgent.chat(
+    pid,
+    "The customer needs billing to take over this invoice conversation.",
+    conversation: "livebook-handoff-chat",
+    context: %{tenant: "acme"}
+  )
+end)
+```

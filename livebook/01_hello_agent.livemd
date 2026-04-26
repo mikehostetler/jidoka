@@ -13,7 +13,7 @@ local checkout. Chat cells use a Livebook secret named `ANTHROPIC_API_KEY`.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "e9f2087d15c5bfaa8ff827acfacb3ddb91f23be6"},
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "924a486f3c1b7e7a943cb3d5ceee0de65f158467"},
     {:kino, "~> 0.19.0"}
   ],
   config: [
@@ -28,15 +28,6 @@ Mix.install(
 
 ```elixir
 Jidoka.Kino.setup()
-```
-
-```elixir
-start_or_reuse = fn id, start_fun ->
-  case Jidoka.whereis(id) do
-    nil -> start_fun.()
-    pid -> {:ok, pid}
-  end
-end
 ```
 
 ## Define An Agent
@@ -91,7 +82,7 @@ runtime events, renders a compact trace, and returns plain response text.
 
 ```elixir
 {:ok, pid} =
-  start_or_reuse.("livebook-assistant", fn ->
+  Jidoka.Kino.start_or_reuse("livebook-assistant", fn ->
     LivebookDemo.AssistantAgent.start_link(id: "livebook-assistant")
   end)
 

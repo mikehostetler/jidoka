@@ -1,0 +1,121 @@
+# Jidoka: Phoenix LiveView Consumer Boundary
+
+[![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmikehostetler%2Fjidoka%2Fmain%2Flivebook%2F18_phoenix_liveview_consumer.livemd)
+
+Jidoka does not need to render Phoenix components. The reusable boundary is an
+`AgentView`: it chooses the agent, conversation id, runtime context, and
+projection shape that a LiveView can render.
+
+## Setup
+
+```elixir
+Mix.install(
+  [
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "924a486f3c1b7e7a943cb3d5ceee0de65f158467"},
+    {:kino, "~> 0.19.0"}
+  ],
+  config: [
+    jidoka: [
+      model_aliases: %{fast: "anthropic:claude-haiku-4-5"}
+    ]
+  ]
+)
+```
+
+```elixir
+Jidoka.Kino.setup()
+```
+
+## Define An AgentView
+
+```elixir
+defmodule LivebookDemo.AgentView.SupportAgent do
+  use Jidoka.Agent
+
+  agent do
+    id :livebook_agent_view_support
+
+    schema Zoi.object(%{
+      channel: Zoi.string() |> Zoi.default("livebook"),
+      session: Zoi.string()
+    })
+  end
+
+  defaults do
+    model :fast
+    instructions "You are a support assistant."
+  end
+end
+
+defmodule LivebookDemo.AgentView.SupportView do
+  use Jidoka.AgentView,
+    agent: LivebookDemo.AgentView.SupportAgent
+
+  @impl true
+  def conversation_id(session) do
+    session
+    |> Map.get("conversation_id", "demo")
+    |> Jidoka.AgentView.normalize_id("demo")
+  end
+
+  @impl true
+  def agent_id(session), do: "livebook-agent-view-#{conversation_id(session)}"
+
+  @impl true
+  def runtime_context(session) do
+    %{
+      channel: "livebook",
+      session: conversation_id(session),
+      actor: %{id: Map.get(session, "actor_id", "demo-user")}
+    }
+  end
+end
+```
+
+## Project Runtime State
+
+```elixir
+session = %{"conversation_id" => "onboarding-demo", "actor_id" => "user-1"}
+
+{:ok, pid} = LivebookDemo.AgentView.SupportView.start_agent(session)
+{:ok, view} = LivebookDemo.AgentView.SupportView.snapshot(pid, session)
+
+Map.take(view, [
+  :agent_id,
+  :conversation_id,
+  :runtime_context,
+  :visible_messages,
+  :streaming_message,
+  :status
+])
+```
+
+A LiveView can optimistically append the user's message before the async agent
+turn completes.
+
+```elixir
+pending = LivebookDemo.AgentView.SupportView.before_turn(view, "My invoice is confusing.")
+
+Map.take(pending, [:status, :visible_messages, :streaming_message])
+```
+
+The lower-level projection remains available for debugging.
+
+```elixir
+{:ok, projection} = Jidoka.Agent.View.snapshot(pid)
+
+projection
+|> Map.take([:visible_messages, :streaming_message, :llm_context, :events])
+```
+
+## Optional Provider Turn
+
+```elixir
+Jidoka.Kino.chat("AgentView-backed chat", fn ->
+  LivebookDemo.AgentView.SupportAgent.chat(
+    pid,
+    "Explain the AgentView boundary in one sentence.",
+    context: LivebookDemo.AgentView.SupportView.runtime_context(session)
+  )
+end)
+```
