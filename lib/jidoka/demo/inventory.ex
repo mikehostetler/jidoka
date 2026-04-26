@@ -80,6 +80,7 @@ defmodule Jidoka.Demo.Inventory do
     maybe_row("mcp", format_mcp(Map.get(definition, :mcp_tools, [])))
     maybe_row("skills", format_skills(Map.get(definition, :skills)))
     maybe_row("plugins", format_list(Map.get(definition, :plugin_names, [])))
+    maybe_row("web", format_web(Map.get(definition, :web, [])))
     maybe_row("workflows", format_list(Map.get(definition, :workflow_names, [])))
     maybe_row("handoffs", format_list(Map.get(definition, :handoff_names, [])))
   end
@@ -194,6 +195,24 @@ defmodule Jidoka.Demo.Inventory do
   end
 
   defp format_context(other), do: inspect(other)
+
+  defp format_web([]), do: "(none)"
+
+  defp format_web(web) when is_list(web) do
+    web
+    |> Enum.map(fn capability ->
+      "#{capability.mode}: #{format_list(Enum.map(capability.tools, &tool_name/1))}"
+    end)
+    |> Enum.join("; ")
+  end
+
+  defp tool_name(module) do
+    if Code.ensure_loaded?(module) and function_exported?(module, :name, 0) do
+      module.name()
+    else
+      inspect(module)
+    end
+  end
 
   defp format_schema(%Zoi.Types.Map{fields: fields}) when is_list(fields) do
     fields

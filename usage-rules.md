@@ -19,8 +19,11 @@ Use these rules when generating Jidoka code or reviewing Jidoka examples.
 ## Extensions
 
 - Use `capabilities do` for explicit tool modules, Ash resources, MCP tool
-  sync, skills, plugins, subagents, workflow capabilities, and handoffs.
+  sync, web access, skills, plugins, subagents, workflow capabilities, and
+  handoffs.
 - Use `lifecycle do` for memory, hooks, and guardrails.
+- Use `web :search` for search-only agents and `web :read_only` for search plus
+  public page reading. Do not expose raw browser automation for low-risk agents.
 - Use `subagent` for manager-pattern delegation inside an agent turn. Do not
   model handoffs or workflow graphs as subagents.
 - Use `workflow` inside `capabilities do` when an agent should choose a known
@@ -50,6 +53,7 @@ Use these rules when generating Jidoka code or reviewing Jidoka examples.
 - Use `Jidoka.import_agent/2` or `Jidoka.import_agent_file/2` for JSON/YAML specs.
 - Resolve imported tools, characters, hooks, guardrails, plugins, skills,
   subagents, workflows, and handoffs through explicit `available_*` registries.
+  Imported `web` capabilities use built-in modes and do not need a registry.
 - Prefer inline `defaults.character` maps that parse through `Jido.Character`
   for portable imported specs; use string character refs only when the
   importing application provides `available_characters`.

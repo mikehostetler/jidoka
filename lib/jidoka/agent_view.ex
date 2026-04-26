@@ -83,6 +83,8 @@ defmodule Jidoka.AgentView do
   @callback agent_id(input()) :: String.t()
   @callback runtime_context(input()) :: map()
 
+  @doc false
+  @spec __using__(keyword()) :: Macro.t()
   defmacro __using__(opts \\ []) do
     agent = Keyword.get(opts, :agent)
 
@@ -91,10 +93,14 @@ defmodule Jidoka.AgentView do
 
       @jidoka_agent_view_agent agent
 
+      @doc false
       @impl Jidoka.AgentView
+      @spec prepare(Jidoka.AgentView.input()) :: :ok | {:error, term()}
       def prepare(_input), do: :ok
 
+      @doc false
       @impl Jidoka.AgentView
+      @spec agent_module(Jidoka.AgentView.input()) :: module()
       def agent_module(_input) do
         case @jidoka_agent_view_agent do
           nil ->
@@ -106,31 +112,42 @@ defmodule Jidoka.AgentView do
         end
       end
 
+      @doc false
       @impl Jidoka.AgentView
+      @spec conversation_id(Jidoka.AgentView.input()) :: String.t()
       def conversation_id(input), do: Jidoka.AgentView.default_conversation_id(input)
 
+      @doc false
       @impl Jidoka.AgentView
+      @spec agent_id(Jidoka.AgentView.input()) :: String.t()
       def agent_id(input), do: Jidoka.AgentView.default_agent_id(agent_module(input), conversation_id(input))
 
+      @doc false
       @impl Jidoka.AgentView
+      @spec runtime_context(Jidoka.AgentView.input()) :: map()
       def runtime_context(input), do: Jidoka.AgentView.default_runtime_context(input, conversation_id(input))
 
+      @doc false
       @spec start_agent(Jidoka.AgentView.input()) :: {:ok, pid()} | {:error, term()}
       def start_agent(input), do: Jidoka.AgentView.start_agent(__MODULE__, input)
 
+      @doc false
       @spec snapshot(Request.server(), Jidoka.AgentView.input(), keyword()) ::
               {:ok, Jidoka.AgentView.t()} | {:error, term()}
       def snapshot(agent_ref, input, opts \\ []), do: Jidoka.AgentView.snapshot(__MODULE__, agent_ref, input, opts)
 
+      @doc false
       @spec before_turn(Jidoka.AgentView.t(), String.t()) :: Jidoka.AgentView.t()
       def before_turn(view, message), do: Jidoka.AgentView.before_turn(view, message)
 
+      @doc false
       @spec start_turn(pid(), String.t(), Jidoka.AgentView.input(), keyword()) ::
               {:ok, Jidoka.AgentView.Run.t()} | {:error, term()}
       def start_turn(pid, message, input, opts \\ []) do
         Jidoka.AgentView.start_turn(__MODULE__, pid, message, input, opts)
       end
 
+      @doc false
       @spec await_turn(Jidoka.AgentView.Run.t(), keyword()) ::
               {:ok, term()}
               | {:interrupt, Jidoka.Interrupt.t()}
@@ -140,22 +157,27 @@ defmodule Jidoka.AgentView do
         Jidoka.AgentView.await_turn(__MODULE__, run, opts)
       end
 
+      @doc false
       @spec refresh_turn(Jidoka.AgentView.Run.t(), Jidoka.AgentView.t()) ::
               {:ok, Jidoka.AgentView.t()} | {:error, term()}
       def refresh_turn(run, current_view) do
         Jidoka.AgentView.refresh_turn(__MODULE__, run, current_view)
       end
 
+      @doc false
       @spec after_turn(Jidoka.AgentView.Run.t(), term()) :: {:ok, Jidoka.AgentView.t()} | {:error, term()}
       def after_turn(run, result), do: Jidoka.AgentView.after_turn(__MODULE__, run, result)
 
+      @doc false
       @spec before_submit(Jidoka.AgentView.t(), String.t()) :: Jidoka.AgentView.t()
       def before_submit(view, message), do: before_turn(view, message)
 
+      @doc false
       @spec start_message(pid(), String.t(), Jidoka.AgentView.input(), keyword()) ::
               {:ok, Jidoka.AgentView.Run.t()} | {:error, term()}
       def start_message(pid, message, input, opts \\ []), do: start_turn(pid, message, input, opts)
 
+      @doc false
       @spec await_message(pid(), Jidoka.AgentView.Run.t() | Request.Handle.t(), keyword()) ::
               {:ok, term()}
               | {:interrupt, Jidoka.Interrupt.t()}
@@ -165,24 +187,30 @@ defmodule Jidoka.AgentView do
         Jidoka.AgentView.await_message(__MODULE__, pid, run_or_request, opts)
       end
 
+      @doc false
       @spec refresh_running(pid(), Jidoka.AgentView.input(), Jidoka.AgentView.t()) ::
               {:ok, Jidoka.AgentView.t()} | {:error, term()}
       def refresh_running(pid, input, current_view) do
         Jidoka.AgentView.refresh_running(__MODULE__, pid, input, current_view)
       end
 
+      @doc false
       @spec after_result(pid(), Jidoka.AgentView.input(), term()) :: {:ok, Jidoka.AgentView.t()} | {:error, term()}
       def after_result(pid, input, result), do: Jidoka.AgentView.after_result(__MODULE__, pid, input, result)
 
+      @doc false
       @spec visible_messages(Jidoka.AgentView.t()) :: [map()]
       def visible_messages(view), do: Jidoka.AgentView.visible_messages(view)
 
+      @doc false
       @spec lifecycle_hooks() :: [atom()]
       def lifecycle_hooks, do: Jidoka.AgentView.lifecycle_hooks()
 
+      @doc false
       @spec ui_hooks() :: [atom()]
       def ui_hooks, do: lifecycle_hooks()
 
+      @doc false
       @spec request_id() :: String.t()
       def request_id, do: Jidoka.AgentView.request_id()
 
@@ -627,7 +655,5 @@ defmodule Jidoka.AgentView do
   defp input_value(_input, _key), do: nil
 
   defp maybe_put(map, _key, nil), do: map
-  defp maybe_put(map, _key, ""), do: map
-  defp maybe_put(map, _key, []), do: map
   defp maybe_put(map, key, value), do: Map.put(map, key, value)
 end

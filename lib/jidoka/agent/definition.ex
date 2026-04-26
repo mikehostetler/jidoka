@@ -72,6 +72,11 @@ defmodule Jidoka.Agent.Definition do
       |> Enum.filter(&match?(%Jidoka.Agent.Dsl.MCPTools{}, &1))
       |> resolve_mcp!(owner_module)
 
+    configured_web =
+      capability_entities
+      |> Enum.filter(&match?(%Jidoka.Agent.Dsl.Web{}, &1))
+      |> resolve_web!(owner_module)
+
     configured_hooks =
       owner_module
       |> section_entities(
@@ -114,6 +119,11 @@ defmodule Jidoka.Agent.Definition do
     {plugin_names, plugin_tool_modules, plugin_tool_names} =
       resolve_plugin_tools!(owner_module, plugin_modules)
 
+    web_tool_modules = Jidoka.Web.tool_modules(configured_web)
+
+    web_tool_names =
+      resolve_web_tool_names!(owner_module, configured_web)
+
     {skill_names, skill_tool_modules, skill_tool_names} =
       resolve_skill_tools!(owner_module, configured_skills)
 
@@ -153,6 +163,7 @@ defmodule Jidoka.Agent.Definition do
         ash_resource_info.tool_modules ++
         skill_tool_modules ++
         plugin_tool_modules ++
+        web_tool_modules ++
         subagent_tool_modules ++
         workflow_tool_modules ++
         handoff_tool_modules
@@ -162,6 +173,7 @@ defmodule Jidoka.Agent.Definition do
         ash_resource_info.tool_names ++
         skill_tool_names ++
         plugin_tool_names ++
+        web_tool_names ++
         subagent_tool_names ++
         workflow_tool_names ++
         handoff_tool_names
@@ -196,6 +208,8 @@ defmodule Jidoka.Agent.Definition do
       tools: tool_modules,
       tool_names: tool_names,
       mcp_tools: configured_mcp_tools,
+      web: configured_web,
+      web_tool_names: web_tool_names,
       subagents: configured_subagents,
       subagent_names: subagent_tool_names,
       workflows: configured_workflows,
@@ -232,6 +246,9 @@ defmodule Jidoka.Agent.Definition do
       skills: configured_skills,
       skill_names: skill_names,
       mcp_tools: configured_mcp_tools,
+      web: configured_web,
+      web_tool_modules: web_tool_modules,
+      web_tool_names: web_tool_names,
       subagents: configured_subagents,
       subagent_tool_modules: subagent_tool_modules,
       subagent_names: subagent_tool_names,
@@ -638,6 +655,21 @@ defmodule Jidoka.Agent.Definition do
     end
   end
 
+  defp resolve_web!(entries, owner_module) when is_list(entries) do
+    case Jidoka.Web.normalize_dsl(entries) do
+      {:ok, normalized} ->
+        normalized
+
+      {:error, message} ->
+        raise Jidoka.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :web],
+                hint: "Declare `web :search` or `web :read_only` at most once inside `capabilities`.",
+                module: owner_module
+              )
+    end
+  end
+
   defp resolve_subagents!(entries, owner_module) when is_list(entries) do
     entries
     |> Enum.reduce_while({:ok, []}, fn %Jidoka.Agent.Dsl.Subagent{} = entry, {:ok, acc} ->
@@ -786,6 +818,23 @@ defmodule Jidoka.Agent.Definition do
     {plugin_names, plugin_tool_modules, plugin_tool_names}
   end
 
+  defp resolve_web_tool_names!(_owner_module, []), do: []
+
+  defp resolve_web_tool_names!(owner_module, configured_web) do
+    case Jidoka.Web.tool_names(configured_web) do
+      {:ok, web_tool_names} ->
+        web_tool_names
+
+      {:error, message} ->
+        raise Jidoka.Agent.Dsl.Error.exception(
+                message: message,
+                path: [:capabilities, :web],
+                hint: "Use a supported Jidoka web mode such as `web :search` or `web :read_only`.",
+                module: owner_module
+              )
+    end
+  end
+
   defp resolve_skill_tools!(owner_module, configured_skills) do
     skill_tool_modules = Jidoka.Skill.action_modules(configured_skills)
 
@@ -864,7 +913,7 @@ defmodule Jidoka.Agent.Definition do
               path: [:capabilities],
               value: duplicates,
               hint:
-                "Rename or remove one of the conflicting tools across direct, Ash, MCP, skill, plugin, and subagent sources.",
+                "Rename or remove one of the conflicting tools across direct, Ash, MCP, skill, plugin, web, subagent, workflow, and handoff sources.",
               module: owner_module
             )
     end

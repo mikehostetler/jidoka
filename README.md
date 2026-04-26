@@ -48,6 +48,8 @@ Today, Jidoka can:
 - compose prompt-level agent skills from Jido.AI skills, including runtime
   `SKILL.md` files
 - sync remote MCP tool catalogs into an agent with `mcp_tools`
+- add low-risk public web search and read-only page access with `web`, backed by
+  `jido_browser`
 - attach tools directly or expose all generated `AshJido` actions for an Ash
   resource with `ash_resource`
 - define plugins with `use Jidoka.Plugin` and let them contribute tools into the
@@ -163,7 +165,7 @@ The DSL currently supports:
 
 - `agent do`: required `id`, optional `description`, optional Zoi `schema`
 - `defaults do`: required `instructions`, optional `model`, optional `character`
-- `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `skill`, `load_path`, `plugin`, `subagent`, `workflow`, and `handoff`
+- `capabilities do`: `tool`, `ash_resource`, `mcp_tools`, `web`, `skill`, `load_path`, `plugin`, `subagent`, `workflow`, and `handoff`
 - `lifecycle do`: `memory`, hooks, and guardrails
 
 `model` accepts the same shapes Jido.AI and ReqLLM support:
@@ -690,6 +692,39 @@ Jidoka keeps MCP narrow in this first pass:
 - Jidoka does not currently expose raw MCP resources or prompts
 - imported JSON/YAML specs reference endpoint names only; executable transport
   configuration stays in code or application config
+
+## Add Web Access
+
+Jidoka exposes `jido_browser` through an explicit low-risk `web` capability
+instead of the raw browser plugin.
+
+```elixir
+capabilities do
+  web :search
+end
+```
+
+`web :search` adds `search_web`. `web :read_only` adds `search_web`,
+`read_page`, and `snapshot_url`.
+
+```elixir
+capabilities do
+  web :read_only
+end
+```
+
+The public Jidoka web tools are read-only. They do not expose click, type,
+JavaScript evaluation, tabs, state persistence, or arbitrary browser session
+control. Page-reading tools reject localhost, loopback, and private network
+URLs before browser startup.
+
+Search requires a Brave API key through `BRAVE_SEARCH_API_KEY` or
+`config :jido_browser, :brave_api_key, "..."`. Page reading requires the
+browser backend:
+
+```sh
+mix jido_browser.install --if-missing
+```
 
 ## Define A Plugin
 
@@ -1294,7 +1329,7 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
 - `defaults.instructions`
 - `defaults.character` as an inline character map or string ref resolved
   through `available_characters`
-- published tool, skill, MCP, plugin, subagent, workflow, and handoff declarations under `capabilities`
+- published tool, skill, MCP, web, plugin, subagent, workflow, and handoff declarations under `capabilities`
 - memory, hook, and guardrail declarations under `lifecycle`
 - `model` supports:
   - alias strings like `"fast"`
@@ -1314,6 +1349,10 @@ The imported-agent path is intentionally narrower than the Elixir DSL:
 - `mcp_tools` supports:
   - objects like `%{"endpoint" => "github", "prefix" => "github_"}`
   - endpoints may come from app config or runtime `Jidoka.MCP.register_endpoint/2`
+- `web` supports:
+  - string modes like `["search"]` or `["read_only"]`
+  - object modes like `[%{"mode" => "read_only"}]`
+  - built-in Jidoka web tools only; no raw module strings or browser automation specs
 - `workflows` supports:
   - string names like `["refund_review"]`
   - objects like `%{"workflow" => "refund_review", "as" => "review_refund"}`

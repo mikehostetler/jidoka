@@ -19,6 +19,7 @@ defmodule Jidoka.ImportedAgent do
     :subagents,
     :workflows,
     :handoffs,
+    :web,
     :plugin_modules,
     :hook_modules,
     :guardrail_modules
@@ -33,6 +34,7 @@ defmodule Jidoka.ImportedAgent do
     :subagents,
     :workflows,
     :handoffs,
+    :web,
     :plugin_modules,
     :hook_modules,
     :guardrail_modules
@@ -48,6 +50,7 @@ defmodule Jidoka.ImportedAgent do
           subagents: [Jidoka.Subagent.t()],
           workflows: [struct()],
           handoffs: [struct()],
+          web: [Jidoka.Web.t()],
           plugin_modules: [module()],
           hook_modules: map(),
           guardrail_modules: map()
@@ -113,6 +116,7 @@ defmodule Jidoka.ImportedAgent do
       agent.subagents,
       agent.workflows,
       agent.handoffs,
+      agent.web,
       agent.plugin_modules,
       agent.hook_modules,
       agent.guardrail_modules,
@@ -150,12 +154,16 @@ defmodule Jidoka.ImportedAgent do
            Registries.resolve_workflows(spec.workflows, workflow_registry),
          {:ok, resolved_handoffs} <-
            Registries.resolve_handoffs(spec.handoffs, handoff_registry),
+         {:ok, resolved_web} <- Jidoka.Web.normalize_imported(spec.web),
          {:ok, plugin_modules} <- Jidoka.Plugin.resolve_plugin_names(spec.plugins, plugin_registry),
          {:ok, plugin_tool_modules} <- Jidoka.Plugin.plugin_actions(plugin_modules),
+         web_tool_modules = Jidoka.Web.tool_modules(resolved_web),
          skill_tool_modules =
            Jidoka.Skill.action_modules(%{refs: skill_refs, load_paths: spec.skill_paths}),
          {:ok, direct_tool_names} <-
-           Jidoka.Tool.action_names(direct_tool_modules ++ skill_tool_modules ++ plugin_tool_modules),
+           Jidoka.Tool.action_names(
+             direct_tool_modules ++ skill_tool_modules ++ plugin_tool_modules ++ web_tool_modules
+           ),
          subagent_tool_modules <-
            resolved_subagents
            |> Enum.with_index()
@@ -180,7 +188,8 @@ defmodule Jidoka.ImportedAgent do
          tool_modules =
            direct_tool_modules ++
              skill_tool_modules ++
-             plugin_tool_modules ++ subagent_tool_modules ++ workflow_tool_modules ++ handoff_tool_modules,
+             plugin_tool_modules ++
+             web_tool_modules ++ subagent_tool_modules ++ workflow_tool_modules ++ handoff_tool_modules,
          :ok <-
            ensure_unique_tool_names(
              direct_tool_names ++
@@ -198,6 +207,7 @@ defmodule Jidoka.ImportedAgent do
              resolved_subagents,
              resolved_workflows,
              resolved_handoffs,
+             resolved_web,
              plugin_modules,
              hook_modules,
              guardrail_modules
@@ -213,6 +223,7 @@ defmodule Jidoka.ImportedAgent do
          subagents: resolved_subagents,
          workflows: resolved_workflows,
          handoffs: resolved_handoffs,
+         web: resolved_web,
          plugin_modules: plugin_modules,
          hook_modules: hook_modules,
          guardrail_modules: guardrail_modules
@@ -244,6 +255,7 @@ defmodule Jidoka.ImportedAgent do
          subagents,
          workflows,
          handoffs,
+         web,
          plugin_modules,
          hook_modules,
          guardrail_modules
@@ -260,6 +272,7 @@ defmodule Jidoka.ImportedAgent do
         subagents,
         workflows,
         handoffs,
+        web,
         runtime_plugins,
         hook_modules,
         guardrail_modules
@@ -278,6 +291,7 @@ defmodule Jidoka.ImportedAgent do
         subagents,
         workflows,
         handoffs,
+        web,
         plugin_modules,
         runtime_plugins,
         hook_modules,
@@ -295,6 +309,7 @@ defmodule Jidoka.ImportedAgent do
          subagents,
          workflows,
          handoffs,
+         web,
          runtime_plugins,
          hook_modules,
          guardrail_modules
@@ -333,6 +348,13 @@ defmodule Jidoka.ImportedAgent do
               target: externalize_handoff_target(handoff.target)
             }
           end),
+        web:
+          Enum.map(web, fn capability ->
+            %{
+              mode: capability.mode,
+              tools: Enum.map(capability.tools, &inspect/1)
+            }
+          end),
         plugins: Enum.map(runtime_plugins, &inspect/1),
         hooks:
           Enum.into(hook_modules, %{}, fn {stage, modules} ->
@@ -362,6 +384,7 @@ defmodule Jidoka.ImportedAgent do
          subagents,
          workflows,
          handoffs,
+         web,
          plugin_modules,
          runtime_plugins,
          hook_modules,
@@ -466,6 +489,7 @@ defmodule Jidoka.ImportedAgent do
                 subagents,
                 workflows,
                 handoffs,
+                web,
                 plugin_modules,
                 hook_modules,
                 guardrail_modules,
@@ -547,6 +571,7 @@ defmodule Jidoka.ImportedAgent do
          subagents,
          workflows,
          handoffs,
+         web,
          plugin_modules,
          hook_modules,
          guardrail_modules,
@@ -574,6 +599,8 @@ defmodule Jidoka.ImportedAgent do
       tools: tool_modules,
       tool_names: definition_tool_names(tool_modules, subagents, workflows, handoffs),
       mcp_tools: mcp_tools,
+      web: web,
+      web_tool_names: web_tool_names(web),
       subagents: subagents,
       subagent_names: Enum.map(subagents, & &1.name),
       workflows: workflows,
@@ -604,6 +631,13 @@ defmodule Jidoka.ImportedAgent do
     (Enum.reverse(loaded_names) ++
        Enum.map(subagents, & &1.name) ++ Enum.map(workflows, & &1.name) ++ Enum.map(handoffs, & &1.name))
     |> Enum.uniq()
+  end
+
+  defp web_tool_names(web) do
+    case Jidoka.Web.tool_names(web) do
+      {:ok, names} -> names
+      {:error, _reason} -> []
+    end
   end
 
   defp build_from_source(source, %{

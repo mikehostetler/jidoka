@@ -22,8 +22,8 @@ the `Jidoka` namespace.
    Add runtime context, defaults, required fields, and validation.
 
 4. [Tools And Capabilities](tools-and-capabilities.html)
-   Expose deterministic work to agents through tools, resources, MCP, plugins,
-   skills, subagents, workflows, and handoffs.
+   Expose deterministic work to agents through tools, resources, MCP, web
+   access, plugins, skills, subagents, workflows, and handoffs.
 
 5. [Subagents, Workflows, And Handoffs](subagents-workflows-handoffs.html)
    Choose the right orchestration primitive for a task.
@@ -64,6 +64,7 @@ Use Jidoka when you want:
 - a structured agent DSL with compile-time validation
 - runtime context schemas that fail before a model call starts
 - deterministic tools and workflows alongside chat agents
+- low-risk public web search and read-only page access
 - subagents for one-turn specialist delegation
 - handoffs for conversation ownership transfer
 - JSON/YAML imported agents with explicit allowlists

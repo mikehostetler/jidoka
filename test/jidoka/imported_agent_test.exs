@@ -494,6 +494,43 @@ defmodule JidokaTest.ImportedAgentTest do
     assert [%{name: "workflow_capability_math"}] = agent.workflows
   end
 
+  test "imports built-in web capabilities without a registry" do
+    assert {:ok, %ImportedAgent{} = agent} =
+             Jidoka.import_agent(
+               imported_spec("web_import_agent",
+                 capabilities: %{"web" => [%{"mode" => "read_only"}]}
+               )
+             )
+
+    assert [%Jidoka.Web{mode: :read_only}] = agent.web
+
+    assert Enum.map(agent.tool_modules, & &1.name()) == [
+             "search_web",
+             "read_page",
+             "snapshot_url"
+           ]
+
+    assert {:ok, encoded_json} = Jidoka.encode_agent(agent, format: :json)
+    assert encoded_json =~ "\"web\""
+    assert encoded_json =~ "\"mode\": \"read_only\""
+
+    assert {:ok, encoded_yaml} = Jidoka.encode_agent(agent, format: :yaml)
+    assert encoded_yaml =~ "web:"
+    assert encoded_yaml =~ "mode: \"read_only\""
+  end
+
+  test "imports web string entries" do
+    assert {:ok, %ImportedAgent{} = agent} =
+             Jidoka.import_agent(
+               imported_spec("web_string_import_agent",
+                 capabilities: %{"web" => ["search"]}
+               )
+             )
+
+    assert [%Jidoka.Web{mode: :search}] = agent.web
+    assert Enum.map(agent.tool_modules, & &1.name()) == ["search_web"]
+  end
+
   test "imports constrained handoffs and compiles them into generated tool modules" do
     conversation_id = "imported-handoff-#{System.unique_integer([:positive])}"
     peer_id = "billing-import-handoff-peer"
@@ -1066,6 +1103,28 @@ defmodule JidokaTest.ImportedAgentTest do
              )
 
     assert reason =~ "expected map"
+  end
+
+  test "rejects imported web capabilities with unsupported modes" do
+    assert {:error, reason} =
+             Jidoka.import_agent(
+               imported_spec("invalid_web_import",
+                 capabilities: %{"web" => ["interactive"]}
+               )
+             )
+
+    assert reason =~ "web capability mode must be"
+  end
+
+  test "rejects duplicate imported web capabilities" do
+    assert {:error, reason} =
+             Jidoka.import_agent(
+               imported_spec("duplicate_web_import",
+                 capabilities: %{"web" => ["search", "read_only"]}
+               )
+             )
+
+    assert reason =~ "at most one web capability"
   end
 
   test "rejects imported handoffs without an available registry" do

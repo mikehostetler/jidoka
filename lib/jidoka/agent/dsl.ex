@@ -22,6 +22,7 @@ defmodule Jidoka.Agent.Dsl do
     Subagent,
     Tool,
     ToolGuardrail,
+    Web,
     Workflow
   }
 
@@ -232,6 +233,22 @@ defmodule Jidoka.Agent.Dsl do
     ]
   }
 
+  @web_entity %Spark.Dsl.Entity{
+    name: :web,
+    describe: """
+    Register low-risk web browsing tools for this agent.
+    """,
+    target: Web,
+    args: [:mode],
+    schema: [
+      mode: [
+        type: :any,
+        required: true,
+        doc: "Web capability mode. Supports :search or :read_only."
+      ]
+    ]
+  }
+
   @subagent_entity %Spark.Dsl.Entity{
     name: :subagent,
     describe: """
@@ -370,7 +387,7 @@ defmodule Jidoka.Agent.Dsl do
   @capabilities_section %Spark.Dsl.Section{
     name: :capabilities,
     describe: """
-    Register the tools, skills, plugins, subagents, workflows, and handoffs available to this agent.
+    Register the tools, skills, plugins, web access, subagents, workflows, and handoffs available to this agent.
     """,
     entities: [
       @tool_entity,
@@ -379,6 +396,7 @@ defmodule Jidoka.Agent.Dsl do
       @skill_ref_entity,
       @skill_path_entity,
       @plugin_entity,
+      @web_entity,
       @subagent_entity,
       @workflow_entity,
       @handoff_entity

@@ -8,6 +8,7 @@ capabilities do
   tool MyApp.Tools.LookupOrder
   ash_resource MyApp.Accounts.User
   mcp_tools endpoint: :github, prefix: "github_"
+  web :read_only
   skill "support-discipline"
   load_path "../skills"
   plugin MyApp.Plugins.Support
@@ -81,6 +82,43 @@ end
 Endpoints can come from config, runtime registration, or inline compiled-agent
 configuration. Imported specs reference endpoint names only; executable MCP
 transport configuration stays in application code or config.
+
+## Web Access
+
+Use `web` for a small, opt-in set of public web tools backed by `jido_browser`:
+
+```elixir
+capabilities do
+  web :search
+end
+```
+
+`web :search` exposes `search_web`, which uses Brave Search through
+`jido_browser`.
+
+```elixir
+capabilities do
+  web :read_only
+end
+```
+
+`web :read_only` exposes:
+
+- `search_web`
+- `read_page`
+- `snapshot_url`
+
+Jidoka does not expose raw browser automation in the public DSL. These tools do
+not click, type, submit forms, run JavaScript, manage tabs, or persist browser
+state. Page-reading tools only accept public `http` and `https` URLs and reject
+localhost, loopback, and private network addresses before browser startup.
+
+Search requires `BRAVE_SEARCH_API_KEY` or `config :jido_browser,
+:brave_api_key, "..."`. Page reading requires the `jido_browser` backend:
+
+```sh
+mix jido_browser.install --if-missing
+```
 
 ## Skills
 
@@ -193,6 +231,7 @@ Jidoka rejects duplicate published names across:
 - MCP tools
 - skill tools
 - plugin tools
+- web tools
 - subagents
 - workflows
 - handoffs

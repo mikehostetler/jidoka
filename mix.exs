@@ -63,6 +63,7 @@ defmodule Jidoka.MixProject do
       {:jido, "~> 2.2", override: true},
       {:jido_ai, git: "https://github.com/agentjido/jido_ai.git", branch: "main", override: true},
       {:jido_character, git: "https://github.com/agentjido/jido_character.git", branch: "main"},
+      {:jido_browser, "~> 2.0"},
       {:jido_mcp, git: "https://github.com/agentjido/jido_mcp.git", branch: "main"},
       {:jido_memory, git: "https://github.com/agentjido/jido_memory.git", branch: "main"},
       {:jido_eval, path: "../jido_eval", only: :test},
@@ -167,6 +168,7 @@ defmodule Jidoka.MixProject do
           Jidoka.Plugin,
           Jidoka.Hook,
           Jidoka.Guardrail,
+          Jidoka.Web,
           Jidoka.Subagent,
           Jidoka.Handoff.Capability,
           Jidoka.MCP

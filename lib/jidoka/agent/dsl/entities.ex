@@ -31,6 +31,12 @@ defmodule Jidoka.Agent.Dsl.Plugin do
   defstruct [:module, :__spark_metadata__]
 end
 
+defmodule Jidoka.Agent.Dsl.Web do
+  @moduledoc false
+
+  defstruct [:mode, :__spark_metadata__]
+end
+
 defmodule Jidoka.Agent.Dsl.SkillRef do
   @moduledoc false
 

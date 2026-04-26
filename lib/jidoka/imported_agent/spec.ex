@@ -59,6 +59,10 @@ defmodule Jidoka.ImportedAgent.Spec do
   @handoff_agent_name_schema @subagent_agent_name_schema
   @handoff_tool_name_schema @subagent_tool_name_schema
 
+  @web_mode_schema Zoi.string()
+                   |> Zoi.trim()
+                   |> Zoi.min(1)
+
   @subagent_forward_context_key_schema Zoi.union([
                                          Zoi.string() |> Zoi.trim() |> Zoi.min(1),
                                          Zoi.atom()
@@ -118,6 +122,7 @@ defmodule Jidoka.ImportedAgent.Spec do
   @default_subagents []
   @default_workflows []
   @default_handoffs []
+  @default_web []
   @default_skills []
   @default_skill_paths []
   @default_mcp_tools []
@@ -247,6 +252,17 @@ defmodule Jidoka.ImportedAgent.Spec do
                     )
                   ])
 
+  @web_schema Zoi.union([
+                @web_mode_schema,
+                Zoi.object(
+                  %{
+                    mode: @web_mode_schema
+                  },
+                  coerce: true,
+                  unrecognized_keys: :error
+                )
+              ])
+
   @guardrails_schema Zoi.object(
                        %{
                          input: Zoi.list(@guardrail_name_schema) |> Zoi.default([]),
@@ -354,6 +370,7 @@ defmodule Jidoka.ImportedAgent.Spec do
                            subagents: Zoi.list(@subagent_schema) |> Zoi.default(@default_subagents),
                            workflows: Zoi.list(@workflow_schema) |> Zoi.default(@default_workflows),
                            handoffs: Zoi.list(@handoff_schema) |> Zoi.default(@default_handoffs),
+                           web: Zoi.list(@web_schema) |> Zoi.default(@default_web),
                            plugins: Zoi.list(@plugin_name_schema) |> Zoi.default([])
                          },
                          coerce: true,
@@ -404,6 +421,7 @@ defmodule Jidoka.ImportedAgent.Spec do
           subagents: [map()],
           workflows: [String.t() | map()],
           handoffs: [String.t() | map()],
+          web: [String.t() | map()],
           plugins: [String.t()],
           hooks: %{
             before_turn: [String.t()],
@@ -433,6 +451,7 @@ defmodule Jidoka.ImportedAgent.Spec do
     subagents: @default_subagents,
     workflows: @default_workflows,
     handoffs: @default_handoffs,
+    web: @default_web,
     plugins: [],
     hooks: @default_hooks,
     guardrails: @default_guardrails
@@ -453,6 +472,7 @@ defmodule Jidoka.ImportedAgent.Spec do
          {:ok, spec} <- validate_subagents(spec, Keyword.get(opts, :available_subagents, %{})),
          {:ok, spec} <- validate_workflows(spec, Keyword.get(opts, :available_workflows, %{})),
          {:ok, spec} <- validate_handoffs(spec, Keyword.get(opts, :available_handoffs, %{})),
+         {:ok, spec} <- validate_web(spec),
          {:ok, spec} <- validate_plugins(spec, Keyword.get(opts, :available_plugins, %{})),
          {:ok, spec} <- validate_hooks(spec, Keyword.get(opts, :available_hooks, %{})) do
       validate_guardrails(
@@ -510,6 +530,7 @@ defmodule Jidoka.ImportedAgent.Spec do
              normalized_spec,
              Keyword.get(opts, :available_handoffs, %{})
            ),
+         {:ok, normalized_spec} <- validate_web(normalized_spec),
          {:ok, normalized_spec} <-
            validate_plugins(
              normalized_spec,
@@ -565,6 +586,7 @@ defmodule Jidoka.ImportedAgent.Spec do
         "subagents" => spec.subagents,
         "workflows" => spec.workflows,
         "handoffs" => spec.handoffs,
+        "web" => spec.web,
         "plugins" => spec.plugins
       },
       "lifecycle" => %{
@@ -605,6 +627,7 @@ defmodule Jidoka.ImportedAgent.Spec do
       subagents: Map.get(capabilities, :subagents, @default_subagents),
       workflows: normalize_workflow_specs(Map.get(capabilities, :workflows, @default_workflows)),
       handoffs: normalize_handoff_specs(Map.get(capabilities, :handoffs, @default_handoffs)),
+      web: Jidoka.Web.normalize_imported_specs(Map.get(capabilities, :web, @default_web)),
       plugins: Map.get(capabilities, :plugins, []),
       hooks: Map.get(lifecycle, :hooks, @default_hooks),
       guardrails: Map.get(lifecycle, :guardrails, @default_guardrails)
@@ -780,6 +803,13 @@ defmodule Jidoka.ImportedAgent.Spec do
           {:ok, _plugin_modules} -> {:ok, spec}
           {:error, reason} -> {:error, reason}
         end
+    end
+  end
+
+  defp validate_web(%__MODULE__{} = spec) do
+    case Jidoka.Web.normalize_imported(spec.web) do
+      {:ok, _web} -> {:ok, spec}
+      {:error, reason} -> {:error, reason}
     end
   end
 

@@ -207,8 +207,6 @@ defmodule Jidoka.Agent.View do
     end
   end
 
-  defp streaming_message(_agent), do: nil
-
   defp strategy_state(state) when is_map(state) do
     case fetch(state, :__strategy__) do
       strategy when is_map(strategy) -> strategy

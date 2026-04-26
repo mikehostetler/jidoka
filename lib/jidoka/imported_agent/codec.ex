@@ -145,6 +145,8 @@ defmodule Jidoka.ImportedAgent.Codec do
       indent_lines(encode_yaml_workflows(spec.workflows), 2),
       "  handoffs:",
       indent_lines(encode_yaml_handoffs(spec.handoffs), 2),
+      "  web:",
+      indent_lines(encode_yaml_web(spec.web), 2),
       "  plugins:",
       indent_lines(encode_yaml_plugins(spec.plugins), 2),
       "lifecycle:",
@@ -324,6 +326,19 @@ defmodule Jidoka.ImportedAgent.Codec do
   defp encode_yaml_context(context) when is_map(context) do
     Enum.map_join(context, "\n", fn {key, value} ->
       "  #{yaml_key(key)}: #{Jason.encode!(value)}"
+    end)
+  end
+
+  defp encode_yaml_web([]), do: "  []"
+
+  defp encode_yaml_web(web) do
+    Enum.map_join(web, "\n", fn
+      mode when is_binary(mode) ->
+        "  - #{Jason.encode!(mode)}"
+
+      entry ->
+        mode = entry["mode"] || entry[:mode]
+        "  - mode: #{Jason.encode!(mode)}"
     end)
   end
 

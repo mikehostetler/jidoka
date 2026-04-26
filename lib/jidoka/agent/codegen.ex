@@ -222,6 +222,18 @@ defmodule Jidoka.Agent.Codegen do
       def mcp_tools, do: unquote(Macro.escape(definition.mcp_tools))
 
       @doc """
+      Returns the configured low-risk web capabilities.
+      """
+      @spec web() :: [Jidoka.Web.t()]
+      def web, do: unquote(Macro.escape(definition.web))
+
+      @doc """
+      Returns the configured published web tool names.
+      """
+      @spec web_tool_names() :: [String.t()]
+      def web_tool_names, do: unquote(Macro.escape(definition.web_tool_names))
+
+      @doc """
       Returns the configured subagent definitions.
       """
       @spec subagents() :: [Jidoka.Subagent.t()]

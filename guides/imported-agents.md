@@ -29,6 +29,7 @@ Imported specs mirror the beta DSL sections:
     "tools": ["add_numbers"],
     "skills": ["math-discipline"],
     "skill_paths": ["../skills"],
+    "web": ["search"],
     "plugins": ["math_plugin"]
   },
   "lifecycle": {
@@ -95,6 +96,9 @@ Jidoka.import_agent(json,
 Most registries accept either a list of modules or a map of published name to
 module. Raw module strings in JSON/YAML are rejected because they bypass the
 application allowlist.
+
+The built-in `web` capability is the exception: it uses fixed Jidoka modes
+(`"search"` and `"read_only"`) and does not require an `available_*` registry.
 
 ## Context
 
@@ -170,6 +174,24 @@ Imported workflow capabilities resolve through `available_workflows`:
 ```
 
 The spec references the workflow's published id, not an Elixir module string.
+
+## Web Access
+
+Imported specs can opt into Jidoka's built-in low-risk web modes:
+
+```json
+{
+  "capabilities": {
+    "web": [
+      {"mode": "read_only"}
+    ]
+  }
+}
+```
+
+`"search"` exposes `search_web`. `"read_only"` exposes `search_web`,
+`read_page`, and `snapshot_url`. Imported web capabilities do not accept raw
+module strings or arbitrary browser action configuration.
 
 ## Handoffs
 

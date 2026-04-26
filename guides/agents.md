@@ -54,6 +54,7 @@ end
 - `tool`
 - `ash_resource`
 - `mcp_tools`
+- `web`
 - `skill`
 - `load_path`
 - `plugin`
@@ -175,7 +176,8 @@ Jidoka intentionally rejects legacy or ambiguous placements. Examples:
 - top-level `tools`, `skills`, `plugins`, `subagents`, `hooks`, `guardrails`,
   and `memory` must move into `capabilities` or `lifecycle`.
 - capability names must be unique across direct tools, Ash-generated tools, MCP
-  tools, skill tools, plugin tools, subagents, workflows, and handoffs.
+  tools, skill tools, plugin tools, web tools, subagents, workflows, and
+  handoffs.
 
 Use these errors as structure feedback. The DSL is strict so production agents
 are easier to inspect and import/export later.
