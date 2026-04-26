@@ -60,6 +60,21 @@ defmodule Jidoka.Kino do
   end
 
   @doc """
+  Starts a Jidoka agent unless an agent with `id` is already running.
+
+  This keeps Livebook cells repeatable. `start_fun` should be a zero-arity
+  function that returns the normal `{:ok, pid}` agent start result.
+  """
+  @spec start_or_reuse(String.t(), (-> {:ok, pid()} | {:error, term()})) ::
+          {:ok, pid()} | {:error, term()}
+  def start_or_reuse(id, start_fun) when is_binary(id) and is_function(start_fun, 0) do
+    case Jidoka.whereis(id) do
+      nil -> start_fun.()
+      pid -> {:ok, pid}
+    end
+  end
+
+  @doc """
   Copies a Livebook provider secret into the environment name expected by ReqLLM.
 
   The default lookup accepts either `ANTHROPIC_API_KEY` or Livebook's

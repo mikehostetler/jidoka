@@ -29,6 +29,31 @@ defmodule JidokaTest.KinoTest do
     end
   end
 
+  test "start_or_reuse starts once and reuses a registered agent" do
+    id = "kino-reuse-#{System.unique_integer([:positive])}"
+    test_pid = self()
+
+    try do
+      assert {:ok, pid} =
+               Jidoka.Kino.start_or_reuse(id, fn ->
+                 send(test_pid, :started)
+                 JidokaTest.ChatAgent.start_link(id: id)
+               end)
+
+      assert_receive :started
+
+      assert {:ok, ^pid} =
+               Jidoka.Kino.start_or_reuse(id, fn ->
+                 flunk("existing agent should be reused")
+               end)
+    after
+      case Jidoka.whereis(id) do
+        nil -> :ok
+        pid -> Jidoka.stop_agent(pid)
+      end
+    end
+  end
+
   test "chat returns a missing provider error before calling the provider" do
     previous_anthropic = System.get_env("ANTHROPIC_API_KEY")
     previous_livebook = System.get_env("LB_ANTHROPIC_API_KEY")
