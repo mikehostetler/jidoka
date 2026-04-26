@@ -47,19 +47,16 @@ defmodule Jidoka.Kino do
   By default, raw runtime logs are quiet and provider-backed examples can rely
   on a Livebook secret named `ANTHROPIC_API_KEY`.
   """
-  @spec setup(keyword()) :: map()
+  @spec setup(keyword()) :: :ok
   def setup(opts \\ []) do
     show_raw_logs? = Keyword.get(opts, :show_raw_logs, false)
     log_level = if(show_raw_logs?, do: :notice, else: :warning)
 
     Logger.configure(level: log_level)
     Jidoka.Runtime.debug(if(show_raw_logs?, do: :on, else: :off))
+    _ = load_provider_env(Keyword.get(opts, :provider_env, @provider_env_names))
 
-    %{
-      provider: load_provider_env(Keyword.get(opts, :provider_env, @provider_env_names)),
-      runtime_logs: log_level,
-      jidoka_debug: Jidoka.Runtime.debug()
-    }
+    :ok
   end
 
   @doc """

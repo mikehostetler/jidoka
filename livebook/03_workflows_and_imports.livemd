@@ -7,6 +7,9 @@ to an agent, and import an agent from JSON.
 
 ## Setup
 
+Chat cells use a Livebook secret named `ANTHROPIC_API_KEY`. The direct workflow
+and import cells run without a provider key.
+
 ```elixir
 Mix.install(
   [

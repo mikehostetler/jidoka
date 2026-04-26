@@ -7,6 +7,9 @@ context schema.
 
 ## Setup
 
+Chat cells use a Livebook secret named `ANTHROPIC_API_KEY`. The direct tool
+cell runs without a provider key.
+
 ```elixir
 Mix.install(
   [

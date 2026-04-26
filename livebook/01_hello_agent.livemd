@@ -8,7 +8,7 @@ send it one provider-backed chat request.
 ## Setup
 
 This notebook installs Jidoka from GitHub so it can run from Livebook without a
-local checkout.
+local checkout. Chat cells use a Livebook secret named `ANTHROPIC_API_KEY`.
 
 ```elixir
 Mix.install(
