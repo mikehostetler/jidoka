@@ -13,7 +13,7 @@ cell runs without a provider key.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", branch: "main"},
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "e9f2087d15c5bfaa8ff827acfacb3ddb91f23be6"},
     {:kino, "~> 0.19.0"}
   ],
   config: [

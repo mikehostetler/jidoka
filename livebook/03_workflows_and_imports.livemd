@@ -13,7 +13,7 @@ and import cells run without a provider key.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", branch: "main"},
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", ref: "e9f2087d15c5bfaa8ff827acfacb3ddb91f23be6"},
     {:kino, "~> 0.19.0"}
   ],
   config: [
@@ -116,7 +116,9 @@ defmodule LivebookDemo.Workflows.MathPipeline do
 end
 ```
 
-Inspect and run the workflow:
+Inspect and run the workflow. The key detail is the execution order: `:double`
+depends on `:add`, so Jidoka runs `add_numbers` first, passes its `sum` into
+`double_number`, and returns the final output from `:double`.
 
 ```elixir
 {:ok, workflow} = Jidoka.inspect_workflow(LivebookDemo.Workflows.MathPipeline)
@@ -129,6 +131,27 @@ Inspect and run the workflow:
 }
 ```
 
+Show the same run as an ordered execution table:
+
+```elixir
+flow_rows =
+  workflow.steps
+  |> Enum.with_index(1)
+  |> Enum.map(fn {step, order} ->
+    produced = Map.fetch!(debug.steps, step.name)
+
+    %{
+      order: order,
+      step: step.name,
+      waits_for: if(step.dependencies == [], do: "-", else: Enum.join(step.dependencies, ", ")),
+      runs: step.target |> inspect() |> String.replace_prefix("Elixir.", ""),
+      produced: inspect(produced)
+    }
+  end)
+
+Jidoka.Kino.table("Workflow execution order", flow_rows)
+```
+
 Trigger a validation error and format it for a user:
 
 ```elixir
@@ -138,8 +161,10 @@ Jidoka.format_error(reason)
 
 ## Expose The Workflow To An Agent
 
-Workflow capabilities let a model choose a deterministic process without owning
-the process.
+Workflow capabilities publish a workflow as a model-visible tool. The agent sees
+one callable tool named `run_math_pipeline`; the model does not manually call
+`:add` and `:double`. When the tool is called, Jidoka runs the workflow runtime,
+which executes those ordered steps from the table above.
 
 ```elixir
 defmodule LivebookDemo.WorkflowAgent do
@@ -168,6 +193,38 @@ end
 
 Map.take(definition, [:id, :tool_names, :workflow_names, :workflows])
 ```
+
+Call the generated workflow tool directly. This is the same tool surface the
+agent exposes to the model.
+
+```elixir
+workflow_tool =
+  Enum.find(LivebookDemo.WorkflowAgent.tools(), fn tool ->
+    Code.ensure_loaded?(tool) and function_exported?(tool, :name, 0) and
+      tool.name() == "run_math_pipeline"
+  end)
+
+{:ok, tool_call} = workflow_tool.run(%{value: 20}, %{})
+
+%{
+  model_visible_tool: workflow_tool.name(),
+  generated_tool_module: workflow_tool,
+  tool_schema: workflow_tool.schema(),
+  tool_call_output: tool_call,
+  ordered_steps:
+    Enum.map(workflow.steps, fn step ->
+      %{
+        step: step.name,
+        waits_for: step.dependencies,
+        runs: step.target
+      }
+    end)
+}
+```
+
+Now ask the agent to use that workflow tool. The model chooses the single
+`run_math_pipeline` capability; the workflow runtime still owns the `:add` then
+`:double` execution flow.
 
 ```elixir
 {:ok, pid} =
