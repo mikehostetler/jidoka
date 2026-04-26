@@ -162,6 +162,7 @@ defmodule Jidoka.MixProject do
         ],
         Runtime: [
           Jidoka,
+          Jidoka.Kino,
           Jidoka.Runtime,
           Jidoka.Interrupt,
           Jidoka.Handoff

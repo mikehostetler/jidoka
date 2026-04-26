@@ -207,8 +207,12 @@ The top-level `livebook/` folder contains runnable onboarding notebooks:
 
 [![Run in Livebook](https://livebook.dev/badge/v1/blue.svg)](https://livebook.dev/run?url=https%3A%2F%2Fraw.githubusercontent.com%2Fmikehostetler%2Fjidoka%2Fmain%2Flivebook%2F01_hello_agent.livemd)
 
-- [Hello Agent](livebook/01_hello_agent.livemd): compiled agents, tools,
-  workflows, imported agents, structured errors, and inspection helpers.
+- [Hello Agent](livebook/01_hello_agent.livemd): define, inspect, and run a
+  minimal agent.
+- [Tools And Context](livebook/02_tools_and_context.livemd): expose
+  deterministic tools and context to a model.
+- [Workflows And Imports](livebook/03_workflows_and_imports.livemd): run
+  deterministic workflows and import a JSON agent.
 
 ## Package Development
 
