@@ -201,6 +201,12 @@ The ExDoc guides under `guides/` are the recommended next step:
 - [Phoenix LiveView](guides/phoenix-liveview.md)
 - [Production](guides/production.md)
 
+## LiveBooks
+
+The top-level `livebook/` folder contains runnable onboarding notebooks:
+
+- [Hello Agent](livebook/01_hello_agent.livemd)
+
 ## Package Development
 
 From this package directory:
