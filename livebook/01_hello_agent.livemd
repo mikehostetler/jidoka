@@ -18,7 +18,8 @@ local checkout.
 ```elixir
 Mix.install(
   [
-    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", branch: "main"}
+    {:jidoka, git: "https://github.com/mikehostetler/jidoka.git", branch: "main"},
+    {:kino, "~> 0.19.0"}
   ],
   config: [
     jidoka: [
@@ -64,12 +65,13 @@ provider_setup_hint =
 }
 ```
 
-The tutorial keeps framework logs quiet so provider-backed cells show the result
-instead of runtime internals. Set `show_runtime_logs?` to `true` when you want to
-inspect Jido/Jidoka execution details.
+The tutorial keeps raw framework logs quiet so provider-backed cells show the
+result and a compact runtime trace instead of terminal-style internals. Set
+`show_runtime_logs?` to `true` when you also want the raw Jido/Jidoka logs.
 
 ```elixir
 show_runtime_logs? = false
+trace_panel_options = [show_raw_logs: show_runtime_logs?]
 
 Logger.configure(level: if(show_runtime_logs?, do: :notice, else: :warning))
 Jidoka.Runtime.debug(if(show_runtime_logs?, do: :on, else: :off))
@@ -92,6 +94,220 @@ end
 ```
 
 ```elixir
+defmodule LivebookDemo.TracePanel.LoggerHandler do
+  def adding_handler(config), do: {:ok, config}
+  def removing_handler(_config), do: :ok
+  def changing_config(_set_or_update, _old_config, new_config), do: {:ok, new_config}
+  def filter_config(config), do: config
+
+  def log(%{level: level, msg: message, meta: metadata}, %{config: %{collector: collector}}) do
+    send(collector, {:jidoka_trace_log, %{level: level, message: format_message(message), metadata: metadata}})
+  end
+
+  defp format_message({:string, message}), do: to_string(message)
+
+  defp format_message({:report, report}) do
+    inspect(report, pretty: true, limit: 50)
+  end
+
+  defp format_message({:format, format, args}) do
+    format
+    |> :io_lib.format(args)
+    |> IO.iodata_to_binary()
+  rescue
+    _error -> inspect({format, args}, limit: 50)
+  end
+
+  defp format_message(message), do: inspect(message, limit: 50)
+end
+
+defmodule LivebookDemo.TracePanel do
+  require Logger
+
+  def capture(label, fun, opts \\ []) when is_binary(label) and is_function(fun, 0) do
+    handler_id = :"jidoka_trace_panel_#{System.unique_integer([:positive])}"
+    previous_logger_level = Logger.level()
+    previous_default_handler_level = default_handler_level()
+
+    :ok =
+      :logger.add_handler(handler_id, LivebookDemo.TracePanel.LoggerHandler, %{
+        level: Keyword.get(opts, :level, :debug),
+        config: %{collector: self()}
+      })
+
+    Logger.configure(level: Keyword.get(opts, :level, :debug))
+
+    unless Keyword.get(opts, :show_raw_logs, false) do
+      set_default_handler_level(:warning)
+    end
+
+    try do
+      result = fun.()
+      flush_logs(Keyword.get(opts, :flush_ms, 100))
+      events = drain_logs(Keyword.get(opts, :max_events, 200))
+      render(label, events, opts)
+      result
+    after
+      _ = :logger.remove_handler(handler_id)
+      Logger.configure(level: previous_logger_level)
+      set_default_handler_level(previous_default_handler_level)
+    end
+  end
+
+  defp default_handler_level do
+    case :logger.get_handler_config(:default) do
+      {:ok, %{level: level}} -> level
+      _other -> nil
+    end
+  end
+
+  defp set_default_handler_level(nil), do: :ok
+  defp set_default_handler_level(level), do: :logger.set_handler_config(:default, :level, level)
+
+  defp flush_logs(ms) do
+    receive do
+    after
+      ms -> :ok
+    end
+  end
+
+  defp drain_logs(max_events), do: drain_logs(max_events, [], 0)
+
+  defp drain_logs(max_events, events, count) do
+    receive do
+      {:jidoka_trace_log, event} ->
+        events = if count < max_events, do: [event | events], else: events
+        drain_logs(max_events, events, count + 1)
+    after
+      25 -> Enum.reverse(events)
+    end
+  end
+
+  defp render(label, events, opts) do
+    rows = Enum.map(events, &event_row/1)
+
+    Kino.render("Runtime trace: #{label} (#{length(rows)} events)")
+
+    if rows == [] do
+      Kino.render("No runtime events were captured for this call.")
+    else
+      render_table(label, rows, opts)
+    end
+  end
+
+  defp render_table(label, rows, opts) do
+    if Code.ensure_loaded?(Kino.DataTable) do
+      rows
+      |> Kino.DataTable.new(
+        name: "#{label} trace",
+        keys: [:time, :level, :event, :source, :summary],
+        num_rows: Keyword.get(opts, :num_rows, 12),
+        formatter: &table_formatter/2
+      )
+      |> Kino.render()
+    else
+      Kino.render(rows)
+    end
+  rescue
+    _error -> Kino.render(rows)
+  end
+
+  defp event_row(%{level: level, message: message, metadata: metadata}) do
+    %{
+      time: format_time(Map.get(metadata, :time)),
+      level: level |> to_string() |> String.upcase(),
+      event: event_name(message),
+      source: event_source(message, metadata),
+      summary: summarize(message)
+    }
+  end
+
+  defp format_time(nil), do: ""
+
+  defp format_time(time) when is_integer(time) do
+    time
+    |> DateTime.from_unix!(:microsecond)
+    |> DateTime.to_time()
+    |> Time.to_iso8601()
+    |> String.slice(0, 12)
+  rescue
+    _error -> ""
+  end
+
+  defp event_name(message) do
+    cond do
+      String.contains?(message, "spawned child") -> "spawn child"
+      String.starts_with?(message, "Executing ") -> "action"
+      String.contains?(message, "Reasoning") -> "reasoning"
+      true -> "log"
+    end
+  end
+
+  defp event_source(message, metadata) do
+    cond do
+      match = Regex.run(~r/AgentServer ([^\s]+)/, message) ->
+        Enum.at(match, 1)
+
+      match = Regex.run(~r/Executing ([^\s]+) /, message) ->
+        match |> Enum.at(1) |> short_module()
+
+      mfa = Map.get(metadata, :mfa) ->
+        format_mfa(mfa)
+
+      pid = Map.get(metadata, :pid) ->
+        inspect(pid)
+
+      true ->
+        ""
+    end
+  end
+
+  defp summarize(message) do
+    cond do
+      match = Regex.run(~r/Executing ([^\s]+) with params: (.*)/s, message) ->
+        module = match |> Enum.at(1) |> short_module()
+        params = match |> Enum.at(2) |> compact()
+        shorten("#{module} #{params}", 180)
+
+      match = Regex.run(~r/AgentServer ([^\s]+) spawned child ([^\s]+)/, message) ->
+        "#{Enum.at(match, 1)} -> #{Enum.at(match, 2)}"
+
+      true ->
+        message |> compact() |> shorten(180)
+    end
+  end
+
+  defp short_module(module) do
+    module
+    |> String.split(".")
+    |> Enum.take(-2)
+    |> Enum.join(".")
+  end
+
+  defp format_mfa({module, function, arity}), do: "#{inspect(module)}.#{function}/#{arity}"
+  defp format_mfa(other), do: inspect(other)
+
+  defp compact(message) do
+    message
+    |> String.replace(~r/\s+/, " ")
+    |> String.trim()
+  end
+
+  defp shorten(message, max_length) do
+    if String.length(message) <= max_length do
+      message
+    else
+      String.slice(message, 0, max_length - 1) <> "..."
+    end
+  end
+
+  defp table_formatter(:__header__, _value), do: :default
+  defp table_formatter(_key, value) when is_binary(value), do: {:ok, value}
+  defp table_formatter(_key, value), do: {:ok, inspect(value)}
+end
+```
+
+```elixir
 start_or_reuse = fn id, start_fun ->
   case Jidoka.whereis(id) do
     nil -> start_fun.()
@@ -104,10 +320,10 @@ end
 
 A Jidoka agent has four public sections:
 
-- `agent do` for stable identity and optional context schema
-- `defaults do` for instructions and model
-- `capabilities do` for tools and other model-reachable capabilities
-- `lifecycle do` for runtime policy like hooks, guardrails, and memory
+* `agent do` for stable identity and optional context schema
+* `defaults do` for instructions and model
+* `capabilities do` for tools and other model-reachable capabilities
+* `lifecycle do` for runtime policy like hooks, guardrails, and memory
 
 Only `agent.id` and `defaults.instructions` are needed for a basic agent.
 
@@ -152,12 +368,20 @@ If the key is absent, it returns a skip tuple.
 
 ```elixir
 if provider_ready? do
-  {:ok, pid} =
-    start_or_reuse.("livebook-assistant", fn ->
-      LivebookDemo.AssistantAgent.start_link(id: "livebook-assistant")
-    end)
+  result =
+    LivebookDemo.TracePanel.capture(
+      "Assistant chat",
+      fn ->
+        {:ok, pid} =
+          start_or_reuse.("livebook-assistant", fn ->
+            LivebookDemo.AssistantAgent.start_link(id: "livebook-assistant")
+          end)
 
-  result = LivebookDemo.AssistantAgent.chat(pid, "Write one sentence about what Jidoka does.")
+        LivebookDemo.AssistantAgent.chat(pid, "Write one sentence about what Jidoka does.")
+      end,
+      trace_panel_options
+    )
+
   format_chat_result.(result)
 else
   {:skip, provider_setup_hint <> " to run provider-backed chat cells."}
@@ -236,14 +460,20 @@ Optional provider-backed tool call:
 
 ```elixir
 if provider_ready? do
-  {:ok, pid} =
-    start_or_reuse.("livebook-math-agent", fn ->
-      LivebookDemo.MathAgent.start_link(id: "livebook-math-agent")
-    end)
-
   result =
-    LivebookDemo.MathAgent.chat(pid, "Use the add_numbers tool to add 20 and 22. Reply with only the sum.",
-      context: %{session: "livebook"}
+    LivebookDemo.TracePanel.capture(
+      "Tool call",
+      fn ->
+        {:ok, pid} =
+          start_or_reuse.("livebook-math-agent", fn ->
+            LivebookDemo.MathAgent.start_link(id: "livebook-math-agent")
+          end)
+
+        LivebookDemo.MathAgent.chat(pid, "Use the add_numbers tool to add 20 and 22. Reply with only the sum.",
+          context: %{session: "livebook"}
+        )
+      end,
+      trace_panel_options
     )
 
   format_chat_result.(result)
@@ -362,12 +592,20 @@ Optional provider-backed workflow capability call:
 
 ```elixir
 if provider_ready? do
-  {:ok, pid} =
-    start_or_reuse.("livebook-workflow-agent", fn ->
-      LivebookDemo.WorkflowAgent.start_link(id: "livebook-workflow-agent")
-    end)
+  result =
+    LivebookDemo.TracePanel.capture(
+      "Workflow capability call",
+      fn ->
+        {:ok, pid} =
+          start_or_reuse.("livebook-workflow-agent", fn ->
+            LivebookDemo.WorkflowAgent.start_link(id: "livebook-workflow-agent")
+          end)
 
-  result = LivebookDemo.WorkflowAgent.chat(pid, "Use the run_math_pipeline workflow with value 20. What is the output?")
+        LivebookDemo.WorkflowAgent.chat(pid, "Use the run_math_pipeline workflow with value 20. What is the output?")
+      end,
+      trace_panel_options
+    )
+
   format_chat_result.(result)
 else
   {:skip, provider_setup_hint <> " to run provider-backed workflow capability calls."}
@@ -422,14 +660,20 @@ Optional provider-backed imported-agent chat:
 
 ```elixir
 if provider_ready? do
-  {:ok, pid} =
-    start_or_reuse.("livebook-imported-agent", fn ->
-      Jidoka.start_agent(imported_agent, id: "livebook-imported-agent")
-    end)
-
   result =
-    Jidoka.chat(pid, "Use the add_numbers tool to add 7 and 35. Reply with only the sum.",
-      context: %{"session" => "livebook-imported"}
+    LivebookDemo.TracePanel.capture(
+      "Imported-agent tool call",
+      fn ->
+        {:ok, pid} =
+          start_or_reuse.("livebook-imported-agent", fn ->
+            Jidoka.start_agent(imported_agent, id: "livebook-imported-agent")
+          end)
+
+        Jidoka.chat(pid, "Use the add_numbers tool to add 7 and 35. Reply with only the sum.",
+          context: %{"session" => "livebook-imported"}
+        )
+      end,
+      trace_panel_options
     )
 
   format_chat_result.(result)
@@ -442,24 +686,24 @@ end
 
 This notebook covered the core path:
 
-- compiled agents
-- tools
-- context schemas
-- deterministic workflows
-- workflow capabilities
-- imported agents
-- structured errors
-- inspection helpers
+* compiled agents
+* tools
+* context schemas
+* deterministic workflows
+* workflow capabilities
+* imported agents
+* structured errors
+* inspection helpers
 
 Next areas to explore:
 
-- hooks and guardrails
-- memory
-- subagents and handoffs
-- Ash resources
-- MCP tools
-- constrained web access
-- `Jidoka.AgentView` with the Phoenix consumer app
+* hooks and guardrails
+* memory
+* subagents and handoffs
+* Ash resources
+* MCP tools
+* constrained web access
+* `Jidoka.AgentView` with the Phoenix consumer app
 
 Run the existing demos from the package directory:
 
