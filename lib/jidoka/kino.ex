@@ -135,6 +135,21 @@ defmodule Jidoka.Kino do
   def format_chat_result({:error, reason}), do: {:error, Jidoka.format_error(reason)}
   def format_chat_result(other), do: other
 
+  @doc """
+  Renders a small Markdown table in Livebook.
+
+  This avoids custom widget JavaScript, so it remains stable across Livebook and
+  Kino versions.
+  """
+  @spec table(String.t(), [map()], keyword()) :: :ok
+  def table(label, rows, opts \\ []) when is_binary(label) and is_list(rows) do
+    keys = Keyword.get(opts, :keys, infer_keys(rows))
+
+    rows
+    |> markdown_table(label, keys)
+    |> render_markdown()
+  end
+
   defp find_env(names) do
     Enum.find_value(names, fn name ->
       case System.get_env(name) do
@@ -217,24 +232,13 @@ defmodule Jidoka.Kino do
   end
 
   defp render_table(label, rows, opts) do
-    if Code.ensure_loaded?(Kino.DataTable) do
-      table =
-        apply(Kino.DataTable, :new, [
-          rows,
-          [
-            name: "#{label} trace",
-            keys: [:time, :level, :event, :source, :summary],
-            num_rows: Keyword.get(opts, :num_rows, 12),
-            formatter: &table_formatter/2
-          ]
-        ])
+    rows =
+      case Keyword.fetch(opts, :num_rows) do
+        {:ok, num_rows} -> Enum.take(rows, num_rows)
+        :error -> rows
+      end
 
-      render_value(table)
-    else
-      render_value(rows)
-    end
-  rescue
-    _error -> render_value(rows)
+    table(label, rows, keys: [:time, :level, :event, :source, :summary])
   end
 
   defp render_value(value) do
@@ -243,6 +247,17 @@ defmodule Jidoka.Kino do
     else
       :ok
     end
+  end
+
+  defp render_markdown(markdown) do
+    value =
+      if Code.ensure_loaded?(Kino.Markdown) and function_exported?(Kino.Markdown, :new, 1) do
+        apply(Kino.Markdown, :new, [markdown])
+      else
+        markdown
+      end
+
+    render_value(value)
   end
 
   defp event_row(%{level: level, message: message, metadata: metadata}) do
@@ -334,7 +349,64 @@ defmodule Jidoka.Kino do
     end
   end
 
-  defp table_formatter(:__header__, _value), do: :default
-  defp table_formatter(_key, value) when is_binary(value), do: {:ok, value}
-  defp table_formatter(_key, value), do: {:ok, inspect(value)}
+  defp infer_keys([]), do: []
+
+  defp infer_keys([%{} = row | _rows]) do
+    row
+    |> Map.keys()
+    |> Enum.sort()
+  end
+
+  defp markdown_table(_rows, label, []), do: "### #{escape_markdown(label)}\n\n_No rows._"
+
+  defp markdown_table(rows, label, keys) do
+    headers =
+      keys
+      |> Enum.map(&header/1)
+      |> Enum.join(" | ")
+
+    separator =
+      keys
+      |> Enum.map(fn _key -> "---" end)
+      |> Enum.join(" | ")
+
+    body =
+      rows
+      |> Enum.map(fn row ->
+        keys
+        |> Enum.map(fn key -> row |> Map.get(key, "") |> table_cell() end)
+        |> Enum.join(" | ")
+      end)
+      |> Enum.join("\n")
+
+    "### #{escape_markdown(label)}\n\n| #{headers} |\n| #{separator} |\n#{body_rows(body)}"
+  end
+
+  defp body_rows(""), do: ""
+  defp body_rows(body), do: "| #{body} |"
+
+  defp header(key) do
+    key
+    |> to_string()
+    |> String.replace("_", " ")
+    |> String.capitalize()
+    |> escape_table_cell()
+  end
+
+  defp table_cell(value) when is_binary(value), do: escape_table_cell(value)
+  defp table_cell(value), do: value |> inspect() |> escape_table_cell()
+
+  defp escape_markdown(value) do
+    value
+    |> String.replace("\\", "\\\\")
+    |> String.replace("#", "\\#")
+  end
+
+  defp escape_table_cell(value) do
+    value
+    |> compact()
+    |> shorten(220)
+    |> String.replace("\\", "\\\\")
+    |> String.replace("|", "\\|")
+  end
 end
